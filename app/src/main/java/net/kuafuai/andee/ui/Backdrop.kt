@@ -47,7 +47,7 @@ import kotlin.math.roundToInt
  *    It used to also say "finished long before the first unfold", on the
  *    grounds that the service starts folded so nothing is shown until the user
  *    long-presses. The service no longer starts folded — it unfolds at birth
- *    (`ScreenBodyService.onServiceConnected`) — so on a cold start the first
+ *    (`BodyCoreService.onServiceConnected`) — so on a cold start the first
  *    unfold can *beat* this. The card is already built for that: until [ready]
  *    flips, `backdropUp()` is false, `paintCard` gives the card its own fill,
  *    and [warm]'s callback re-runs `applyWindow` so the real backdrop takes

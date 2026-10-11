@@ -288,7 +288,7 @@
     <string name="cam_close">✕ 完成</string>
 
     <!--
-        ScreenBodyService.kt: the lines this file shows on its own — the ball's
+        BodyCoreService.kt: the lines this file shows on its own — the ball's
         chrome, and the cards it pops when the microphone or the brain is not
         there.
 
@@ -384,6 +384,21 @@
     <string name="sched_notify_title">我当时答应过你</string>
     <string name="sched_notify_body">%1$s\n\n（到点的时候我没有在运行，所以没能替你去办。打开无障碍服务之后我会接着办。）</string>
 
+    <!--
+        BodyCoreService.kt — the body's own row in the shade.
+
+        It is the only surface the app has that survives accessibility being
+        revoked, so it is also the only place the way back can live. Wording
+        rule: with the screen it is a statement with nothing to do; without it
+        it says what is actually broken and offers exactly one action.
+    -->
+    <string name="body_notify_channel">我在运行</string>
+    <string name="body_notify_channel_desc">常驻的一行，说明我还在。屏幕操作掉线时，回来的路也在这里。</string>
+    <string name="body_notify_title">我在</string>
+    <string name="body_notify_text_ok">屏幕操作已就绪。</string>
+    <string name="body_notify_text_no_screen">无障碍被系统关掉了，我现在碰不到屏幕。点右边接回来。</string>
+    <string name="body_notify_action_fix">接回来</string>
+
     <!-- net/CommandDispatcher.kt — the three lines from it a user can see. -->
     <string name="cmd_vault_filling">正在填入「%1$s」的%2$s…</string>
     <string name="cmd_ask_yes">好的</string>
@@ -403,7 +418,7 @@
         The two names for a recording that never named itself.
 
         `meeting_default_title` is written by `MeetingRecorder.start` and read
-        back by `ScreenBodyService.meetingMinutesQuery` — one key for both, on
+        back by `BodyCoreService.meetingMinutesQuery` — one key for both, on
         purpose: the brain is handed the title and the page is laid out under
         the same one, so two literals that drifted apart would show up as a page
         titled one thing and a brain told another.
@@ -476,7 +491,7 @@
 
     <!--
       开机自检。发现由 device/SelfCheck 产出(设备侧、只有一个来源)，
-      ScreenBodyService 拿它弹一张卡、ui/SelfCheckActivity 拿它渲染成一页。
+      BodyCoreService 拿它弹一张卡、ui/SelfCheckActivity 拿它渲染成一页。
       文案分两层:title 说「在查什么」，detail 说「查到什么、坏了会怎样」——
       后者才是用户能读懂的那半，所以每条都写症状而不是写参数名。
     -->

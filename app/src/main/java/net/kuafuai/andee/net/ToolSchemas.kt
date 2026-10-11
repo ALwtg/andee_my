@@ -961,7 +961,7 @@ object ToolSchemas {
             required = emptyList(),
             props = mapOf(
                 // The fallback is `meeting_default_title` (see `MeetingRecorder`
-                // and `ScreenBodyService.meetingMinutesQuery`), resolved in the
+                // and `BodyCoreService.meetingMinutesQuery`), resolved in the
                 // interface language. It used to be spelled out here as 会议记录,
                 // which is the one string above that reaches the screen.
                 "title" to prop("string", "What this meeting is, e.g. '周会'. Becomes the title the minutes page is laid out under. Omit it and the meeting is named in the interface language."),

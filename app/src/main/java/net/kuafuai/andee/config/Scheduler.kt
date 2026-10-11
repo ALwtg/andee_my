@@ -22,7 +22,7 @@ import java.util.Locale
  * only thing an alarm can do here is *wake the app up*; the work itself is
  * done by [net.kuafuai.andee.brain.LocalBrain] once it is awake. That is why
  * this file contains no decisions: it arms, it cancels, it re-arms, and it
- * hands a firing alarm to [ScreenBodyService] to deal with.
+ * hands a firing alarm to [BodyCoreService] to deal with.
  *
  * Two deliberate simplifications:
  *

@@ -15,7 +15,7 @@ import java.util.Locale
  *
  *  * **Almost no UI here lives in an Activity.** The ball, the card, the
  *    subtitle band, the signboards and the settings sheet are all
- *    `WindowManager`-added overlays owned by [net.kuafuai.andee.ScreenBodyService],
+ *    `WindowManager`-added overlays owned by [net.kuafuai.andee.BodyCoreService],
  *    which is a `Service`. `setApplicationLocales` rebuilds Activities; it does
  *    nothing for a window whose Context belonged to a Service, and nothing at
  *    all for views already attached. So the overlays would keep the old language

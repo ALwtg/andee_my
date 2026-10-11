@@ -56,7 +56,22 @@ import java.util.concurrent.TimeUnit
  * that the model should repeat to the user verbatim.
  */
 class CommandDispatcher(
-    private val screen: ScreenController,
+    /**
+     * The screen half, as a *provider* — not the controller itself.
+     *
+     * It has to be a callback because the capability is revocable at runtime:
+     * a Chinese ROM can take accessibility back while this object is alive and
+     * mid-conversation, and it can hand it back later. Holding a
+     * [ScreenController] here would mean holding one built around a dead
+     * binding, and `dispatchGesture` against that reports `completed: true`
+     * while nothing moves — the worst possible answer, because the brain
+     * believes it and tells the user it did something.
+     *
+     * The provider throws when there is nothing to hand out, and that throw is
+     * the honest reply to `screen.*`: accessibility is off. See
+     * `BodyCoreService.screenOrThrow`.
+     */
+    private val screen: () -> ScreenController,
     private val window: FloatingWindowUi,
     private val ripple: EdgeRippleUi,
     private val marker: net.kuafuai.andee.ui.TapMarkerUi,
@@ -69,7 +84,7 @@ class CommandDispatcher(
     private val appContext: android.content.Context,
     /**
      * Fallback for methods this dispatcher does not itself know. Wired to the
-     * call extension by [ScreenBodyService]: if a call peripheral has
+     * call extension by [BodyCoreService]: if a call peripheral has
      * registered a tool by this name (`pickup_call`, `end_call`, …), forward
      * the request; if not, the lambda throws, and the throw becomes the brain's
      * `unknown method` reply like it always did.
@@ -86,10 +101,10 @@ class CommandDispatcher(
      * it was on screen.
      *
      * A callback rather than a direct handle on the brain because the brain is
-     * three things ([ScreenBodyService.hubClient], its `wsServer`, and the
+     * three things ([BodyCoreService.hubClient], its `wsServer`, and the
      * on-device [net.kuafuai.andee.brain.LocalBrain]) and this class reaches
      * none of them — it is the device's tool surface, deliberately unaware of
-     * the transports. [ScreenBodyService] wires it.
+     * the transports. [BodyCoreService] wires it.
      */
     private val onPageClosed: (title: String, seconds: Int) -> Unit = { _, _ -> },
 
@@ -108,7 +123,7 @@ class CommandDispatcher(
      * A callback rather than a direct [net.kuafuai.andee.tts.TtsController]
      * handle for the same reason [onPageClosed] is one: the TTS mute rules
      * (meeting, phone call), the stop gate and `stripMarkdown` all live in
-     * [ScreenBodyService], where the final answer already passes through
+     * [BodyCoreService], where the final answer already passes through
      * them — a second copy of those rules is where this feature would rot.
      * The card is for a user who may be looking anywhere but the screen;
      * a question nobody hears just waits in silence for its timeout.
@@ -117,17 +132,29 @@ class CommandDispatcher(
 ) {
     private val ui = Handler(Looper.getMainLooper())
 
-    init {
+    /**
+     * Put the two guards on a freshly built screen controller.
+     *
+     * Called by `BodyCoreService.attachScreen` on **every** handover — this was
+     * wire-once in an `init` block, and it cannot be any more. The controller is
+     * rebuilt whenever accessibility comes back (a new enable means a new
+     * `AccessibilityService` instance), and guards left behind on the previous
+     * one would simply be absent on the new one: every screenshot would
+     * composite our own card into the picture the brain is shown, and every tap
+     * that happened to land under the ball would be dropped as obscured by the
+     * app receiving it.
+     */
+    fun wireScreen(controller: ScreenController) {
         // The effect snapshot after a tap is taken inside the gesture passthrough,
         // where the ball is untouchable but still drawn. Hand the screen the same
         // blanking every other capture gets, so there is one copy of how long to
         // wait and which windows to hide.
-        screen.shotGuard = { shot -> blankedForCapture(shot) }
+        controller.shotGuard = { shot -> blankedForCapture(shot) }
         // Taps that would land under the ball window: park it off-screen for the
         // duration. `passthroughForGesture` already made the window untouchable,
         // but an untouchable overlay is still obscuring, and payment apps drop
         // obscured taps — Alipay's bottom tabs reproduced this on 2026-10-09.
-        screen.gestureGuard = { target, body ->
+        controller.gestureGuard = { target, body ->
             val wraps = window.windowBounds()?.let { android.graphics.Rect.intersects(it, target) } ?: false
             if (!wraps) body()
             else {
@@ -370,7 +397,7 @@ class CommandDispatcher(
                         appContext, R.string.cmd_vault_filling, e.label, secretLabel(field),
                     )
                 )
-                screen.typeText(value, id = null, secret = true)
+                screen().typeText(value, id = null, secret = true)
             }
 
             "device.notifications" -> {
@@ -751,7 +778,7 @@ class CommandDispatcher(
 
             "screen.tap" -> {
                 passthroughForGesture {
-                    screen.tapAim(
+                    screen().tapAim(
                         on = params?.optString("on")?.ifBlank { null },
                         x = params?.optInt("x", Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE },
                         y = params?.optInt("y", Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE },
@@ -767,7 +794,7 @@ class CommandDispatcher(
                 // and e-numbers cover every node the list shows.
                 val eid = params?.optString("eid").orEmpty()
                 require(eid.isNotEmpty()) { "screen.tap_id requires string eid (e.g. \"e7\", from get_screen_element's element list)" }
-                passthroughForGesture { screen.tapByEid(eid) }
+                passthroughForGesture { screen().tapByEid(eid) }
             }
 
             "screen.swipe" -> {
@@ -777,13 +804,13 @@ class CommandDispatcher(
                 val x2 = params.getInt("x2");
                 val y2 = params.getInt("y2")
                 val dur = params.optLong("duration_ms", 300L)
-                passthroughForGesture { screen.swipeNorm(x1, y1, x2, y2, dur) }
+                passthroughForGesture { screen().swipeNorm(x1, y1, x2, y2, dur) }
             }
 
             "screen.long_press" -> {
                 val dur = params?.optLong("duration_ms", 600L) ?: 600L
                 passthroughForGesture {
-                    screen.longPressAim(
+                    screen().longPressAim(
                         on = params?.optString("on")?.ifBlank { null },
                         x = params?.optInt("x", Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE },
                         y = params?.optInt("y", Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE },
@@ -797,21 +824,21 @@ class CommandDispatcher(
             "screen.long_press_id" -> {
                 val eid = params?.optString("eid").orEmpty()
                 require(eid.isNotEmpty()) { "screen.long_press_id requires string eid" }
-                passthroughForGesture { screen.longPressByEid(eid, 600L) }
+                passthroughForGesture { screen().longPressByEid(eid, 600L) }
             }
 
             "screen.type" -> {
                 val text = params?.optString("text").orEmpty()
                 val id = params?.optString("id")?.ifEmpty { null }
-                screen.typeText(text, id)
+                screen().typeText(text, id)
             }
 
             "screen.submit_input" -> {
                 val id = params?.optString("id")?.ifEmpty { null }
-                screen.submitInput(id)
+                screen().submitInput(id)
             }
 
-            "screen.screenshot" -> blankedForCapture { screen.screenshot() }
+            "screen.screenshot" -> blankedForCapture { screen().screenshot() }
 
             "screen.look_region" -> blankedForCapture {
                 requireNotNull(params) { "screen.look_region requires params" }
@@ -820,9 +847,9 @@ class CommandDispatcher(
                 // guessing which one the caller meant.
                 val cell = params.optString("cell")?.ifBlank { null }
                 if (cell != null) {
-                    screen.zoomAim(cell, params.optString("part")?.ifBlank { null })
+                    screen().zoomAim(cell, params.optString("part")?.ifBlank { null })
                 } else {
-                    screen.lookRegion(
+                    screen().lookRegion(
                         params.optInt("x", Int.MIN_VALUE),
                         params.optInt("y", Int.MIN_VALUE),
                         params.optInt("w", 0),
@@ -831,7 +858,7 @@ class CommandDispatcher(
                 }
             }
 
-            "screen.ui_tree" -> screen.dumpUiTree(
+            "screen.ui_tree" -> screen().dumpUiTree(
                 verbose = params?.optBoolean("verbose", false) ?: false,
                 withShot = params?.optBoolean("with_shot", ToolSchemas.UI_TREE_WITH_SHOT_DEFAULT)
                     ?: ToolSchemas.UI_TREE_WITH_SHOT_DEFAULT,
@@ -842,7 +869,7 @@ class CommandDispatcher(
                 // the only shots left are the ones on self-drawn panes, where
                 // pixels are all the brain has. ScreenController stays unaware
                 // of the overlay — it just calls what it is handed.
-                capture = { reason -> blankedForCapture { screen.screenshot(reason) } },
+                capture = { reason -> blankedForCapture { screen().screenshot(reason) } },
             )
 
             // Blocking the worker here is the point — the brain asked to wait,
@@ -855,17 +882,17 @@ class CommandDispatcher(
                 require(!asked.isNaN() && asked > 0) { "screen.wait requires positive seconds" }
                 val waitMs = (asked * 1000).toLong().coerceAtMost(WAIT_MAX_MS)
                 Thread.sleep(waitMs)
-                screen.dumpUiTree(
+                screen().dumpUiTree(
                     verbose = false,
                     withShot = true,
-                    capture = { reason -> blankedForCapture { screen.screenshot(reason) } },
+                    capture = { reason -> blankedForCapture { screen().screenshot(reason) } },
                 ).put("waited_ms", waitMs)
             }
 
             "screen.global" -> {
                 val action = params?.optString("action").orEmpty()
                 require(action.isNotEmpty()) { "screen.global requires string action" }
-                screen.globalAction(action)
+                screen().globalAction(action)
             }
 
             // ---- note.* : the notebook -------------------------------------
@@ -1353,7 +1380,7 @@ class CommandDispatcher(
      */
     private fun awaitUncovered() {
         val deadline = System.currentTimeMillis() + UNCOVER_BUDGET_MS
-        while (!screen.activeWindowVisible()) {
+        while (!screen().activeWindowVisible()) {
             if (System.currentTimeMillis() >= deadline) return
             runCatching { Thread.sleep(UNCOVER_POLL_MS) }
         }

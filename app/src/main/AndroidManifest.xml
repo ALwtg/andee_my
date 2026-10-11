@@ -56,6 +56,23 @@
          promise still has to reach the user. Runtime permission on 13+; the
          code degrades to "no nudge" if it is refused, never to a lost todo. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+         The body runs as a foreground service, and the reason is the whole
+         point of the split: a foreground service is what keeps the process —
+         and therefore the ball, the microphone and the scrollback — alive when
+         the accessibility service is taken away. See BodyCoreService.
+
+         `specialUse` is the type it starts at, always. `microphone` is the one
+         it *adds*, later, from the launcher (ui/SelfCheckActivity) and only
+         there: a microphone-typed foreground service cannot be created from the
+         background, and the body is usually started from exactly there (the
+         ROM handing accessibility back, or the persistent notification's own
+         action). Declaring the mic type as the start type would make the start
+         itself the fragile part on the one device class this exists for.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- Battery optimisation. Doze is what holds up the pending todos — they are
          AlarmManager alarms, so with the screen off a non-exempt app's reminders
          arrive late. Exempting is done from Settings' per-app request screen
@@ -107,6 +124,31 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!--
+             The body: the ball, the card, the microphone, the brain socket,
+             the scrollback. A foreground service, and *not* the accessibility
+             service, so that revoking accessibility costs one capability
+             instead of the whole assistant. See BodyCoreService for the full
+             argument, and ScreenBodyService for the half that stayed.
+
+             `specialUse` because this is a device assistant — a category the
+             platform has no better name for, and the one type that can be
+             started from the background (on the strength of the overlay grant,
+             which this app cannot run without anyway). `microphone` is added at
+             runtime by the launcher; see the permission block above.
+
+             Not exported, not bound: started, and only started.
+        -->
+        <service
+            android:name=".BodyCoreService"
+            android:label="@string/app_name"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|microphone">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="conversational device assistant: on-device ball, voice turn, reminders" />
         </service>
 
         <service

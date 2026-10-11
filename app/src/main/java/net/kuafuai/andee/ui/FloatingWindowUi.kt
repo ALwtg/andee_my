@@ -106,7 +106,7 @@ import kotlin.random.Random
  * the ball ([Listeners.onLongPress]) with exactly one caller that does not
  * wait for one: the service unfolds once at birth, so a device that just
  * booted shows the card rather than a corner ball. See
- * `ScreenBodyService.onServiceConnected`.
+ * `BodyCoreService.onServiceConnected`.
  */
 class FloatingWindowUi(
     private val context: Context,
@@ -239,7 +239,7 @@ class FloatingWindowUi(
          * assistant up on one of the things it says it can do.
          *
          * Handed out rather than sent from here: sending is a turn, and a turn
-         * has exactly one way in (`ScreenBodyService.submitUserTurn`), which is
+         * has exactly one way in (`BodyCoreService.submitUserTurn`), which is
          * where the log row, the hub event and the glow all hang off. A list
          * that sent its own would be a second way in, and the hub event is the
          * half that gets forgotten.
@@ -441,7 +441,7 @@ class FloatingWindowUi(
         // returning false from onTouchEvent cannot forward a touch that has
         // already entered this window. That is no longer the service's
         // behaviour: it unfolds immediately after [show] (see
-        // `ScreenBodyService.onServiceConnected`), so the card is up from the
+        // `BodyCoreService.onServiceConnected`), so the card is up from the
         // first frame it is drawn in. What is left is the mechanical reason the
         // order is still worth keeping: compact is the state [fullGeometry] is
         // seeded from just below, and [exitCompact] is the single code path
@@ -1151,7 +1151,7 @@ class FloatingWindowUi(
      * Only the service asks, and only for one decision: a fold takes the
      * scrollback with it (`historyView` goes `GONE`), so anything that has to
      * be readable *now* cannot be put there. See the answer's fallback card in
-     * [net.kuafuai.andee.ScreenBodyService].
+     * [net.kuafuai.andee.BodyCoreService].
      */
     fun isCompact(): Boolean = compact
 
