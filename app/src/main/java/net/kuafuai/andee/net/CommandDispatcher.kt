@@ -1338,13 +1338,34 @@ class CommandDispatcher(
      * The user dismissed a page. Runs on the main thread, from
      * `HtmlActivity.onDestroy`.
      *
-     * Two jobs, and the second one is why the page can be non-blocking at all:
-     * put the ball back (it was hung off the ledge for as long as the page was
-     * up) and tell whoever the brain is, since the model is no longer sitting
-     * in a tool call waiting to find out.
+     * Three jobs. Put the ball back (it was hung off the ledge for as long as
+     * the page was up), unfold the card — unconditionally, see below — and tell
+     * whoever the brain is, the last of which is why the page can be
+     * non-blocking at all: the model is no longer sitting in a tool call waiting
+     * to find out.
      */
     private fun pageClosed(title: String, openedAt: Long) {
         window.setPagePerched(false)
+        // And give the card back, full size — whatever shape it was in before
+        // the page went up.
+        //
+        // Deliberately not "only if we folded it", which is what
+        // `BodyCoreService.openPageFrom` does with a local `wasFullscreen`, and
+        // what this did first. A page is something the user asked to read, and
+        // closing it means they are done reading; the assistant coming back is
+        // the plainest reading of that, and a ball in the corner of an app they
+        // do not remember opening is not. Asked for directly, and asked for the
+        // same way once before: closing the self-check card had exactly this
+        // complaint, and the answer there was unconditional too — see
+        // `SelfCheckActivity.onStageLeaving`.
+        //
+        // The cost is real and accepted: a card folded by a `screen.*` call
+        // mid-job is meant to stay folded (see `BodyCoreService.typingFinished`
+        // for that rule) and unfolding here overrides it. What makes it
+        // affordable is that a page is not supposed to go up mid-job at all —
+        // `LocalPrompt` tells the model to wait until the job is done, and the
+        // model is the only thing that can open one.
+        expand()
         val seconds = ((android.os.SystemClock.elapsedRealtime() - openedAt) / 1000L).toInt()
         runCatching { onPageClosed(title, seconds) }
             .onFailure { android.util.Log.w("Body", "page-closed notify failed", it) }
