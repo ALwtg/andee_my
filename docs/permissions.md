@@ -37,7 +37,7 @@ The "What you get" column is the copy the app actually shows (`dev_perm_feature_
 | Permission | What you get | Tools | What happens if you refuse |
 |---|---|---|---|
 | Overlay<br>`SYSTEM_ALERT_WINDOW` | Overlay (my face) | The ball, the subtitles, the settings panel itself | **Nothing is visible when the app starts.** The only permission that is "off means completely unusable" |
-| Accessibility service<br>`BIND_ACCESSIBILITY_SERVICE` | See the screen, tap the UI, type | `get_screen_element` / `tap_screen_element` / `swipe_by_coordinates` / `type_text` / `submit_input` / `take_screenshot` — all of `screen.*` | **Every screen action errors.** This is the core capability; the other permissions exist around it |
+| Accessibility service<br>`BIND_ACCESSIBILITY_SERVICE` | See the screen, tap the UI, type | `get_screen_element` / `tap_screen_element` / `swipe_by_coordinates` / `type_text` / `submit_input` / `take_screenshot` — all of `screen.*` | **Every `screen.*` call errors except `screen.screenshot`**, which has a `MediaProjection` fallback: reading only, no aim grid, no element list, no tapping. Acting on the screen is what this permission buys |
 | Microphone<br>`RECORD_AUDIO` | Voice, and the wake word the user enrolls | Streaming ASR + on-device wake-word matching | Tapping the ball does nothing; wake-word listening does not start (and, as a side effect, the Android 12+ green dot never appears) |
 | Notification access<br>`BIND_NOTIFICATION_LISTENER_SERVICE` | Notification awareness (know when you get messages) | `get_notifications` | It will not know about incoming messages on its own; nothing else is affected |
 | Location<br>`ACCESS_FINE_LOCATION` | Location (where you are / navigation) | `get_location` | "Where am I" cannot be answered |

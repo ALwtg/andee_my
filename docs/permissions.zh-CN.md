@@ -37,7 +37,7 @@
 | 权限 | 用户得到什么 | 对应工具 | 你拒绝了会怎样 |
 |---|---|---|---|
 | 悬浮窗<br>`SYSTEM_ALERT_WINDOW` | 悬浮窗(我的脸) | 球、字幕、设置面板本身 | **应用起来什么都看不到。** 这是唯一一个"不开就完全不能用"的 |
-| 无障碍服务<br>`BIND_ACCESSIBILITY_SERVICE` | 看屏幕、点界面、打字 | `get_screen_element` / `tap_screen_element` / `swipe_by_coordinates` / `type_text` / `submit_input` / `take_screenshot` 等全部 `screen.*` | **所有屏幕操作报错。** 这是核心能力，其它权限都是围着它转的 |
+| 无障碍服务<br>`BIND_ACCESSIBILITY_SERVICE` | 看屏幕、点界面、打字 | `get_screen_element` / `tap_screen_element` / `swipe_by_coordinates` / `type_text` / `submit_input` / `take_screenshot` 等全部 `screen.*` | **除 `screen.screenshot` 外，所有 `screen.*` 都报错** —— 截屏有 `MediaProjection` 兜底：只能读，没有瞄准网格、没有元素列表、不能点。这条权限买的是「能操作屏幕」 |
 | 麦克风<br>`RECORD_AUDIO` | 语音说话、用户自己录的唤醒词 | 流式 ASR + 本机唤醒词匹配 | 点球没反应；唤醒词监听不启动（顺带：Android 12+ 的绿点也不会出现） |
 | 通知监听<br>`BIND_NOTIFICATION_LISTENER_SERVICE` | 通知感知(微信来消息我知道) | `get_notifications` | 来消息不会主动知道；其余功能不受影响 |
 | 位置<br>`ACCESS_FINE_LOCATION` | 位置(在哪/导航) | `get_location` | 问"我在哪"答不出来 |

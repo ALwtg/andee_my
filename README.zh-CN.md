@@ -79,7 +79,7 @@ https://github.com/user-attachments/assets/866e8333-e97b-4bf5-9525-540f9fdb01cd
   [docs/permissions.zh-CN.md](docs/permissions.zh-CN.md)。
 - **会越来越懂你。** 私人笔记本、真的定时任务、没人时自己复盘对话，还有**情景** —— 同一类事陪你
   做过几次之后，它会主动提议"要不要存成一个情景"。
-- **有性格。** 五个形象、十四种情绪，表情由模型自己挑，一句话说到一半都能换脸。
+- **有性格。** 六个形象、十九种情绪，表情由模型自己挑，一句话说到一半都能换脸。
 - **有些底线，提示词说不动它。** 陌生人发来的一条通知，打不开保险箱、也不能替你给它新的权限 ——
   这道拒绝写在调度器里，不在提示词里。
 
@@ -154,7 +154,7 @@ Android 13 及以上，它通过无障碍服务自带的输入通道打字 —�
 
 ### 脸 —— 性格，不是主题皮肤
 
-**9. 五个形象、十四种情绪，表情它自己挑。**
+**9. 六个形象、十九种情绪，表情它自己挑。**
 奶油、八戒、贱贱兔、憨憨熊、小恶魔，全部用手写 OpenGL ES 实时绘制。十四种情绪
 （`ui/ball/Mood.kt`）在"他的感受 / 语音管线在干什么 / 手头有什么活儿"之间仲裁；另有一组待机小
 动作，**从不连续重复同一个** —— *"重复看起来像动画卡住了，不像性格"*。现在表情由模型**在句子中间**
@@ -251,7 +251,7 @@ Android。跟它要一个 Andee，它会交给你一个**已经配好令牌**的
 > - **JDK 17–20。** AGP 8.3.1 要 17+；Gradle 8.4 的 wrapper 跑不了 21+（Android Studio 自带的
 >   JBR 25 会被直接拒绝：`Unsupported class file major version 69`）
 > - Android SDK：platform 34 + build-tools 34.0.0
-> - **真机。** 这个应用本身就是那个无障碍服务；模拟器能跑，但它几乎什么都干不了
+> - **真机。** 身体是前台服务，屏幕那一半才是无障碍服务；模拟器能跑，但它几乎什么都干不了
 
 ```bash
 ./gradlew clean :app:assembleDebug     # 产物 app/build/outputs/apk/debug/app-<abi>-debug.apk
@@ -387,7 +387,7 @@ OpenAI 兼容端点（`llm_api_key`，默认 `https://api.deepseek.com`）。**�
 | minSdk | 30 | Android 11 —— 因为要用 `AccessibilityAction.ACTION_IME_ENTER`（API 30+）和 `takeScreenshot`（API 30+） |
 | Java / Kotlin JVM target | 1.8 | `sourceCompatibility` 1.8、`jvmTarget = '1.8'` |
 | **构建用 JDK** | **17–20** | 见[配 JDK](#配-jdk)，这是最容易卡住的一步 |
-| versionCode / versionName | 3 / 0.2.0 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
+| versionCode / versionName | 4 / 0.3.0 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
 | applicationId / namespace | `net.kuafuai.andee` | 从模板里没改，不影响功能 |
 
 **运行库依赖**（`app/build.gradle`）：
@@ -733,10 +733,11 @@ adb usb                            # 想切回来时执行
 ```
 app/                    Android 应用（Kotlin，无 Compose）
   src/main/java/net/kuafuai/andee/
-    ScreenBodyService.kt   无障碍服务 —— 第一个该读的文件
+    BodyCoreService.kt     身体：球、卡片、语音、大脑连接、回溯 —— 第一个该读的文件
+    ScreenBodyService.kt   无障碍服务 —— 只负责转交屏幕能力的壳
     brain/                 智能体循环 —— LocalBrain、LocalPrompt（角色的行为准则：
                            §1–§10 是活儿，§11 情景，§12 人格，§13 当前情景）、NotificationTriage（通知分诊）
-    ui/ball/               那张脸 —— Mood（14 种情绪 + 待机小动作）、BallLook（五个形象，每个都是一个角色）
+    ui/ball/               那张脸 —— Mood（19 种情绪 + 待机小动作）、BallLook（六个形象，每个都是一个角色）
     net/                   BodyWsServer、BodyWsClient、ToolSchemas（工具定义）
     device/                屏幕控制、权限、保险箱、机器狗
     config/                VoiceConfig（设置）、Notebook（记忆、待办、情景 —— 加密存储）
@@ -844,7 +845,7 @@ CLAUDE.md               给 AI 编码助手看的架构说明（英文）
 随包分发的第三方组件清单在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。再分发之前请先看：
 **ML Kit 扫码 SDK 和 `play-services-*` 不是开源许可**，而且扫码模型是运行时从 Google 拉的。
 
-改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.2.0`**，故意停在
+改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.3.0`**，故意停在
 pre-1.0：线上协议和构建开关都还在动。
 
 ## 相关文档

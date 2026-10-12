@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`3` / `"0.2.0"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`4` / `"0.3.0"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -13,7 +13,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 **The project starts at `0.x`, and that is the accurate number rather than a modest one.** Nothing is
 frozen. The tool-schema contract a hub brain speaks has been rewritten repeatedly
-(`net/ToolSchemas.kt` alone has changed in ten commits since the first), the `local.properties`
+(`net/ToolSchemas.kt` has been rewritten in every release so far), the `local.properties`
 build flags that decide the first-install language, the thinking default and whether CodeFlying is
 compiled in have all been added since, and a saved scene is a shape that only appeared in this
 release. Each of those is something a user or a second implementation would have to rebuild against,
@@ -27,6 +27,62 @@ anything not built at a tag, identify it by the short commit hash it was built f
 hash into `versionName` at build time would close this hole; it is not implemented yet.)
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-10-12
+
+The release where the assistant stops living inside the accessibility service. Everything else here
+is smaller than that; the split is the reason it is a minor bump and the reason the upgrade notes
+matter, because a ROM that revokes accessibility now costs one capability instead of the whole app.
+
+### Added
+
+- **The body is a foreground service; the accessibility service is a shim.** The body — ball, card,
+  microphone, ASR/TTS, brain socket, scrollback, todos — used to be constructed inside
+  `ScreenBodyService.onServiceConnected()`, and that class is an `AccessibilityService`. So a ROM
+  that revokes accessibility (HyperOS, observed) took the whole assistant with it: no ball, no way to
+  talk, no way back except knowing which switch in Settings to find. The failure mode was never
+  "screen control is gone", it was "the app is gone". `BodyCoreService` now owns everything else and
+  outlives the accessibility service, which is reduced to handing the screen capability over and
+  taking it back — so a revoked service costs one capability, and the return trip is one tap on a
+  notification that is still there. `screen.*` goes through a provider, so a call with no
+  accessibility throws a readable error instead of no-op'ing or holding a controller built around a
+  dead binding; the shot and gesture guards moved from an `init` block to `wireScreen()`, called on
+  every attach, because left on the previous controller they would simply be absent on the new one.
+  The launch is a persistent notification that carries whether screen control is up and the way back
+  to Settings — posted by the body, so it survives the state it describes. The launcher is the one
+  context allowed to claim the microphone foreground-service type, because a microphone-typed service
+  cannot be created from the background and every other starter is background.
+- **The screen can be read with `MediaProjection` when accessibility is gone.** The split stopped a
+  revoked service from taking the whole assistant, except that the assistant went **blind** — every
+  way of reading a screen went through the accessibility service, so "what is this screen?" was the
+  one question it could not answer on exactly the devices this project exists for. Deliberately a
+  fallback and deliberately weaker: `screen.screenshot` only, because `look_region` and `zoom_aim`
+  exist to zoom a target for a tap and `dispatchGesture` has no non-root substitute, so there is no
+  tap on this path. The result says which way in it used, and carries no aim grid and no element list
+  — handing the brain a picture it believes it can aim with would be worse than handing it fewer
+  fields. Asked for only while it is the only option: the consent is a notification action, offered
+  only when Andee is blind and has no capture, and `ACTION_ACCESSIBILITY_SETTINGS` stays the first
+  action because the projection buys reading, not acting.
+- **Every mood has a `Pose` on top of its `Face` row** — a wink, eyes that look up and aside, lowered
+  or worried lids, a squashed resting body, two puffy hands (open, fist, pointing) and pop-in props.
+  Five gesture moods (wink, wave, protect, celebrate, rest) can be asked for by name or synonym in
+  the model's own text, and the prompt says to keep them rare. Only a look with `BallLook.gestures`
+  reads it, so the other five characters are unchanged. There is deliberately no open mouth:
+  cross-fading it with the thin smile drew both at once and one poked through the other.
+- **The default ball is now the blue horned Andee** — a cobalt head with curled horns and glassy
+  eyes, first in `BallLooks.ALL`, so a fresh install and a factory reset both land on it. Its numbers
+  were measured off the reference picture through the renderer's own camera rather than eyeballed.
+  The launcher icon set, README covers, social previews and org avatar are regenerated from the same
+  source art.
+- **The CodeFlying per-user token is read from `assets/andee_key.txt`**, with `BuildConfig` as the
+  fallback for dev builds. Production APKs are built once from shared source and the per-user `kft_`
+  token is written into that asset at package time, so the base APK stays identical across users and
+  the Gradle build cache no longer misses per user.
+- **`-PdbgSuffix=` builds a parallel package** for device verification. The package on the tablet was
+  signed with a key this checkout does not have, so `pm install -r` was refused and the only
+  alternative was uninstalling — which throws away chat history, notebook and vault. Off unless the
+  property is passed, so ordinary builds are byte-identical.
+- Debug builds gain `BallLabActivity`, which shows one mood on a plain background for screenshots.
 
 ### Changed
 
@@ -43,6 +99,86 @@ hash into `versionName` at build time would close this hole; it is not implement
   which is the intended failure rather than a fault to report. The service itself was checked before
   the switch: the new host answers `GET /api/version` with the same envelope, and the same `data`
   fields the client parses.
+- **The self-check page now stays up until the user closes it.** It is a list, and a user with five
+  rows works through them one at a time — out to a Settings screen and back for each — but the page
+  used to hand the screen to the assistant as soon as it could draw one, which happens on the *first*
+  of those returns, so the list was taken away after row one. On a page whose whole job is to walk
+  somebody down a list, the user is the only one who knows when the list is finished. Closing it with
+  完成 puts the assistant back. Two surfaces fighting for the screen was the real bug underneath and
+  it stays fixed by the same move: nothing unfolds a card while the page is up.
+- **Closing a page puts the assistant back at full size, unconditionally.** The fold that makes room
+  for a page is ours — our card is a fullscreen opaque overlay and would cover it — so undoing it is
+  ours too, and it was missing from `pageClosed`. The first cut restored the card only if it had been
+  fullscreen when the page went up; the report was the other way round, and closing the self-check
+  card drew the same complaint and got the same answer.
+- Both READMEs point their CodeFlying links at the `/andee` one-click landing page rather than the
+  generic official site, so every jump lands on the Andee entry page.
+
+### Fixed
+
+- **`ui.show_html` no longer needs accessibility**, which it had started to. `awaitUncovered()` asked
+  its question through `requireScreen()`, and `awaitUncovered` runs off `ensureCompact()` — which
+  `ui.show_html` calls too, because our card would cover the page it is about to draw. So with
+  accessibility off, the one tool that draws a page answered "accessibility is off" and the assistant
+  told the user it could not show them anything. Introduced by `f364490`, which turned a
+  nullable-but-always-present field into a throwing provider and rewrote every call site
+  mechanically; the other sixteen are inside `screen.*` branches and are meant to throw. Returning
+  early is also right on the merits: the wait exists so that a *tap* lands on the app rather than on
+  the folded card, and there are no taps without accessibility.
+- **The self-check no longer mistakes a re-creation for a launch.** This page sends the user out
+  through its own rows, so the platform killing it while they are away and rebuilding it on return is
+  routine here rather than an edge case: grant the overlay, come back to a restarted Activity, and it
+  used to unfold the card and finish before a single row was drawn. `savedInstanceState != null` is
+  what tells the two apart. A related report — "I granted it, came back, it still said no, then
+  re-check was fine" — is the platform's answer about a setting changed seconds ago not being ready
+  in the frame the user returns on: the notification-access row is `OK` only once the listener is
+  actually bound, and the read that finds it unbound is also the one that requests the rebind.
+  `settleRecheck` takes two more local passes and stops, because a page that keeps re-reading itself
+  is a page whose numbers stop meaning anything. (The retry is reasoned from the code path, not
+  measured: writing the notification listener into `enabled_notification_listeners` does not stick,
+  so the state cannot be manufactured from adb.)
+- **The body stays off the screen while the check page is up.** The report was "the check said the
+  overlay was off, I granted it, came back, and I was on the assistant instead of the check" — the
+  check was never gone, the page was still the resumed Activity with the assistant's fullscreen card
+  painted over it. Two things put it there, both in the body's birth: `window.setCompact(false)`, and
+  `window.show()`, which is subtler — this window is fullscreen *even when the ball is compact* and
+  swallows the touches it does not use, so a page with a ball in the corner is a page whose buttons
+  cannot be pressed (measured: 完成 did nothing). Telling a fresh launch apart from a return needed
+  `SelfCheck.isPageOpen`, written down in the prefs file the startup check already uses. The startup
+  self-check card is skipped while the page is up as well, because that page *is* the list.
+- **A just-fixed row stops showing as red when the card resumes.** The card's own rows send the user
+  out to a system screen and the only thing that happened on the way back was a language comparison,
+  so a row the user had just fixed stayed red until they found 重新检查 — and a stale red row reads as
+  "the fix did not take". An Activity gets a resume callback and an overlay does not, which is why
+  this is a change to one host rather than to the list; it is local-only on purpose, because the
+  probes hold the card open for seconds. The first resume is skipped (a full pass just ran), the
+  three probed rows keep their last reading (`SelfCheck.mergeLocal`), and `render` restores the
+  scroll position — which only started to matter once redraws stopped being deliberate.
+- **A perch slide dragged the whole card off-screen, and a voice failure repeated forever.**
+  A card held by the folded ball makes the window card-sized, so a perch slide (task start, page up)
+  dragged the whole card into the bottom-right corner, half off-screen and untouchable; the perch
+  entry points now take the signboard down first. Separately, the auto follow-up mic reopens after
+  every answer, so a device with no voice set up raised the same failure card and scrollback row each
+  time — now shown once per failure streak, reset by a working voice turn, leaving settings, or the
+  user pressing the ball.
+- **`screen.screenshot`'s schema claimed something false.** It opened "every screenshot arrives with
+  an 8x12 AIM GRID drawn on it" and promised the element list, both exactly untrue on the projection
+  path — which is the only screen tool that still works there. The runtime `note` said so, but the
+  schema is what the model reads *before* deciding to call it.
+- **Three documents still described the pre-split architecture.** `README.md` and `README.zh-CN.md`
+  said "this app *is* the accessibility service" and pointed a reader at `ScreenBodyService.kt` as
+  the file to read first — both false since `f364490`, which is the whole point of the split. The
+  permission table in `docs/permissions.md` / `.zh-CN.md` said of accessibility that "every screen
+  action errors", which stopped being true in `82f08db`: `screen.screenshot` has a fallback and the
+  row now says so, along with what the fallback cannot do.
+
+### Removed
+
+- `tools/check_launcher_icon.py`, `tools/cosmic_backdrop.py` and the old `make_launcher_icon.py`,
+  replaced by a rewritten generator built on `tools/andee_head.py`. All three were written for the
+  previous character and a star-field backdrop, neither of which is in use any more.
+  `tools/make_social_preview.py` generates the social previews, both README covers and the org avatar
+  from the same source art.
 
 ## [0.2.0] - 2026-10-10
 

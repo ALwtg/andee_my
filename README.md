@@ -84,7 +84,7 @@ they are yours like any other — edit them, or delete them:
 - **Gets to know you.** A private notebook, a real scheduler, a nightly review of its own
   conversations, and **scenes** — ways of working it proposes after doing the same kind of thing with
   you a few times.
-- **Has a character.** Five looks, fourteen moods, and a face the model picks itself, sentence by
+- **Has a character.** Six looks, nineteen moods, and a face the model picks itself, sentence by
   sentence.
 - **Holds lines a prompt cannot talk it out of.** A stranger's notification cannot unlock the vault or
   grant it new permissions — that refusal is in the dispatcher, not in the prompt.
@@ -173,7 +173,7 @@ worth turning into a scene next time, and ends empty-handed rather than inventin
 
 ### Face — a character, not a theme
 
-**9. Five looks, fourteen moods, and a face it chooses.**
+**9. Six looks, nineteen moods, and a face it chooses.**
 奶油 Cream, 八戒 Pigsy, 贱贱兔 Rascal, 憨憨熊 Bear and 小恶魔 Imp, drawn live in hand-written OpenGL
 ES. Fourteen moods (`ui/ball/Mood.kt`) arbitrate between what it feels, what the voice pipeline is
 doing, and what work is in flight, plus an idle fidget pool that never repeats the same gesture twice
@@ -284,8 +284,8 @@ To build it yourself instead:
 > - **JDK 17–20.** AGP 8.3.1 needs 17+; the Gradle 8.4 wrapper cannot run on 21+ (Android Studio's
 >   bundled JBR 25 is rejected with `Unsupported class file major version 69`)
 > - Android SDK with platform 34 and build-tools 34.0.0
-> - A real device. This app *is* the accessibility service; an emulator can run it, but almost
->   nothing it does is meaningful there
+> - A real device. The body is a foreground service and only the screen half is an accessibility
+>   service; an emulator can run it, but almost nothing it does is meaningful there
 
 ```bash
 ./gradlew clean :app:assembleDebug     # → app/build/outputs/apk/debug/app-<abi>-debug.apk
@@ -532,7 +532,7 @@ Pure Kotlin, no Compose; the whole thing hangs off two pillars, `WindowManager` 
 | minSdk | 30 | Android 11 — `AccessibilityAction.ACTION_IME_ENTER` and `takeScreenshot` are both API 30+ |
 | Java / Kotlin JVM target | 1.8 | `sourceCompatibility` 1.8, `jvmTarget = '1.8'` |
 | **Build JDK** | **17–20** | see [Which JDK](#which-jdk) — this is the step people get stuck on |
-| versionCode / versionName | 3 / 0.2.0 | see [CHANGELOG.md](CHANGELOG.md) for the policy |
+| versionCode / versionName | 4 / 0.3.0 | see [CHANGELOG.md](CHANGELOG.md) for the policy |
 | applicationId / namespace | `net.kuafuai.andee` | never changed from the template. It affects nothing |
 
 **Runtime dependencies** (`app/build.gradle`):
@@ -824,11 +824,12 @@ that is matched against system text **can never be translated**.
 ```
 app/                    the Android app (Kotlin, no Compose)
   src/main/java/net/kuafuai/andee/
-    ScreenBodyService.kt   the accessibility service — read this first
+    BodyCoreService.kt     the body: ball, card, voice, brain socket, scrollback — read this first
+    ScreenBodyService.kt   the accessibility service — a shim that hands over the screen capability
     brain/                 the agent loop — LocalBrain, LocalPrompt (the character's rulebook:
                            §§1–10 the job, §11 scenes, §12 the persona, §13 the active scene),
                            and NotificationTriage
-    ui/ball/               the face — Mood (14 moods + idle fidgets), BallLook (five looks, each a character)
+    ui/ball/               the face — Mood (19 moods + idle fidgets), BallLook (six looks, each a character)
     net/                   BodyWsServer, BodyWsClient, ToolSchemas (the tool definitions)
     device/                screen control, permissions, vault, robot dog
     config/                VoiceConfig (settings), Notebook (memories, todos, scenes — encrypted)
@@ -952,7 +953,7 @@ Read it before redistributing: **the ML Kit barcode SDK and the `play-services-*
 open-source**, and the barcode model is fetched from Google at runtime.
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed and for the versioning policy. The latest release is
-**`v0.2.0`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
+**`v0.3.0`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
 
 ## Related documents
 
