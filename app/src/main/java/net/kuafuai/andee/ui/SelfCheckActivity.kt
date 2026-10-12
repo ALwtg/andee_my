@@ -122,8 +122,16 @@ class SelfCheckActivity : StageActivity() {
          * [requestScreenCapture].
          */
         const val EXTRA_SCREEN_CAPTURE = "screen_capture"
-    }
 
+        /**
+         * When to look again after a resume with red rows still on the page.
+         *
+         * Two, at a spacing wide enough to be a different moment for the
+         * platform and close enough that the user has not moved on. See
+         * [settleRecheck].
+         */
+        private val SETTLE_AT_MS = longArrayOf(1_500L, 5_000L)
+    }
     /**
      * The card. Built here on the service-off path only, placed on [stage], and
      * gone with the Activity.
@@ -162,6 +170,14 @@ class SelfCheckActivity : StageActivity() {
      * [onResume].
      */
     private var resumedOnce = false
+
+    /**
+     * The one delayed re-read a resume is allowed — see [settleRecheck].
+     *
+     * Main thread, and cleared with the Activity: a re-read posted after this
+     * page is gone would repaint a card that is on its way out.
+     */
+    private val settle = android.os.Handler(android.os.Looper.getMainLooper())
 
     /**
      * Our settings sheet while it is up — see [openOwnSettings]. Held only so a
@@ -222,8 +238,22 @@ class SelfCheckActivity : StageActivity() {
         // see `BodyCoreService.promoteForMicrophone`.
         BodyCoreService.start(this, microphone = true)
 
+        // A re-creation is not a launch, and this is the one thing that tells
+        // them apart.
+        //
+        // The user is sent out of this page by its own rows, so the platform
+        // killing it while they are in a Settings screen and rebuilding it on
+        // the way back is *routine* here — not an edge case. On that rebuild
+        // `ensureOverlays` answers about the state the user has just changed:
+        // grant the overlay, come back to a restarted Activity, and the two
+        // branches below hand the screen to the assistant and throw the list
+        // away, which is the same complaint as the `onResume` handover from the
+        // other side. A saved instance means "there was a page here already, put
+        // it back"; only a null one means the user tapped the icon on purpose.
+        val restored = savedInstanceState != null
+
         val svc = BodyCoreService.get()
-        if (svc != null && svc.ensureOverlays()) {
+        if (!restored && svc != null && svc.ensureOverlays()) {
             svc.dispatcherForNotification()?.expand()
             finish()
             return
@@ -235,7 +265,7 @@ class SelfCheckActivity : StageActivity() {
         // (first launch after a fresh grant). Falling through here would draw a
         // checklist for a device that is working, which is the exact report
         // this branch was rewritten to stop producing.
-        if (svc == null && ScreenBodyService.get() != null && Settings.canDrawOverlays(this)) {
+        if (!restored && svc == null && ScreenBodyService.get() != null && Settings.canDrawOverlays(this)) {
             finish()
             return
         }
@@ -500,10 +530,51 @@ class SelfCheckActivity : StageActivity() {
 
             if (resumedOnce) ui.refreshLocal()
             resumedOnce = true
+            settleRecheck()
+        }
+    }
+
+    /**
+     * Re-read the local half after a resume that still has red rows.
+     *
+     * A resume is the user coming back from a screen that changed system state,
+     * and **the platform's answer about that state settles late** — the same
+     * call that reads correctly a few seconds later reads "not done yet" in the
+     * frame the user returns on. Two of these rows work this way:
+     *
+     *  * the accessibility row reads the `enabled_accessibility_services`
+     *    string, which a vendor Settings app may write on its way out rather
+     *    than on the toggle;
+     *  * the notification-access row is `OK` only once the listener is actually
+     *    *bound*, and the bind lands after the setting is written — so the
+     *    honest reading for that instant is 「已授权，但监听器没连上」.
+     *
+     * Either one is a red row the user has just fixed, which is the reading that
+     * makes somebody believe the fix did not take. The report was "I granted it,
+     * came back, it still said no, and then I hit re-check and it was fine".
+     *
+     * **Bounded, and that is the important half.** Two more passes at the
+     * offsets in [SETTLE_AT_MS], then it stops: this page is a diagnosis, and a
+     * page that keeps re-reading itself is a page whose numbers stop meaning
+     * anything. A row that is still red after both is genuinely still red, and
+     * the row's own button is the thing that fixes it.
+     */
+    private fun settleRecheck() {
+        if (ui.outstanding() == 0) return
+        for (at in SETTLE_AT_MS) {
+            settle.postDelayed(
+                {
+                    if (::ui.isInitialized) ui.refreshLocal()
+                },
+                at,
+            )
         }
     }
 
     override fun onDestroy() {
+        // A re-read posted after this page is gone would repaint a card that is
+        // on its way out — and `ui.destroy()` below takes the rows away anyway.
+        settle.removeCallbacksAndMessages(null)
         // Our sheet is a window, not a child of this Activity, so nothing takes
         // it down with us — an Activity destroyed with it up would leave an
         // orphan overlay on screen with no way to close it.

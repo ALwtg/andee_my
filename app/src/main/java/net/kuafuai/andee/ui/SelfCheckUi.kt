@@ -379,6 +379,16 @@ class SelfCheckUi(
         render(SelfCheck.mergeLocal(SelfCheck.local(context), last))
     }
 
+    /**
+     * How many rows still ask the user to do something — the same number the
+     * summary line prints as 「N 项需要处理」.
+     *
+     * Null means "nothing rendered yet", which a caller must not read as zero.
+     * Read off the last render rather than recomputed: the answer wanted is
+     * *what the user is looking at*. See [SelfCheckActivity.settleRecheck].
+     */
+    fun outstanding(): Int? = last?.count { SelfCheck.needsAttention(it) }
+
     private fun probe() {
         val app = context.applicationContext
         prober.execute {
