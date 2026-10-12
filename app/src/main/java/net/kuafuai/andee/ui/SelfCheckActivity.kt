@@ -149,6 +149,21 @@ class SelfCheckActivity : StageActivity() {
     private var paintedLang = ""
 
     /**
+     * Whether this page has already been resumed once.
+     *
+     * [onCreate] runs the check itself ([SelfCheckUi.start]), and the first
+     * resume lands immediately behind it — same launch, no user in between, so
+     * there is nothing new to read and a refresh there would be a local pass for
+     * nothing. Worse than nothing, in fact: that first pass's probe is still on
+     * its socket, and the refresh would overwrite the rows it is about to fill
+     * in with the placeholders it is about to replace.
+     *
+     * Every resume *after* this one is the case the refresher is for. See
+     * [onResume].
+     */
+    private var resumedOnce = false
+
+    /**
      * Our settings sheet while it is up — see [openOwnSettings]. Held only so a
      * second tap on 打开设置 does not stack a second window on the first.
      */
@@ -415,6 +430,32 @@ class SelfCheckActivity : StageActivity() {
         val now = VoiceConfig.uiLanguage(this)
         if (paintedLang.isNotEmpty() && now != paintedLang) ui.repaintForLanguage()
         paintedLang = now
+
+        // Coming back from a system screen, and re-reading the local half.
+        //
+        // This page's own rows send the user out — 去开启, 允许, 去下载 — and the
+        // only thing that used to happen on the way back was the language
+        // comparison above. So a row the user had just fixed stayed red until
+        // they found 重新检查 at the bottom of the card, and a stale red row
+        // reads as "the fix did not take". Being an Activity is what makes
+        // noticing this possible at all: the same list on a working device is an
+        // overlay owned by the service and gets no resume callback, so there the
+        // card is closed on the way out instead and reopened reads fresh — see
+        // `BodyCoreService.openSelfCheck`.
+        //
+        // Local only, deliberately. The probes are a socket that holds the card
+        // for seconds, and running them every time the user comes back would
+        // make the check slower the more of it you have already done. See
+        // [SelfCheckUi.refreshLocal] for the whole argument, including why the
+        // three probed rows are carried over rather than reset.
+        //
+        // Skipped on the first resume, which is [onCreate]'s own: see
+        // [resumedOnce].
+        if (!resumedOnce) {
+            resumedOnce = true
+            return
+        }
+        ui.refreshLocal()
     }
 
     override fun onDestroy() {
