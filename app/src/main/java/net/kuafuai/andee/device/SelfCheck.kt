@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit
  * reports the permission as on. Each of those has been reported by the user as
  * "坏了" at least once, and every one of them is decidable in advance.
  *
- * **One list, three readers.** [net.kuafuai.andee.ScreenBodyService] runs it at
+ * **One list, three readers.** [net.kuafuai.andee.BodyCoreService] runs it at
  * startup and puts up a nudge card if anything is wrong; that same service puts
  * it up on demand as a card from `✓` in the assistant's control bar; and
  * [net.kuafuai.andee.ui.SelfCheckActivity] hosts the very same card from the
@@ -282,7 +282,7 @@ object SelfCheck {
     /**
      * Which brain, and is it told where to go.
      *
-     * The *presence* half only. `ScreenBodyService.startBrain` already raises
+     * The *presence* half only. `BodyCoreService.startBrain` already raises
      * its own card for exactly these two states, so the startup call passes
      * `announce = false` and this row is what the user sees instead — one card
      * per start, listing everything, rather than two cards arguing.

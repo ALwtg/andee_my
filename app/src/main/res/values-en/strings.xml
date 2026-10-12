@@ -33,7 +33,7 @@
            **A default whose value can reach the screen belongs to kind 1, not
            kind 2**, even though it also travels inside a prompt. `会议记录`,
            `通话` and `AI 界面` used to be Kotlin literals in `MeetingRecorder`,
-           `ScreenBodyService` and `ToolSchemas`, on the argument that the brain
+           `BodyCoreService` and `ToolSchemas`, on the argument that the brain
            had to be handed the same title the page displayed. They are
            `meeting_default_title`, `call_default_scene` and
            `html_default_title` now: one key answered for both readers, so the
@@ -307,7 +307,7 @@
     <string name="input_photos_row">[%1$d image(s)]</string>
     <string name="cam_close">✕ Done</string>
 
-    <!-- ScreenBodyService.kt — display-only; see the comment on the Chinese side. -->
+    <!-- BodyCoreService.kt — display-only; see the comment on the Chinese side. -->
     <string name="svc_call_in_progress">I\'m on a call — tell me once it\'s hung up.</string>
     <string name="svc_no_typable_ime">The only keyboard on this device is ADBKeyboard, and it has no UI — nothing can be typed.\nTurn on an input method in system settings and it will work.</string>
     <string name="svc_voice_error_line">Voice: %1$s</string>
@@ -355,6 +355,13 @@
     <string name="sched_notify_recurring">Recurring todo: %1$s</string>
     <string name="sched_notify_title">I promised you this</string>
     <string name="sched_notify_body">%1$s\n\n(When the time came I wasn\'t running, so I couldn\'t do it for you. Turn on the accessibility service and I\'ll pick it back up.)</string>
+    <string name="body_notify_channel">Running</string>
+    <string name="body_notify_channel_desc">The line that says I\'m here. The way back lives here too, when screen control drops.</string>
+    <string name="body_notify_title">I\'m here</string>
+    <string name="body_notify_text_ok">Screen control is up.</string>
+    <string name="body_notify_text_no_screen">Accessibility was switched off, so I can\'t reach the screen. Tap the action to get it back.</string>
+    <string name="body_notify_action_fix">Get it back</string>
+    <string name="body_notify_action_see">Let me see the screen</string>
     <string name="cmd_vault_filling">Typing the “%2$s” for %1$s…</string>
     <string name="cmd_ask_yes">OK</string>
     <string name="cmd_ask_no">No thanks</string>

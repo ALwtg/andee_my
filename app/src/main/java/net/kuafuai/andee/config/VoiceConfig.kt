@@ -571,7 +571,7 @@ data class VoiceConfig(
          * reason the settings card used to need a "voice in use" row: [load] is
          * read by the ASR path, the meeting recorder and the start log as well,
          * and a speaker resolved at the call site would have `HuoshanTts`
-         * logging one voice while `ScreenBodyService` logged another.
+         * logging one voice while `BodyCoreService` logged another.
          */
         private fun lookSpeaker(
             p: android.content.SharedPreferences,

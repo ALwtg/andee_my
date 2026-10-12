@@ -263,7 +263,7 @@ object CardUi {
 
     /** The ball's window, when the service is up. Null-safe by design. */
     private fun ballWindow(): FloatingWindowUi? =
-        net.kuafuai.andee.ScreenBodyService.get()?.ballWindow()
+        net.kuafuai.andee.BodyCoreService.get()?.ballWindow()
 
     /**
      * Wire the window's eviction hook once per window. The window clears its

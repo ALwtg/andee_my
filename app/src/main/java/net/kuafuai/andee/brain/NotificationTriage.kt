@@ -41,7 +41,7 @@ import org.json.JSONObject
  *    the model has no other way to know which that is — the triage call carries
  *    none of the conversation. The tag is passed in and named in the prompt.
  *
- * Stateless and cheap to build; [net.kuafuai.andee.ScreenBodyService] makes one
+ * Stateless and cheap to build; [net.kuafuai.andee.BodyCoreService] makes one
  * per notification rather than holding a handle, so a settings change takes
  * effect on the next message with nothing to invalidate.
  *
@@ -147,7 +147,7 @@ class NotificationTriage(cfg: VoiceConfig.Companion.BrainConfig) {
      * The fence is not decoration: everything between the markers was typed by
      * a stranger, and the markers are what let the model tell that from the
      * instructions around it. Same technique the device already uses for a
-     * closed page — see `ScreenBodyService.notifyPageClosed`.
+     * closed page — see `BodyCoreService.notifyPageClosed`.
      */
     private fun payload(n: JSONObject, langTag: String): String {
         val count = n.optInt("count", 1)

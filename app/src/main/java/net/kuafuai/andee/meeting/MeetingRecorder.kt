@@ -132,7 +132,7 @@ class MeetingRecorder(
         }
         // The fallback is a resource, not a literal: this title ends up as the
         // page header the minutes are laid out under, so it has to follow the
-        // interface language. `ScreenBodyService.meetingMinutesQuery` reads the
+        // interface language. `BodyCoreService.meetingMinutesQuery` reads the
         // same key back — see the note on it in `values/strings.xml`.
         title = name?.trim().orEmpty()
             .ifEmpty { AppLocale.str(context, R.string.meeting_default_title) }

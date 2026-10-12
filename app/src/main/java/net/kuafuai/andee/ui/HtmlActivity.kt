@@ -403,7 +403,7 @@ class HtmlActivity : StageActivity() {
      *
      * `onClose` is the only channel the caller has: `ui.show_html` uses it to
      * put the ball back and to tell the brain how long the page was up, and
-     * [ScreenBodyService.openPageFrom] uses it to unfold the card the user had
+     * [BodyCoreService.openPageFrom] uses it to unfold the card the user had
      * open. Both were fired from `onDestroy`, which is late — see
      * [StageActivity.onStageLeaving] for why that reads as a flash.
      *

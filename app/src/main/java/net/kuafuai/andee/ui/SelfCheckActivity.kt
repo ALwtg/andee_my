@@ -4,6 +4,8 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.ImageView
+import androidx.activity.result.contract.ActivityResultContracts
+import net.kuafuai.andee.BodyCoreService
 import net.kuafuai.andee.ScreenBodyService
 import net.kuafuai.andee.config.FactoryReset
 import net.kuafuai.andee.config.Notebook
@@ -28,36 +30,45 @@ import net.kuafuai.andee.i18n.AppLocale
  *
  * ### Why it still has to exist, and why it still has to be in the launcher
  *
- * Everything else here is an overlay owned by [ScreenBodyService], which is an
- * accessibility service — so if accessibility is off there is no ball, no card,
- * no overlay at all, and therefore **no way into the app**. That was a
- * deliberate design ("no Activity and no launcher UI", see `CLAUDE.md`) and it
- * has one consequence nobody wants: the two most common first-run problems —
- * accessibility not enabled, overlay permission not granted — left the user
- * with a device that does nothing and nowhere to find out why.
+ * Everything else here is an overlay owned by [BodyCoreService]. That used to
+ * make this page the only way in *and* the only place that could explain why
+ * there was no way in: the overlays belonged to an accessibility service, so
+ * with accessibility off there was no ball, no card, and no surface on which to
+ * describe the absence. The body no longer dies with that grant — a revoked
+ * service now costs screen control and nothing else, and the ball stays up —
+ * but that has not made this page redundant. It is still the only surface that
+ * runs *before* the body does, and it is still the only one that can *render*
+ * [net.kuafuai.andee.device.SelfCheck.Level.FAIL] on `accessibility` rather
+ * than merely believe it: a red row about accessibility has to be drawn by
+ * something the accessibility service is not holding.
  *
- * This page is the way out of that. It is a plain Activity, so it runs before
- * the service does, which makes it the only surface where
- * [net.kuafuai.andee.device.SelfCheck.Level.FAIL] on `accessibility` can be
- * *read* rather than just *believed*. That is also why it is the launcher entry
- * point: a door you can only reach from inside the broken room is not a door.
+ * It also does the one job no other component can. It starts the body, and it
+ * is the single context in the app allowed to claim the microphone type for it
+ * — the platform refuses a microphone-typed foreground service created from the
+ * background, and every other starter is background (the ROM handing
+ * accessibility back, the notification's own action, boot). See
+ * `BodyCoreService.promoteForMicrophone`. That is also why the launcher entry
+ * matters: a door you can only reach from inside the broken room is not a door.
  *
- * ### The icon opens two doors, and the service decides which
+ * ### The icon opens two doors, and the body decides which
  *
  * Being the launcher entry point does not make this page what the icon *means*.
- * With the service up, tapping the icon does what a long-press on the ball does
- * — `dispatcher.expand()` — and this Activity finishes without drawing a frame;
+ * With the body up, tapping the icon does what a long-press on the ball does —
+ * `dispatcher.expand()` — and this Activity finishes without drawing a frame;
  * on a working device it is therefore still never *seen*, only started and
- * dropped. With the service down it falls through to the checklist, because
- * there is nothing to unfold and this is the only surface that can say why.
+ * dropped. With the body down it falls through to the checklist, because there
+ * is nothing to unfold and this is the only surface that can say why.
  *
  * One icon, two behaviours, and the branch is not a heuristic: [onCreate] asks
  * whether the ball is actually on screen — and asks in the one way that also
  * puts it there if the only thing wrong was a grant that arrived too late (see
- * `ScreenBodyService.ensureOverlays`). That is also the load-bearing half of the
- * original argument, unchanged — the launcher entry exists so that a device
- * whose assistant is not running still has somewhere to go. All that changed is
- * that a device whose assistant *is* running no longer pays for it by being
+ * `BodyCoreService.ensureOverlays`). It also has to allow for being a frame
+ * early: starting the body is asynchronous, so a device that is perfectly well
+ * can still read "no body yet" here. See the second branch in [onCreate]. All
+ * of that is the load-bearing half of the original argument, unchanged — the
+ * launcher entry exists so that a device whose assistant is not running still
+ * has somewhere to go — and the other half still holds too: a device whose
+ * assistant *is* running does not pay for the launcher's existence by being
  * taken to a diagnostic page every time the user taps the app.
  *
  * See `Theme.Body.Stage.NoPreview` for the other half of making the first door
@@ -100,6 +111,19 @@ import net.kuafuai.andee.i18n.AppLocale
  */
 class SelfCheckActivity : StageActivity() {
 
+    companion object {
+        /**
+         * Start-intent extra: ask for the screen-capture consent as soon as
+         * this page is up.
+         *
+         * Set by the body's notification action, which is the only way in —
+         * `MediaProjectionManager.createScreenCaptureIntent()` needs an
+         * Activity, and this is the only one the app has. See
+         * [requestScreenCapture].
+         */
+        const val EXTRA_SCREEN_CAPTURE = "screen_capture"
+    }
+
     /**
      * The card. Built here on the service-off path only, placed on [stage], and
      * gone with the Activity.
@@ -133,6 +157,13 @@ class SelfCheckActivity : StageActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // The notification's 允许看屏幕 action lands here — see
+        // [requestScreenCapture]. Asked before the branch below, because the
+        // point of the action is that the page it opens is a means to an end.
+        if (intent?.getBooleanExtra(EXTRA_SCREEN_CAPTURE, false) == true) {
+            requestScreenCapture()
+        }
+
         // A working assistant ⇒ this icon means what every other icon on the
         // home screen means: open the app. That is the *same request* a
         // long-press on the ball makes, so it is the same call — one entry point
@@ -156,7 +187,7 @@ class SelfCheckActivity : StageActivity() {
         // install, a package rename), `addView` was refused, and the grant
         // arrived afterwards. Asking the question is also the retry, so the icon
         // is the way back rather than a door that reports the room is empty —
-        // see `ScreenBodyService.ensureOverlays`. When it is still not fixable
+        // see `BodyCoreService.ensureOverlays`. When it is still not fixable
         // we fall through to the checklist, which is where the red overlay row
         // is.
         //
@@ -166,9 +197,30 @@ class SelfCheckActivity : StageActivity() {
         // leave an empty screen — so the icon did nothing, and did it again
         // every time. The grant is now asked directly, which sends that case
         // down to the checklist instead. See `SelfCheck.overlay`.
-        val svc = ScreenBodyService.get()
+        //
+        // This is also the only context in the app that may claim the
+        // microphone type for that service — the platform refuses a
+        // microphone-typed foreground service created from the background, and
+        // a visible Activity is the one place the request is legal. Doing it
+        // here rather than at boot is what makes the assistant keep working on
+        // a device whose accessibility the ROM takes back later;
+        // see `BodyCoreService.promoteForMicrophone`.
+        BodyCoreService.start(this, microphone = true)
+
+        val svc = BodyCoreService.get()
         if (svc != null && svc.ensureOverlays()) {
             svc.dispatcherForNotification()?.expand()
+            finish()
+            return
+        }
+        // Accessibility is ours and the overlay grant is in hand, so the ball
+        // is on its way — this Activity is simply a frame early. `start` is
+        // asynchronous and the new service's `onCreate` is queued behind this
+        // one, so the test above reads null on the cold path that matters most
+        // (first launch after a fresh grant). Falling through here would draw a
+        // checklist for a device that is working, which is the exact report
+        // this branch was rewritten to stop producing.
+        if (svc == null && ScreenBodyService.get() != null && Settings.canDrawOverlays(this)) {
             finish()
             return
         }
@@ -218,14 +270,14 @@ class SelfCheckActivity : StageActivity() {
 
     /** Give the ball back. Nothing to unfold: see [onCreate]. */
     override fun onStageLeaving() {
-        ScreenBodyService.get()?.ballWindow()?.setPagePerched(false)
+        BodyCoreService.get()?.ballWindow()?.setPagePerched(false)
     }
 
     /**
      * The settings sheet, raised by this page rather than by the service.
      *
      * This is the path where there is no service — that is the whole reason the
-     * page is on screen — so `ScreenBodyService.openSettingsForUser` has nobody
+     * page is on screen — so `BodyCoreService.openSettingsForUser` has nobody
      * to ask. `SettingsUi` never needed one: it is a `TYPE_APPLICATION_OVERLAY`
      * built from a Context, and it lands on top of this Activity exactly as it
      * lands on top of the assistant's card.
@@ -233,7 +285,7 @@ class SelfCheckActivity : StageActivity() {
      * The three wipes are the only thing the service was carrying, and each is
      * one static call plus a brain rebuild — so here they are just the static
      * call, because there is no brain to rebuild. That is not a degraded version
-     * of `ScreenBodyService.clearChatHistory`: what that method's second half is
+     * of `BodyCoreService.clearChatHistory`: what that method's second half is
      * *for* is a model still holding the conversation, and on this path nothing
      * is.
      *
@@ -295,6 +347,68 @@ class SelfCheckActivity : StageActivity() {
      * icon-as-app entry finishes before the card is ever built, and a lifecycle
      * callback arriving afterwards is not a good moment to throw.
      */
+    /**
+     * The screen-capture consent, and what the answer goes to.
+     *
+     * Registered as a field rather than from [onCreate] because the lifecycle
+     * requires the callback to exist before the Activity is started, and this
+     * page is started by an icon tap — there is no earlier moment.
+     *
+     * The grant goes to the *body*, not to this Activity: the capture has to
+     * outlive this page, and on Android 14 it has to be re-asked for every
+     * session, so the thing that owns it is the thing that is still running
+     * tomorrow. Nothing is announced here either — the body's own notification
+     * is what reports this state, and a second voice describing the same fact
+     * is how two surfaces start disagreeing.
+     */
+    private val captureConsent = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val granted = BodyCoreService.get()
+            ?.offerScreenCapture(result.resultCode, result.data) == true
+        android.util.Log.i("Body", "screen capture consent: granted=$granted")
+    }
+
+    /**
+     * Ask the user to let Andee read the screen without accessibility.
+     *
+     * **Only reachable while the assistant is blind**, which is the only time
+     * it is worth a system dialog: with accessibility on, `takeScreenshot` is
+     * richer, free and already granted — an aim grid the brain can tap from and
+     * the element list beside it — and asking for a second, weaker way in would
+     * be asking the user to make a decision with no benefit.
+     *
+     * The caller is the body's notification action, `Intent` extra
+     * [EXTRA_SCREEN_CAPTURE]. Failing to launch is not worth a card: the
+     * platform simply has no such screen on some ROMs, and the notification
+     * will go on offering it.
+     */
+    private fun requestScreenCapture() {
+        val mgr = getSystemService(android.media.projection.MediaProjectionManager::class.java)
+            ?: return
+        runCatching { captureConsent.launch(mgr.createScreenCaptureIntent()) }
+            .onFailure {
+                android.util.Log.w("Body", "screen capture consent would not launch", it)
+            }
+    }
+
+    /**
+     * The other half of [EXTRA_SCREEN_CAPTURE], and not a formality.
+     *
+     * This page is `singleTop`, and its two callers both routinely arrive while
+     * it is already the top instance: the notification action is tapped from
+     * the shade with the page up, and the launcher icon does the same. On that
+     * path `onCreate` does not run, so an extra read only there would be a
+     * button that works the first time and silently stops working afterwards —
+     * and the first time is the one where the user had not yet refused.
+     * [setIntent] keeps `intent` honest for anything that reads it later.
+     */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_SCREEN_CAPTURE, false)) requestScreenCapture()
+    }
+
     override fun onResume() {
         super.onResume()
         if (!::ui.isInitialized) return

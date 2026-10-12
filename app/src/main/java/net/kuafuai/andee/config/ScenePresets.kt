@@ -52,7 +52,7 @@ object ScenePresets {
          *
          * The card shows [title] on the bubble and sends this; see
          * [net.kuafuai.andee.ui.HistoryListView] and
-         * `ScreenBodyService.onSuggestionClick`.
+         * `BodyCoreService.onSuggestionClick`.
          */
         val example: String,
     )
