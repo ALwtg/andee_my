@@ -359,17 +359,25 @@ object ToolSchemas {
         [FALLBACK · REQUIRES A REASON] Capture the current screen as a PNG
         (downscaled to 1280 on the long side — proportions preserved).
 
-        Every screenshot arrives with an 8x12 AIM GRID drawn on it, labelled
-        A1 (top-left) to H12 (bottom-right), each label printed at the CENTRE
-        of its cell. This is the device's way of taking the arithmetic out of
-        aiming: read the cell the target sits in and which third of it, and
-        pass them straight to tap_by_coordinates as {"cell": "D7", "part":
-        "bottom-right"} — no pixel measuring, no rescaling, nothing to get
-        wrong. For anything not clearly bigger than a cell, first pass the
-        same cell and part to zoom_screen_region: it shows a red crosshair
-        where the tap would land, so you can confirm or re-aim off the
-        magnified image (its grid is lowercase, and a lowercase label means
-        "this was read off the zoom").
+        Every screenshot taken with accessibility on arrives with an 8x12 AIM
+        GRID drawn on it, labelled A1 (top-left) to H12 (bottom-right), each
+        label printed at the CENTRE of its cell. This is the device's way of
+        taking the arithmetic out of aiming: read the cell the target sits in
+        and which third of it, and pass them straight to tap_by_coordinates as
+        {"cell": "D7", "part": "bottom-right"} — no pixel measuring, no
+        rescaling, nothing to get wrong. For anything not clearly bigger than a
+        cell, first pass the same cell and part to zoom_screen_region: it shows
+        a red crosshair where the tap would land, so you can confirm or re-aim
+        off the magnified image (its grid is lowercase, and a lowercase label
+        means "this was read off the zoom").
+
+        **With accessibility off this is the one screen tool that still works**
+        (through MediaProjection, once the user has allowed it) — and then the
+        image arrives with NO grid, NO element list and no shot_id. Those three
+        all exist to aim a tap, and there are no taps on that path: every other
+        screen.* tool answers "accessibility is off". The response states which
+        way in it used (`source`); on "media_projection" you may describe what
+        you see and must not claim to have acted on it.
 
         Every screenshot now arrives WITH the current element list attached
         (`elements`, same e-numbers as get_screen_element) whenever the tree

@@ -1335,10 +1335,13 @@ class BodyCoreService : Service() {
         // service does not already claim `mediaProjection`, and adding the type
         // is only legal while we are visible — which is now, by definition:
         // this result came back from an Activity.
-        captureWanted = true
-        promoteForWhileInUse()
+        promoteWhileInUse(withCapture = true)
         val started = if (::capture.isInitialized) capture.start(resultCode, data) else false
-        if (!started) captureWanted = false
+        // Recomputed from what actually happened rather than remembered: if the
+        // platform refused the projection, the type we just claimed is one we
+        // are not entitled to and has to come off. The same call puts it back
+        // when a session is granted again, which Android 14 requires anyway.
+        promoteWhileInUse(withCapture = false)
         postNotification()
         return started
     }
@@ -1546,20 +1549,6 @@ class BodyCoreService : Service() {
     private lateinit var capture: net.kuafuai.andee.screen.ScreenCapture
 
     /**
-     * A capture consent has been granted, whether or not the projection is
-     * built yet.
-     *
-     * Read by [whileInUseType] and separate from `capture.isAvailable()` for
-     * one reason: the foreground service type has to be claimed *before*
-     * `getMediaProjection` is called on Android 14, so there is a moment where
-     * we are entitled to the type and do not yet hold a projection. Without
-     * this the type would be added one step too late and the capture would be
-     * refused on exactly the version that needs it most.
-     */
-    @Volatile
-    private var captureWanted = false
-
-    /**
      * Add every while-in-use type we are now entitled to.
      *
      * Only legal from a context where the app is visible, which is why the
@@ -1573,8 +1562,19 @@ class BodyCoreService : Service() {
      * runtime in two independent directions: record permission revoked, or a
      * capture consent that Android 14 makes per-session.
      */
-    fun promoteForWhileInUse() {
-        val type = whileInUseType() ?: return
+    fun promoteForWhileInUse() = promoteWhileInUse(withCapture = false)
+
+    /**
+     * @param withCapture claim `mediaProjection` even though no projection
+     *   exists yet. Needed exactly once, at [offerScreenCapture]: Android 14
+     *   refuses `getMediaProjection` to an app whose foreground service does
+     *   not already carry the type, so there is a real moment where we must
+     *   claim it ahead of holding it. Everywhere else the type follows
+     *   availability, which is what keeps it from being claimed forever after a
+     *   user stops the projection from the privacy chip.
+     */
+    private fun promoteWhileInUse(withCapture: Boolean) {
+        val type = whileInUseType(withCapture) ?: return
         runCatching {
             startForeground(NOTIFY_BODY, buildNotification(), type)
         }.onFailure {
@@ -1582,14 +1582,14 @@ class BodyCoreService : Service() {
         }
     }
 
-    private fun whileInUseType(): Int? {
+    private fun whileInUseType(withCapture: Boolean): Int? {
         var t = 0
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             t = t or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
         }
-        if (::capture.isInitialized && (captureWanted || capture.isAvailable())) {
+        if (withCapture || (::capture.isInitialized && capture.isAvailable())) {
             t = t or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         }
         if (t == 0) return null
