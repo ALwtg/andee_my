@@ -4,7 +4,7 @@ package net.kuafuai.andee.ui.ball
  * The faces the ball can wear.
  *
  * Three groups, and the split is load-bearing rather than cosmetic:
- *   - emotions the model picks from (CALM..CONCERNED)
+ *   - emotions and gestures the model picks from (CALM..REST)
  *   - voice-pipeline states (LISTENING, THINKING, SPEAKING), owned by
  *     AsrController / TtsController
  *   - agent work states (SEARCHING..SLEEPING), owned by the task lifecycle in
@@ -18,6 +18,11 @@ package net.kuafuai.andee.ui.ball
  */
 enum class Mood {
     CALM, HAPPY, CURIOUS, TENSE, ANXIOUS, CONCERNED,
+    // Gestures the model can ask for by name. They share the first group's
+    // standing — a face the model picks — but they are drawn with hands and
+    // props, which only a look with [BallLook.gestures] has; on the others each
+    // one falls back to the plain face on its [FACE] row.
+    WINK, WAVE, PROTECT, CELEBRATE, REST,
     LISTENING, HOLDING, THINKING, SPEAKING,
     SEARCHING, SUCCESS, FAILED, SLEEPING,
 }
@@ -104,6 +109,35 @@ val FACE: Map<Mood, Face> = mapOf(
         blush = 0.32f,
     ),
 
+    // Playful: head cocked toward the winking eye, a broad smile. The wink itself
+    // is [Pose.wink]; on a look without gestures this is just a pleased face.
+    Mood.WINK to Face(
+        rgb(0xf0abfc), 1f, -0.05f, 0.7f, 1.3f, 0.06f, 0f, 0f,
+        blush = 0.7f, breath = 0.03f,
+    ),
+    // Eyes wide and bright, a little lean toward whoever is being greeted.
+    Mood.WAVE to Face(
+        rgb(0x7dd3fc), 1.12f, -0.1f, 0.62f, 1.5f, -0.04f, 0f, 0f,
+        blush = 0.6f, breath = 0.034f,
+    ),
+    // Set and steady rather than angry: the brow is down, the mouth a flat line.
+    Mood.PROTECT to Face(
+        rgb(0x9db4ff), 0.92f, 0.5f, 0.1f, 1.2f, 0f, 0f, 0f,
+        blush = 0.3f, breath = 0.028f,
+    ),
+    // [SUCCESS] without the work-lifecycle meaning: the model chose it, so there
+    // is no POP and no outcome flash — only the face.
+    Mood.CELEBRATE to Face(
+        rgb(0x5eead4), 0.5f, -0.22f, 0.86f, 1.4f, 0f, 0f, 0f,
+        eyeArc = 1f, blush = 1.0f, spread = 1.1f,
+    ),
+    // Drowsy and content: eyes shut, slow breath. [SLEEPING] minus the bubble, so
+    // it reads as taking a break rather than as having been switched off.
+    Mood.REST to Face(
+        rgb(0x9db4ff), 0.1f, 0.04f, 0.2f, 0.55f, 0.06f, 0f, 0f,
+        eyeArc = 0.85f, blush = 0.32f, breath = 0.03f,
+    ),
+
     // Wide-eyed, mouth slightly open, head cocked. This is the one state the
     // user is waiting on before they start talking, so it has to be
     // unmistakable from across a desk — and unmistakable from CALM, which it
@@ -177,6 +211,10 @@ val FACE: Map<Mood, Face> = mapOf(
 enum class Action {
     NONE, HOP, NOD, SHAKE, POP, RECOIL,
     STRETCH, LOOK_AROUND, WIGGLE, BOUNCE,
+    // A raised hand, and one eye closing. Both borrow the face's [Pose] channels
+    // for their length, so on a look without gestures they are no-ops that still
+    // use up their idle slot — see [EmotionState.tick].
+    WAVE, WINK,
 }
 
 /**
@@ -196,6 +234,8 @@ val ACTION_SECONDS = floatArrayOf(
     1.9f,    // LOOK_AROUND
     1.1f,    // WIGGLE
     0.9f,    // BOUNCE
+    1.7f,    // WAVE
+    0.9f,    // WINK
 )
 
 /**
@@ -210,6 +250,8 @@ val IDLE_ACTIONS: List<Pair<Action, Float>> = listOf(
     Action.WIGGLE to 1.0f,
     Action.BOUNCE to 0.7f,
     Action.HOP to 0.5f,
+    Action.WAVE to 0.8f,
+    Action.WINK to 0.8f,
 )
 
 /**

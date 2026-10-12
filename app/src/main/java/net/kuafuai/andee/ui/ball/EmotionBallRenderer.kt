@@ -10,6 +10,7 @@ import net.kuafuai.andee.ui.ball.gl.Horn
 import net.kuafuai.andee.ui.ball.gl.IcoSphere
 import net.kuafuai.andee.ui.ball.gl.Mesh
 import net.kuafuai.andee.ui.ball.gl.PointsBuffer
+import net.kuafuai.andee.ui.ball.gl.Puff
 import net.kuafuai.andee.ui.ball.gl.Shader
 import net.kuafuai.andee.ui.ball.gl.Torus
 import net.kuafuai.andee.ui.ball.gl.UvSphere
@@ -20,6 +21,7 @@ import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -243,6 +245,15 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
                 Eye.build(look.eyeRadius, look.eyeCyl, look.eyeCut, 4, 12)
             else Capsule.build(look.eyeRadius, look.eyeCyl, 4, 12)
         val mouth: Mesh = Torus.build(look.mouthR, look.mouthTube, 8, 24, PI.toFloat())
+
+        /**
+         * The eye with its top sliced flat, for a look with [BallLook.gestures] —
+         * swapped in while a mood asks for a lowered lid. Fixed at 0.38: the roll
+         * that sells it is [EmotionState.lidCut]'s, and a cut deeper than this
+         * swallows the glint, which sits at 0.4 of the eye's radius above centre.
+         */
+        val eyeCut: Mesh? =
+            if (look.gestures) Eye.build(look.eyeRadius, look.eyeCyl, GESTURE_LID_CUT, 4, 12) else null
         val horn: Mesh? =
             if (look.hornH > 0f)
                 Horn.build(
@@ -303,6 +314,21 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
 
     /** One blob per pupil and per glint — see [drawDot]. */
     private lateinit var dotMesh: Mesh
+
+    // ---- Gesture props: built once, not per look ----
+    private lateinit var starMesh: Mesh
+    private lateinit var shieldMesh: Mesh
+    private lateinit var dropMesh: Mesh
+
+    /** Scratch: a hand part's model matrix, built on top of the hand's own. */
+    private val partM = FloatArray(16)
+
+    /** The hand's own model matrix, kept while its parts are drawn. */
+    private val handM = FloatArray(16)
+
+    private val handColor = FloatArray(3)
+    private val propColor = FloatArray(3)
+    private val rimColor = FloatArray(3)
 
     /** 鼻涕泡用的球体。subdiv 4：水滴靠轮廓圈出形状，边不能是折线。 */
     private lateinit var bubbleSphere: Mesh
@@ -367,7 +393,8 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
     // explicitly drives the renderer with them.
     private val moods = arrayOf(
         Mood.CALM, Mood.HAPPY, Mood.CURIOUS, Mood.TENSE,
-        Mood.ANXIOUS, Mood.CONCERNED, Mood.SEARCHING, Mood.SLEEPING,
+        Mood.ANXIOUS, Mood.CONCERNED, Mood.WINK, Mood.WAVE, Mood.PROTECT,
+        Mood.CELEBRATE, Mood.REST, Mood.SEARCHING, Mood.SLEEPING,
     )
 
     // Point-size projection factor: viewport-height / (2 tan(fov/2))
@@ -416,6 +443,9 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         // cost: four of them a frame, each about 4 dp wide on screen.
         dotMesh = IcoSphere.build(2)
         bubbleSphere = IcoSphere.build(4)
+        starMesh = Puff.build(Puff.roundStar(5, 0.54f, 1.3f), 0.55f)
+        shieldMesh = Puff.build(Puff.shield(), 0.42f, rings = 5)
+        dropMesh = Puff.build(Puff.drop(), 0.60f)
 
         heads = PointsBuffer(DUST_COUNT)
         tails = PointsBuffer(DUST_COUNT * TRAIL_COUNT)
@@ -479,6 +509,8 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         drawSnout()
         drawFace()
         drawHands()
+        drawGestureHands()
+        drawProps()
         drawBlush()
         drawRim()
         // drawRings() — the orbiting halo read as clutter around a ball this
@@ -599,7 +631,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
                         r -= w
                         if (r <= 0) { pick = a; break }
                     }
-                } while (pick == lastFidget)
+                } while (pick == lastFidget || (!LOOK.gestures && (pick == Action.WAVE || pick == Action.WINK)))
                 lastFidget = pick
                 state.trigger(pick)
                 fidgetIn = FIDGET_MIN_SECONDS +
@@ -915,20 +947,34 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         // shape is a visible ghost — whereas one scaled to zero simply isn't
         // there. The in-between (a flattening dot under a growing arch) also
         // happens to be what a squint looks like.
-        val round = state.eyeYScale * (1f - state.eyeArc)
-        val arc = state.eyeArc
+        //
+        // The two eyes cross-fade on their own: a wink is the viewer's-right eye
+        // running the same fade as a squint while the left one stays round.
+        val arcL = state.eyeArc
+        val arcR = max(state.eyeArc, state.wink)
+        // Once the arc has taken over the round eye is gone, not merely small: a
+        // look with big eyes shows the last tenth of one as a dark sliver under the
+        // arc. Left alone on the other looks, whose small eyes hide it.
+        val roundL = if (LOOK.gestures && arcL >= ARC_EYE_AT) 0f else state.eyeYScale * (1f - arcL)
+        val roundR = if (LOOK.gestures && arcR >= ARC_EYE_AT) 0f else state.eyeYScale * (1f - arcR)
+        // A lowered lid is a different *shape* of eye, so it swaps meshes; the
+        // roll that turns it into a look is the state's. Swapped at the half-way
+        // point of a 0.1 s tween, which is inside what the eye can hide.
+        val eyeMesh = if (state.lidCut > 0.5f) meshes.eyeCut ?: meshes.eye else meshes.eye
 
-        if (round > 0.01f) {
+        if (roundL > 0.01f) {
             GLES20.glUniform3fv(solidShader.uniform("uColor"), 1, LOOK.eyeColor, 0)
-            setLocalFromFace(state.eyeLX, state.eyeLY, state.eyeLRotZ, round, pivotY = EYE_LID_PIVOT)
+            setLocalFromFace(state.eyeLX, state.eyeLY, state.eyeLRotZ, roundL, pivotY = EYE_LID_PIVOT)
             GLES20.glUniformMatrix4fv(solidShader.uniform("uMVP"), 1, false, mvp, 0)
-            meshes.eye.bind(aPos)
-            meshes.eye.draw()
-
-            setLocalFromFace(state.eyeRX, state.eyeRY, state.eyeRRotZ, round, pivotY = EYE_LID_PIVOT)
+            eyeMesh.bind(aPos)
+            eyeMesh.draw()
+        }
+        if (roundR > 0.01f) {
+            GLES20.glUniform3fv(solidShader.uniform("uColor"), 1, LOOK.eyeColor, 0)
+            setLocalFromFace(state.eyeRX, state.eyeRY, state.eyeRRotZ, roundR, pivotY = EYE_LID_PIVOT)
             GLES20.glUniformMatrix4fv(solidShader.uniform("uMVP"), 1, false, mvp, 0)
-            meshes.eye.bind(aPos)
-            meshes.eye.draw()
+            eyeMesh.bind(aPos)
+            eyeMesh.draw()
         }
 
         // The pupil and its catchlight, which are what turn a white slot into
@@ -941,19 +987,21 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         // a dark ball with white eyes needs a pupil drawn inside them; a pale
         // ball has nothing for a white eye to contrast against, so its eye *is*
         // the dark shape and only the glint goes on top.
-        if (round > PUPIL_MIN_APERTURE && arc < ARC_EYE_AT &&
-            (LOOK.pupilR > 0f || LOOK.glintR > 0f)
-        ) {
+        if (LOOK.pupilR > 0f || LOOK.glintR > 0f) {
             if (LOOK.pupilR > 0f) {
                 for (i in 0..2) {
                     pupilColor[i] = state.nowColor[i] * PUPIL_TINT + PUPIL_LIFT[i]
                 }
             }
-            drawEyeContents(state.eyeLX, state.eyeLY, state.eyeLRotZ, round)
-            drawEyeContents(state.eyeRX, state.eyeRY, state.eyeRRotZ, round)
+            if (roundL > PUPIL_MIN_APERTURE && arcL < ARC_EYE_AT) {
+                drawEyeContents(state.eyeLX, state.eyeLY, state.eyeLRotZ, roundL)
+            }
+            if (roundR > PUPIL_MIN_APERTURE && arcR < ARC_EYE_AT) {
+                drawEyeContents(state.eyeRX, state.eyeRY, state.eyeRRotZ, roundR)
+            }
         }
 
-        if (arc > 0.01f) {
+        if (arcL > 0.01f || arcR > 0.01f) {
             // The `^` eye carries its own colour, and this line is load-bearing.
             //
             // It used to inherit whatever the previous element had left in
@@ -978,28 +1026,40 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
             } else {
                 GLES20.glUniform3fv(solidShader.uniform("uColor"), 1, LOOK.eyeColor, 0)
             }
-            val h = arc * state.lid
-            setLocalFromFace(
-                state.eyeLX, state.eyeLY - EYE_ARC_DROP,
-                EYE_ARC_ROT_Z + state.eyeLRotZ, h, arc,
-            )
-            GLES20.glUniformMatrix4fv(solidShader.uniform("uMVP"), 1, false, mvp, 0)
-            eyeArcMesh.bind(aPos)
-            eyeArcMesh.draw()
-
-            setLocalFromFace(
-                state.eyeRX, state.eyeRY - EYE_ARC_DROP,
-                EYE_ARC_ROT_Z + state.eyeRRotZ, h, arc,
-            )
-            GLES20.glUniformMatrix4fv(solidShader.uniform("uMVP"), 1, false, mvp, 0)
-            eyeArcMesh.bind(aPos)
-            eyeArcMesh.draw()
+            // `⌣` for a closed lid, `⌢` for a laugh: the same arc turned half a
+            // revolution, with its centre moved to the other side of the eye so the
+            // curve still lands where the eye was.
+            val flipRot = if (state.arcFlip) PI.toFloat() else 0f
+            val drop = if (state.arcFlip) -EYE_ARC_DROP else EYE_ARC_DROP
+            val sc = LOOK.arcScale
+            if (arcL > 0.01f) {
+                setLocalFromFace(
+                    state.eyeLX, state.eyeLY - drop * sc,
+                    EYE_ARC_ROT_Z + flipRot + state.eyeLRotZ, arcL * state.lid * sc, arcL * sc,
+                )
+                GLES20.glUniformMatrix4fv(solidShader.uniform("uMVP"), 1, false, mvp, 0)
+                eyeArcMesh.bind(aPos)
+                eyeArcMesh.draw()
+            }
+            if (arcR > 0.01f) {
+                setLocalFromFace(
+                    state.eyeRX, state.eyeRY - drop * sc,
+                    EYE_ARC_ROT_Z + flipRot + state.eyeRRotZ, arcR * state.lid * sc, arcR * sc,
+                )
+                GLES20.glUniformMatrix4fv(solidShader.uniform("uMVP"), 1, false, mvp, 0)
+                eyeArcMesh.bind(aPos)
+                eyeArcMesh.draw()
+            }
         }
 
         // Mouth — the mood colour, or a deep shade of it on a pale ball, where
         // the full-strength colour is too close in value to the body to read.
         for (i in 0..2) {
-            mouthColor[i] = if (LOOK.mouthDeep) state.nowColor[i] * MOUTH_DEEP else state.nowColor[i]
+            mouthColor[i] = when {
+                LOOK.mouthInk.isNotEmpty() -> LOOK.mouthInk[i]
+                LOOK.mouthDeep -> state.nowColor[i] * MOUTH_DEEP
+                else -> state.nowColor[i]
+            }
         }
         setLocalFromFace(0f, state.mouthY, state.mouthRotZ, state.mouthScaleY)
         GLES20.glUniformMatrix4fv(solidShader.uniform("uMVP"), 1, false, mvp, 0)
@@ -1527,15 +1587,23 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
                 gr, eyeFrontZ + GLINT_Z_STEP, WHITE,
             )
         } else {
+            // Where the eye is looking moves the highlights further than it moves
+            // the eye, which is what makes a glance read as a glance at this size;
+            // a lowered lid pulls them down with it so the cut never beheads one.
+            val er = LOOK.eyeRadius
+            val gx = state.lookX * 0.28f * er
+            val gy = state.lookY * 0.28f * er - state.lidCut * 0.22f * er
             drawDot(
-                cx - LOOK.eyeRadius * 0.36f, cy + sink + LOOK.eyeRadius * 0.40f * follow,
+                cx - er * 0.36f + gx, cy + sink + er * 0.40f * follow + gy,
                 rotZ, lidScale,
                 gr, eyeFrontZ + GLINT_Z_STEP, WHITE,
             )
             val g2 = LOOK.glint2R
             if (g2 > 0f) {
+                // Pulled in from the edge, and carried only part of the way by a
+                // glance: at the full shift it slid off the rim of the eye.
                 drawDot(
-                    cx + LOOK.eyeRadius * 0.54f, cy + sink - LOOK.eyeRadius * 0.26f * follow,
+                    cx + er * 0.44f + gx * 0.5f, cy + sink - er * 0.26f * follow + gy,
                     rotZ, lidScale,
                     g2, eyeFrontZ + GLINT_Z_STEP, LOOK.glint2Color,
                 )
@@ -1646,6 +1714,181 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         handMesh.draw()
     }
 
+    /**
+     * The gesture hands, for a look with [BallLook.gestures]: two lit, puffy gloves
+     * parented to the body, so they breathe, hop and lean with it — unlike
+     * [drawHands], whose paws hold still on the ledge while the body slips.
+     *
+     * Drawn after the face so they sit over the body, and lit with the body's own
+     * material so they read as part of the same plush animal instead of stickers
+     * on it. Each is a palm and five blobs; [EmotionState.HandRender.fist] walks
+     * the fingers from a row along the top (an open mitten) down to a row of
+     * knuckles at the front with the thumb across them (a fist), and
+     * [EmotionState.HandRender.point] stretches the finger on the body side out.
+     * One continuous parameter between two shapes is what lets a hand *close*
+     * rather than swap.
+     */
+    private fun drawGestureHands() {
+        if (!LOOK.gestures) return
+        if (state.handL.s < 0.03f && state.handR.s < 0.03f) return
+        for (i in 0..2) handColor[i] = bodyColor[i] * HAND_SHADE
+        useShellWith(handColor)
+        drawGestureHand(state.handL, -1)
+        drawGestureHand(state.handR, 1)
+    }
+
+    private fun drawGestureHand(h: EmotionState.HandRender, side: Int) {
+        if (h.s < 0.03f) return
+        val sc = h.s.coerceAtMost(1.2f) * HAND_SCALE
+        val r2 = LOOK.bodyScale * LOOK.bodyScale - h.x * h.x - h.y * h.y
+        // On the surface where there is one, and never behind the ball: a hand set
+        // out past the silhouette used to sit at z 0.12, and its inner half — the
+        // half with the pointing finger on it — was hidden by the body it was
+        // reaching across.
+        val z = max(sqrt(max(r2, 0f)) + 0.05f, HAND_MIN_Z)
+        val swing = h.waveAmt * sin(state.clock * 9f) * 24f
+        val bob = h.jig * (1f - h.waveAmt) * sin(state.clock * 7f) * 0.035f
+        composeModelFromRoot {
+            Matrix.translateM(local, 0, h.x, h.y + bob, z)
+            Matrix.rotateM(local, 0, h.roll + swing, 0f, 0f, 1f)
+            if (side < 0) Matrix.scaleM(local, 0, -1f, 1f, 1f)
+            Matrix.scaleM(local, 0, sc, sc, sc)
+        }
+        System.arraycopy(model, 0, handM, 0, 16)
+        val f = h.fist
+        val p = h.point
+
+        // Palm.
+        handPart(0f, 0f, 0f, 0.175f, 0.155f, 0.118f)
+
+        // Three fingers: along the top when open, folded down to knuckles when closed.
+        // Open they are long and spaced a full finger-width apart; at the first pass's
+        // 0.088 spacing the three overlapped into one lumpy blob and a waving hand
+        // read as a fist.
+        for (n in -1..1) {
+            val ox = n * 0.104f
+            val oy = 0.175f + (if (n == 0) 0.05f else 0f)
+            val cx = n * 0.075f
+            var x = ox + (cx - ox) * f
+            var y = oy + (0.075f - oy) * f
+            var zf = 0.02f + (0.098f - 0.02f) * f
+            var rx = 0.054f + (0.077f - 0.054f) * f
+            var ry = 0.108f + (0.070f - 0.108f) * f
+            var rz = 0.07f + (0.078f - 0.07f) * f
+            if (n == -1 && p > 0.01f) {
+                // The finger on the body side straightens out and up. Long enough
+                // to clear the fist by more than its own width: at 0.145 it was a
+                // bump on the knuckles and nobody could tell it was pointing.
+                x += (-0.09f - x) * p
+                y += (0.30f - y) * p
+                zf += (0.07f - zf) * p
+                rx += (0.056f - rx) * p
+                ry += (0.185f - ry) * p
+                rz += (0.060f - rz) * p
+            }
+            handPart(x, y, zf, rx, ry, rz)
+        }
+
+        // Thumb: out to the side when open, across the front of the fingers when closed.
+        handPart(
+            0.165f + (0.02f - 0.165f) * f, -0.01f + (-0.03f - -0.01f) * f, 0.03f + (0.135f - 0.03f) * f,
+            0.055f + (0.085f - 0.055f) * f, 0.082f + (0.05f - 0.082f) * f, 0.06f,
+        )
+    }
+
+    /** One part of a gesture hand: [handM] with a translate and a scale on it. */
+    private fun handPart(x: Float, y: Float, z: Float, rx: Float, ry: Float, rz: Float) {
+        System.arraycopy(handM, 0, partM, 0, 16)
+        Matrix.translateM(partM, 0, x, y, z)
+        Matrix.scaleM(partM, 0, rx, ry, rz)
+        Matrix.multiplyMM(mv, 0, view, 0, partM, 0)
+        Matrix.multiplyMM(mvp, 0, proj, 0, mv, 0)
+        drawShellPart(handMesh)
+    }
+
+    /**
+     * Stars, motion strokes, the shield and the sweat bead — everything a pose
+     * puts *around* the ball rather than on it.
+     *
+     * Lit with the shell shader like the hands, which is what makes them puffy
+     * stickers instead of flat clip-art, and parented to the body so they bob
+     * with it. Each pops in by [EmotionState.prop], with a small overshoot: a prop
+     * that eases to full size reads as appearing, one that overshoots reads as
+     * being *thrown up*, which is what a star over a celebrating ball should be.
+     */
+    private fun drawProps() {
+        if (!LOOK.gestures) return
+        val pr = state.prop
+        var any = false
+        for (v in pr) if (v > 0.03f) any = true
+        if (!any) return
+        val t = state.clock
+
+        if (pr[PROP_STARS] > 0.03f) {
+            val k = pop(pr[PROP_STARS])
+            for (n in 0..2) {
+                val sz = STAR_SIZE[n] * k * (1f + 0.12f * sin(t * 5f + n * 2.1f))
+                propDraw(
+                    starMesh, STAR_POS[n * 2], STAR_POS[n * 2 + 1], 0.45f,
+                    sz, sz, sz, 10f * sin(t * 3f + n), STAR_COLOR,
+                )
+            }
+        }
+        if (pr[PROP_SPARK_L] > 0.03f) strokes(SPARK_L, pop(pr[PROP_SPARK_L]), t)
+        if (pr[PROP_SPARK_R] > 0.03f) strokes(SPARK_R, pop(pr[PROP_SPARK_R]), t + 1.3f)
+        if (pr[PROP_SPARK_TOP] > 0.03f) strokes(SPARK_TOP, pop(pr[PROP_SPARK_TOP]), t + 2.1f)
+        if (pr[PROP_SHIELD] > 0.03f) {
+            val k = pop(pr[PROP_SHIELD])
+            val bob = sin(t * 2.4f) * 0.015f
+            propDraw(
+                shieldMesh, 1.00f, -0.22f + bob, 0.50f,
+                0.50f * k, 0.52f * k, 0.50f * k, -8f, CORAL,
+            )
+            // A lighter inner shield, nested, which is what turns a coral blob into
+            // a shield with a bevelled rim — the sketch's only other detail.
+            propDraw(
+                shieldMesh, 1.00f, -0.20f + bob, 0.60f,
+                0.34f * k, 0.36f * k, 0.34f * k, -8f, CORAL_LIGHT,
+            )
+        }
+        if (pr[PROP_DROP] > 0.03f) {
+            val k = pop(pr[PROP_DROP])
+            val slide = (t * 0.5f) % 1f
+            propDraw(
+                dropMesh, 0.68f, 0.30f - slide * 0.07f, 0.62f,
+                0.105f * k, 0.13f * k * (1f - 0.25f * slide), 0.105f * k, 0f, DROP_COLOR,
+            )
+        }
+    }
+
+    /** Overshooting pop: 0→1 with a ~20% bulge on the way. */
+    private fun pop(s: Float): Float = s * (1f + 0.22f * sin(PI.toFloat() * s.coerceIn(0f, 1f)))
+
+    /** A fan of short coral strokes: `x, y, roll` triples. Each flicks on its own beat. */
+    private fun strokes(set: FloatArray, k: Float, t: Float) {
+        for (n in 0 until set.size / 3) {
+            val flick = 0.82f + 0.18f * sin(t * 8f + n * 1.9f)
+            propDraw(
+                handMesh, set[3 * n], set[3 * n + 1], 0.40f,
+                0.040f * k, 0.105f * k * flick, 0.040f * k, set[3 * n + 2], CORAL,
+            )
+        }
+    }
+
+    private fun propDraw(
+        mesh: Mesh, x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float,
+        roll: Float, color: FloatArray,
+    ) {
+        for (i in 0..2) propColor[i] = color[i]
+        useShellWith(propColor)
+        composeModelFromRoot {
+            Matrix.translateM(local, 0, x, y, z)
+            Matrix.rotateM(local, 0, roll, 0f, 0f, 1f)
+            Matrix.scaleM(local, 0, sx, sy, sz)
+        }
+        drawShellPart(mesh)
+    }
+
     private fun drawRim() {
         System.arraycopy(root, 0, model, 0, 16)
         Matrix.scaleM(model, 0, RIM, RIM, RIM)
@@ -1663,7 +1906,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         // and sweeping that paints a moving dark stripe across the ball, which
         // reads as a rendering fault rather than as a scan. Zeroed there.
         GLES20.glUniform1f(rimShader.uniform("uScanY"), state.scanY)
-        GLES20.glUniform1f(rimShader.uniform("uScan"), if (LOOK.rimDark) 0f else state.scan)
+        GLES20.glUniform1f(rimShader.uniform("uScan"), if (LOOK.rimDark) 0f else state.scan * LOOK.scanGain)
         if (LOOK.rimDark) {
             // A tight dark contour instead of a glow. The body is drawn inside
             // [RIM] and this sphere sits on it, so the visible band *is* the
@@ -1681,7 +1924,15 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
             GLES20.glUniform1f(rimShader.uniform("uCap"), RIM_DARK_CAP)
         } else {
             GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE)
-            GLES20.glUniform3fv(rimShader.uniform("uColor"), 1, state.nowColor, 0)
+            // A look with its own edge colour pulls the glow toward it. Partial,
+            // so the work and alarm moods keep enough of their hue to be told apart.
+            val tint = LOOK.rimTintMix
+            for (i in 0..2) {
+                rimColor[i] = if (tint > 0f) {
+                    state.nowColor[i] + (LOOK.rimTint[i] - state.nowColor[i]) * tint
+                } else state.nowColor[i]
+            }
+            GLES20.glUniform3fv(rimShader.uniform("uColor"), 1, rimColor, 0)
             GLES20.glUniform1f(rimShader.uniform("uIntensity"), state.rimIntensity * LOOK.rimGain)
             GLES20.glUniform1f(rimShader.uniform("uCap"), 1f)
         }
@@ -1788,6 +2039,38 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
 
     companion object {
         private const val DEG = 57.29578f  // rad → deg for Matrix.rotateM
+
+        /** How much of the eye's height a lowered lid slices off; see [LookMeshes.eyeCut]. */
+        private const val GESTURE_LID_CUT = 0.38f
+
+
+        /** The gesture hands are a touch lighter than the body: they face the light. */
+        private const val HAND_SHADE = 1.05f
+
+        /**
+         * How big a gesture hand is drawn, as a multiple of the geometry in
+         * [drawGestureHand]. Measured off the sketches: a hand is about a quarter of
+         * the head's width, and the first pass drew them at about a seventh — they
+         * read as mittens on a doll rather than as part of the character.
+         */
+        private const val HAND_SCALE = 1.65f
+
+        /** The shallowest a gesture hand sits: in front of the body's own edge. See [drawGestureHand]. */
+        private const val HAND_MIN_Z = 0.46f
+
+        private val CORAL = floatArrayOf(1.0f, 0.50f, 0.40f)
+        private val CORAL_LIGHT = floatArrayOf(1.0f, 0.68f, 0.56f)
+        private val STAR_COLOR = floatArrayOf(1.0f, 0.66f, 0.36f)
+        private val DROP_COLOR = floatArrayOf(0.62f, 0.84f, 1.0f)
+
+        /** Three stars over a celebrating ball: `x, y` pairs, then their sizes. */
+        private val STAR_POS = floatArrayOf(-0.98f, 0.72f, 0.05f, 1.18f, 1.02f, 0.80f)
+        private val STAR_SIZE = floatArrayOf(0.20f, 0.15f, 0.19f)
+
+        /** Motion strokes as `x, y, roll` triples — a fan from the waving hand, a pair off the pointing one, a burst on top. */
+        private val SPARK_L = floatArrayOf(-0.78f, 0.50f, 35f, -1.04f, 0.36f, 62f, -1.22f, 0.10f, 88f)
+        private val SPARK_R = floatArrayOf(1.08f, 0.12f, -60f, 0.98f, 0.36f, -32f)
+        private val SPARK_TOP = floatArrayOf(0f, 1.15f, 0f, -0.28f, 1.08f, 35f, 0.28f, 1.08f, -35f)
 
         /** Camera distance on +Z, looking at the origin. */
         private const val CAM_Z = 4.9f

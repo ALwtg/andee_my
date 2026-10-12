@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug builds only. Shows one ball at a time so a look or a mood can be
+             checked with `adb shell am start` and a screenshot, without the
+             accessibility service. See debug/BallLabActivity. -->
+        <activity
+            android:name=".debug.BallLabActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Body.Fullscreen" />
+    </application>
+</manifest>

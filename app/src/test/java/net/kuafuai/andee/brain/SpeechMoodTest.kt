@@ -120,4 +120,38 @@ class SpeechMoodTest {
         assertEquals("第一句。\n第二句。", s.text)
         assertEquals(listOf(SpeechMood.Cue(5, Mood.HAPPY)), s.cues)
     }
+
+    /**
+     * The five gestures are reachable by their own names and by the ordinary word
+     * a model would write instead. A name that is missing here is the old
+     * `[angry]` bug again: shown in the scrollback and read out as a word.
+     */
+    @Test
+    fun `the five gestures are reachable by name and by synonym`() {
+        val cases = mapOf(
+            "wink" to Mood.WINK, "眨眼" to Mood.WINK,
+            "wave" to Mood.WAVE, "bye" to Mood.WAVE, "再见" to Mood.WAVE,
+            "protect" to Mood.PROTECT, "守护" to Mood.PROTECT,
+            "celebrate" to Mood.CELEBRATE, "yay" to Mood.CELEBRATE, "庆祝" to Mood.CELEBRATE,
+            "rest" to Mood.REST, "sleepy" to Mood.REST, "休息" to Mood.REST,
+        )
+        for ((word, mood) in cases) {
+            val s = SpeechMood.parse("[$word]好了。")
+            assertEquals("好了。", s.text)
+            assertEquals("[$word]", listOf(SpeechMood.Cue(0, mood)), s.cues)
+        }
+    }
+
+    /**
+     * Widening the vocabulary must not have moved a word that already meant
+     * something: `excited` and `proud` were HAPPY before there was a CELEBRATE,
+     * and a reply that said so should not start throwing stars.
+     */
+    @Test
+    fun `older words keep their older faces`() {
+        assertEquals(listOf(SpeechMood.Cue(0, Mood.HAPPY)), SpeechMood.parse("[excited]好!").cues)
+        assertEquals(listOf(SpeechMood.Cue(0, Mood.HAPPY)), SpeechMood.parse("[proud]好!").cues)
+        assertEquals(listOf(SpeechMood.Cue(0, Mood.CALM)), SpeechMood.parse("[relaxed]好!").cues)
+        assertEquals(listOf(SpeechMood.Cue(0, Mood.CONCERNED)), SpeechMood.parse("[serious]好!").cues)
+    }
 }

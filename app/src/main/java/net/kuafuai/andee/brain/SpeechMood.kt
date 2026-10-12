@@ -54,14 +54,14 @@ object SpeechMood {
     }
 
     /**
-     * The six faces, by every name a model actually reaches for.
+     * The eleven faces, by every name a model actually reaches for.
      *
      * It started as six words and that was the bug: asked to look angry, the
      * model wrote `[angry]` — a word with no face behind it — so the tag was
      * left alone, printed in the scrollback and read out loud as "angry",
      * which is all three of the failures this class exists to prevent, at
      * once. The vocabulary is wide because the model is choosing a *feeling*,
-     * not calling an API, and the nearest of six faces is a far better answer
+     * not calling an API, and the nearest of the faces is a far better answer
      * than the word itself in the user's ear.
      *
      * Chinese is in here for the same reason. This device answers in Chinese
@@ -98,6 +98,30 @@ object SpeechMood {
             "concerned", "sad", "sorry", "apologetic", "disappointed", "unhappy", "serious",
             "难过", "抱歉", "遗憾", "失望", "担忧", "严肃",
         ).all(Mood.CONCERNED)
+        // The five gestures. They are faces in the model's eyes — it writes one the
+        // way it writes `[happy]` — but they are drawn with hands and props, which
+        // only the default look has; on the others each lands on the plain face on
+        // its own [net.kuafuai.andee.ui.ball.FACE] row.
+        listOf(
+            "wink", "playful", "teasing", "cheeky", "flirty",
+            "眨眼", "调皮", "俏皮", "逗你",
+        ).all(Mood.WINK)
+        listOf(
+            "wave", "hello", "hi", "bye", "goodbye", "greeting",
+            "挥手", "你好", "再见", "拜拜", "打招呼",
+        ).all(Mood.WAVE)
+        listOf(
+            "protect", "guard", "defend", "determined", "resolute",
+            "守护", "保护", "坚定", "放心",
+        ).all(Mood.PROTECT)
+        listOf(
+            "celebrate", "cheer", "yay", "hooray", "triumphant", "victory",
+            "庆祝", "欢呼", "太棒了", "成功了",
+        ).all(Mood.CELEBRATE)
+        listOf(
+            "rest", "tired", "sleepy", "drowsy", "yawn", "cozy",
+            "休息", "困", "累了", "犯困", "安心",
+        ).all(Mood.REST)
     }
 
     /**

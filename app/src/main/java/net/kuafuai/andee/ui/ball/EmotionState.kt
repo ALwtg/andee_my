@@ -148,6 +148,40 @@ class EmotionState {
     var mouthScaleY = 0.16f;
     var mouthRotZ = PI.toFloat()
 
+    // ---- Gestures: the [Pose] layer, only ever non-zero on a look with ----
+    // ---- [BallLook.gestures]. See Pose.kt for what each of these is for. ----
+    var wink = 0f; private set
+    var lookX = 0f; private set
+    var lookY = 0f; private set
+    var lidCut = 0f; private set
+
+    private var poseSqx = 0f
+    private var poseSqy = 0f
+
+    /** `⌣` instead of `⌢` for closed eyes. A flip, not a tween. */
+    var arcFlip = false; private set
+
+    /** Seconds since start, for the idle motion of hands and props. */
+    var clock = 0f; private set
+
+    /** One hand as the renderer reads it: a [HandPose] that has been tweened. */
+    class HandRender {
+        var x = 0f
+        var y = 0f
+        var s = 0f
+        var roll = 0f
+        var fist = 0f
+        var point = 0f
+        var jig = 0f
+        var waveAmt = 0f
+    }
+
+    val handL = HandRender()
+    val handR = HandRender()
+
+    /** Pop-in amount of each prop, 0..1; indexed by the `PROP_*` constants. */
+    val prop = FloatArray(PROP_COUNT)
+
     // ---- Dust particles ----
     private class Particle(
         val sinPhi: Float, val cosPhi: Float,
@@ -365,6 +399,11 @@ class EmotionState {
                     sqx = contact * 0.07f
                     sqy = contact * -0.09f
                 }
+                // The hand and the closing eye are the [Pose] layer's — see the
+                // overrides above. What is left for the body is a small lean, which
+                // is all a look without gestures can do with either.
+                Action.WAVE -> actRotY = sin(p * 4f * PI.toFloat()) * 0.05f
+                Action.WINK -> actRotY = sin(p * PI.toFloat()) * 0.04f
                 Action.NONE -> {}
             }
             if (p >= 1f) action = Action.NONE
@@ -409,11 +448,51 @@ class EmotionState {
         // widest at the bottom of the sag — that is where a pendulum is.
         val clingLean = cling * sin(t * 0.85f) * (0.06f + stretch * 0.07f)
 
+        // ---- The [Pose] layer ----
+        // Targets come from the mood's row, and a look without gestures reads
+        // [Pose.NONE] — which is what makes every field below sit at zero for the
+        // other five characters, with no branch anywhere else.
+        clock = t
+        val gestures = LOOK.gestures
+        val pose = if (gestures) POSES[mood] ?: Pose.NONE else Pose.NONE
+        var tWink = pose.wink
+        var tHandL = pose.handL
+        var tSparkL = pose.sparkL
+        // The two idle gestures borrow the channels for their length. A hand the
+        // mood already put out is left alone: waving over a fist at the chin
+        // would be two answers at once.
+        if (gestures && action == Action.WAVE) {
+            if (tHandL.s < 0.05f) tHandL = HAND_WAVE
+            tSparkL = 1f
+        }
+        if (gestures && action == Action.WINK) {
+            val ap = actionT / actionDur
+            if (ap > 0.12f && ap < 0.88f) tWink = 1f
+        }
+        val kg = min(1f, dt * 10f)
+        wink += (tWink - wink) * kg
+        lookX += (pose.lookX - lookX) * kg
+        lookY += (pose.lookY - lookY) * kg
+        lidCut += (pose.lidCut - lidCut) * kg
+        poseSqx += (pose.sqx - poseSqx) * kg
+        poseSqy += (pose.sqy - poseSqy) * kg
+        arcFlip = pose.arcFlip
+        tweenHand(handL, tHandL, dt)
+        tweenHand(handR, pose.handR, dt)
+        val kp = min(1f, dt * 9f)
+        val away = 1f - cling.coerceIn(0f, 1f)
+        prop[PROP_STARS] += (pose.stars * away - prop[PROP_STARS]) * kp
+        prop[PROP_SPARK_L] += (tSparkL * away - prop[PROP_SPARK_L]) * kp
+        prop[PROP_SPARK_R] += (pose.sparkR * away - prop[PROP_SPARK_R]) * kp
+        prop[PROP_SPARK_TOP] += (pose.sparkTop * away - prop[PROP_SPARK_TOP]) * kp
+        prop[PROP_SHIELD] += (pose.shield * away - prop[PROP_SHIELD]) * kp
+        prop[PROP_DROP] += (pose.drop * away - prop[PROP_DROP]) * kp
+
         // Root transform
         breatheDepth += (want.breath - breatheDepth) * min(1f, dt * 3f)
         breathe = 1f + sin(t * want.pulse) * breatheDepth + open * 0.03f
-        scaleX = breathe * (1f + sqx + clingSqX)
-        scaleY = breathe * (1f + sqy + clingSqY)
+        scaleX = breathe * (1f + sqx + clingSqX + poseSqx)
+        scaleY = breathe * (1f + sqy + clingSqY + poseSqy)
         hopY = hop + slipY * cling
         // A task can run a whole minute with no tool call in it, and a resting
         // face doesn't read as activity — a working ball has to be visibly
@@ -485,11 +564,11 @@ class EmotionState {
         // rides a little higher on the head, which is the difference between a
         // ball that happens to be low on screen and one looking up at you from
         // under a ledge. Without it the face aims into the bezel.
-        val peek = cling * (0.055f + grip * 0.02f)
-        eyeLY = LOOK.eyeY - browL * 0.06f + peek
-        eyeRY = LOOK.eyeY - browR * 0.06f + peek
-        eyeLX = -LOOK.eyeX + jx * 0.014f + gaze * 0.075f
-        eyeRX = LOOK.eyeX + jx * 0.014f + gaze * 0.075f
+        val peek = cling * (LOOK.clingLift + grip * 0.02f)
+        eyeLY = LOOK.eyeY - browL * 0.06f + peek + lookY * 0.08f
+        eyeRY = LOOK.eyeY - browR * 0.06f + peek + lookY * 0.08f
+        eyeLX = -LOOK.eyeX + jx * 0.014f + gaze * 0.075f + lookX * 0.06f
+        eyeRX = LOOK.eyeX + jx * 0.014f + gaze * 0.075f + lookX * 0.06f
         // Eye roll. Two terms, and they are on the same axis on purpose:
         //
         //  * the look's own resting tilt, mirrored per side, which is what makes
@@ -500,8 +579,8 @@ class EmotionState {
         //    same motion: the resting scowl deepens instead of being replaced.
         //
         // Both are radians here, hence the /DEG on the look's degrees.
-        eyeLRotZ = -LOOK.eyeTilt / DEG - browL * 0.4f
-        eyeRRotZ = LOOK.eyeTilt / DEG + browR * 0.4f
+        eyeLRotZ = -LOOK.eyeTilt / DEG - browL * 0.4f - lidCut * 0.30f
+        eyeRRotZ = LOOK.eyeTilt / DEG + browR * 0.4f + lidCut * 0.30f
         // Vertical aperture. The renderer anchors this scale at the *top* of
         // the eye rather than its centre, so closing reads as a lid coming down
         // instead of the whole eye shrinking toward a point.
@@ -527,7 +606,36 @@ class EmotionState {
         // curve and skew, and the look's resting crookedness — see
         // [BallLook.mouthTilt], where the argument for it lives. The look's is
         // in degrees, hence the /DEG; the other two are already radians.
-        mouthRotZ = PI.toFloat() + smile * 0.9f + skew * 2.2f + LOOK.mouthTilt / DEG
+        mouthRotZ = PI.toFloat() + smile * LOOK.smileRoll + skew * 2.2f + LOOK.mouthTilt / DEG
+    }
+
+    /**
+     * Ease one hand toward its target pose.
+     *
+     * A hand that is not showing is *placed* at its new spot before it grows, and
+     * only slides once it is visible. Sliding from wherever it last was would
+     * drag a half-grown hand across the face on its way to the chin; growing in
+     * place reads as the hand arriving, which is the point.
+     */
+    private fun tweenHand(h: HandRender, t: HandPose, dt: Float) {
+        val wants = t.s > 0.02f
+        if (wants) {
+            if (h.s < 0.05f) {
+                h.x = t.x; h.y = t.y; h.roll = t.roll; h.fist = t.fist; h.point = t.point
+            } else {
+                val k = min(1f, dt * 10f)
+                h.x += (t.x - h.x) * k
+                h.y += (t.y - h.y) * k
+                h.roll += (t.roll - h.roll) * k
+                h.fist += (t.fist - h.fist) * k
+                h.point += (t.point - h.point) * k
+            }
+            val kj = min(1f, dt * 6f)
+            h.jig += (t.jig - h.jig) * kj
+            h.waveAmt += ((if (t.wave) 1f else 0f) - h.waveAmt) * kj
+        }
+        val away = 1f - cling.coerceIn(0f, 1f)
+        h.s += ((if (wants) t.s else 0f) * away - h.s) * min(1f, dt * 8f)
     }
 
     fun writeHeads(buf: FloatArray) {

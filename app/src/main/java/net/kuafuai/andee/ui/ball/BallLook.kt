@@ -377,6 +377,81 @@ class BallLook(
     val glint2R: Float = 0f,
     val glint2Color: FloatArray = EMPTY,
 
+    // ---- Gestures ----
+    /**
+     * Draw hands and props, and honour the per-mood [Pose]: a wink, eyes that look
+     * up, a lid that comes down, an open mouth with a tongue in it, a body that
+     * squashes. Off for every look but one, and **off means the whole pose table is
+     * ignored** rather than partly applied — the other five characters were tuned
+     * without any of it, and a fist under a pig's chin was never part of the brief.
+     */
+    val gestures: Boolean = false,
+
+    /**
+     * Colour the rim is pulled toward, by [rimTintMix]. Empty/0 = the rim is the
+     * mood colour, as it always was.
+     *
+     * The mood colour is the right answer when the mood is the only thing on the
+     * rim, and the wrong one for a character whose own outline is part of what it
+     * looks like: the reference is edged in coral whatever it is feeling. The mix is
+     * partial rather than total so the work states still have their own hue.
+     */
+    val rimTint: FloatArray = EMPTY,
+    val rimTintMix: Float = 0f,
+
+    /**
+     * Multiplier on the scan band swept across the rim sphere while thinking or
+     * speaking. 1 = unchanged. The band is additive light laid across the *whole*
+     * sphere, face included, which is a bright stripe over a dark ball and a white
+     * stripe through the eyes on a bright one — so a look with big glossy eyes
+     * turns it nearly off.
+     */
+    val scanGain: Float = 1f,
+
+    /**
+     * Size of the `^ ^` closed eye, as a multiple of the default, which was drawn
+     * for eyes of radius ~0.12. A look with eyes half as big again would otherwise
+     * close them into two small ticks.
+     */
+    val arcScale: Float = 1f,
+
+    /**
+     * The mouth line's colour, fixed, instead of a shade of the mood. Empty = the
+     * old rule ([mouthDeep]).
+     *
+     * A fixed ink is what a drawn character has: the reference's smile is the same
+     * near-black in every expression. The mood-derived shade is a dark *purple* on
+     * a calm blue ball and a dark *red* on an angry one, which reads as the mouth
+     * having a mood of its own.
+     */
+    val mouthInk: FloatArray = EMPTY,
+
+    /**
+     * How far the mouth turns for each unit of [Face.smile], in radians. 0.9 is what
+     * every look has always had.
+     *
+     * The turn is what makes a deep smile lopsided — one corner up, one down — which
+     * is right for a smirk and wrong for a grin. It used to be hidden on the looks
+     * that open their mouth; a plain line shows it in full, and a happy ball whose
+     * mouth tilts thirty-five degrees reads as sneering. A look that wants a
+     * symmetric smile sets this to 0 and gets its crookedness from [mouthTilt]
+     * alone, which it can leave at 0 too.
+     */
+    val smileRoll: Float = 0.9f,
+
+    /**
+     * How far the eyes ride up the face while the ball hangs off the bottom edge.
+     * 0.055 is what every look has always had.
+     *
+     * The edge cuts the ball at its equator, so only the top half shows, and a
+     * look whose eyes sit below the middle — a baby's proportion, the whole face in
+     * the lower half — would hang there with no face at all: a blue dome with horns.
+     * Peering over the ledge is the one thing a clinging ball has to say, so such a
+     * look lifts its eyes above the line while it clings and lets them settle back
+     * when it lets go.
+     */
+    val clingLift: Float = 0.055f,
+
     // ---- Tail ----
     /** World length of the tail chain. 0 = no tail. */
     val tailLen: Float = 0f,
@@ -991,14 +1066,22 @@ val ANDEE = BallLook(
     eyeRadius = 0.175f,
     eyeCyl = 0.012f,
     mouthR = 0.136f,
-    mouthTube = 0.016f,
+    mouthTube = 0.024f,
     mouthY = -0.305f,
     mouthThick = 0.140f,
     eyeColor = floatArrayOf(0.030f, 0.065f, 0.230f),
     pupilR = 0f,
     glintR = 0.038f,
-    glint2R = 0.023f,
+    glint2R = 0.034f,
     glint2Color = floatArrayOf(0.45f, 0.70f, 1.00f),
+    gestures = true,
+    clingLift = 0.17f,
+    smileRoll = 0f,
+    mouthInk = floatArrayOf(0.025f, 0.045f, 0.140f),
+    arcScale = 1.5f,
+    scanGain = 0.12f,
+    rimTint = floatArrayOf(1.0f, 0.52f, 0.42f),
+    rimTintMix = 0.55f,
     // Light droplet on a mid-dark body, the same side of the split as [BEAR].
     bubbleX = 0.085f,
     bubbleY = -0.030f,
