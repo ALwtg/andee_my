@@ -1430,9 +1430,29 @@ class CommandDispatcher(
      * Only reached when a fold actually happened, so the usual path — a card
      * that was already folded, which is most of a task — pays nothing.
      */
+    /**
+     * Wait until the active window is no longer our own card.
+     *
+     * **Never throws for want of a screen, and that is not a nicety.** This runs
+     * off [ensureCompact], which is called by the `screen.*` prefix *and* by
+     * `ui.show_html` — the latter folds the card because our card is a
+     * fullscreen opaque overlay that would otherwise cover the page it is about
+     * to draw. So a throw here would mean "with accessibility off, Andee cannot
+     * show you a page", which is exactly what it did the first time this was
+     * written the obvious way (`requireScreen().activeWindowVisible()`): the one
+     * thing that still works on a device whose accessibility a ROM has taken
+     * back is the cards and the page, and the guard took it away.
+     *
+     * Returning early is right on the merits, not just convenient: the question
+     * being asked — "has the fold actually stopped covering the app" — exists so
+     * that a *tap* lands on the app rather than on us. There are no taps without
+     * accessibility, so there is nothing to protect.
+     */
     private fun awaitUncovered() {
         val deadline = System.currentTimeMillis() + UNCOVER_BUDGET_MS
-        while (!requireScreen().activeWindowVisible()) {
+        while (true) {
+            val s = screenOrNull() ?: return
+            if (s.activeWindowVisible()) return
             if (System.currentTimeMillis() >= deadline) return
             runCatching { Thread.sleep(UNCOVER_POLL_MS) }
         }
