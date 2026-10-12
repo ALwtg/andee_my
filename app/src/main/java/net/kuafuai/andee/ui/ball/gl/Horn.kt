@@ -33,8 +33,19 @@ object Horn {
      * @param radius base radius; the tip is a point.
      * @param height length along the (curved) axis.
      * @param bend total rotation of the axis from base to tip, radians, toward +X.
+     *   Negative curls the tip back toward the head, which is a calf's horn
+     *   rather than a devil's.
      * @param segs rings along the length. 6 is plenty at the size this is drawn.
      * @param radialSegs vertices around each ring.
+     * @param taper the profile exponent. **1 is the straight cone** every caller
+     *   got before this parameter existed and is the default, so the imp's horns
+     *   and the tail's barb are untouched. The radius is
+     *   `√(1 − t^taper)` instead, whatever the value: it ends in a dome with a
+     *   vertical tangent, the way [Ear] does, which is the difference between a
+     *   thorn and a blunt, chunky horn. Above 1 it holds its width for most of
+     *   the length first; below 1 (0.9 is a near-linear cone) it narrows from the
+     *   start and only the last stretch is round. A cone this fat reads as a
+     *   party hat; this one reads as something you could pat.
      */
     fun build(
         radius: Float,
@@ -42,6 +53,7 @@ object Horn {
         bend: Float = 0f,
         segs: Int = 6,
         radialSegs: Int = 10,
+        taper: Float = 1f,
     ): Mesh {
         val rings = segs + 1
         val vertCount = rings * (radialSegs + 1)
@@ -55,6 +67,14 @@ object Horn {
         val nAxis = radius / sqrt(height * height + radius * radius)
         val nRad = height / sqrt(height * height + radius * radius)
 
+        // The rounded profile has no constant slope, so its normals come from the
+        // neighbouring rings instead. Only filled when [taper] asks for it.
+        val profile = FloatArray(rings) { i ->
+            val t = i.toFloat() / segs
+            if (taper == 1f) radius * (1f - t)
+            else radius * sqrt((1f - Math.pow(t.toDouble(), taper.toDouble()).toFloat()).coerceAtLeast(0f))
+        }
+
         var cx = 0f
         var cy = 0f
         var pi = 0
@@ -62,7 +82,25 @@ object Horn {
         var ui = 0
         for (i in 0 until rings) {
             val t = i.toFloat() / segs
-            val r = radius * (1f - t)
+            val r = profile[i]
+            // Per-ring normal tilt. For the straight cone these are the constants
+            // above; for a rounded profile the slope is read off the rings either
+            // side (one-sided at the ends), and at the tip it steepens until the
+            // normal points straight along the axis — which is what makes the
+            // end read as a dome instead of a flat cut.
+            val nR: Float
+            val nA: Float
+            if (taper == 1f) {
+                nR = nRad
+                nA = nAxis
+            } else {
+                val lo = (i - 1).coerceAtLeast(0)
+                val hi = (i + 1).coerceAtMost(rings - 1)
+                val slope = (profile[hi] - profile[lo]) / ((hi - lo) * step)
+                val inv = 1f / sqrt(1f + slope * slope)
+                nR = inv
+                nA = -slope * inv
+            }
             // The axis at this ring, and the two directions spanning the ring
             // plane: u in the bend plane, v out of it.
             val ang = bend * t
@@ -82,9 +120,9 @@ object Horn {
                 positions[pi++] = cx + r * rx
                 positions[pi++] = cy + r * ry
                 positions[pi++] = r * rz
-                normals[ni++] = nRad * rx + nAxis * ax
-                normals[ni++] = nRad * ry + nAxis * ay
-                normals[ni++] = nRad * rz
+                normals[ni++] = nR * rx + nA * ax
+                normals[ni++] = nR * ry + nA * ay
+                normals[ni++] = nR * rz
                 uvs[ui++] = j.toFloat() / radialSegs
                 uvs[ui++] = t
             }

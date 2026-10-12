@@ -349,6 +349,34 @@ class BallLook(
     val hornBend: Float = 0f,
     val hornColor: FloatArray = EMPTY,
 
+    /**
+     * Profile exponent handed to `Horn.build`. 1 = the straight thorn every look
+     * had before this field; above 1 the horn holds its width and rounds off, a
+     * blunt chunky horn instead of a spike.
+     */
+    val hornTaper: Float = 1f,
+
+    /**
+     * Colour the horn as this multiple of the *live* body colour, like [earShade],
+     * instead of the fixed [hornColor]. 0 = use [hornColor].
+     *
+     * Exists for a horn that is part of the animal rather than bone: a fixed colour
+     * is right for the imp's, whose horns do not follow the mood, and wrong for a
+     * horn the same blue as the head, where it would drift out of match every time
+     * the mood tint moved the body.
+     */
+    val hornShade: Float = 0f,
+
+    // ---- Second catchlight ----
+    /**
+     * A second, smaller highlight low and to the right of the eye — the one that
+     * makes a dark eye look like glass rather than paint. 0 = none, which is every
+     * look but one. Only drawn on a look with no pupil: with a pupil the glint is
+     * anchored to it and a second one has nowhere obvious to sit.
+     */
+    val glint2R: Float = 0f,
+    val glint2Color: FloatArray = EMPTY,
+
     // ---- Tail ----
     /** World length of the tail chain. 0 = no tail. */
     val tailLen: Float = 0f,
@@ -884,6 +912,131 @@ val BAJIE = BallLook(
 )
 
 /**
+ * The house character: a cobalt-blue ball with a pair of short, fat, curled horns
+ * and big glassy navy eyes — the head in `images/brand/andee-head.png`, which is
+ * also what the launcher icon, the README cover and the org avatar are made from.
+ * A swipe away from it are the costumes ([CREAM], [BAJIE], [RABBIT], [BEAR],
+ * [IMP]); this is who is wearing them, so it is first in [BallLooks.ALL] and is
+ * what a device with no saved pick and a factory reset both land on.
+ *
+ * **Every number below was measured off that picture, not picked.** The first
+ * pass was eyeballed and read as a different, less cute animal: eyes too close
+ * together and too high, and — the part the user named — *ears* where the picture
+ * has *horns*. The second pass inverse-projects the picture through the same
+ * camera the renderer uses (`CAM_Z` 4.9, 42° fov), so a pixel in the reference
+ * becomes a world unit on the face plane (0.00210 per px) or on the horn plane
+ * (0.00232 per px).
+ *
+ * * **Eyes** are 173 px across on a 693 px head: [eyeRadius] 0.175, centres
+ *   ±161 px from the middle, so [eyeX] 0.338 (the first pass had 0.262 — close-set
+ *   eyes are a different face). They sit a hair *below* the middle of the head,
+ *   [eyeY] −0.03, which is the baby proportion the picture is made of: a big
+ *   forehead and the whole face in the lower half. The eye is round, so
+ *   [eyeCyl] is almost nothing.
+ * * **Two catchlights.** A big one up and left ([glintR] 0.038, at the offset
+ *   [drawEyeContents] already uses for every look) and a small light-blue one low
+ *   and right ([glint2R] 0.023). The second is what makes it glass instead of
+ *   paint, and it is the one thing in the picture the first pass left out.
+ * * **The mouth** is 133 px wide, 36 px deep and 7 px thick: [mouthR] 0.136,
+ *   [mouthY] −0.305 (the resting `smile` lifts it 0.0156, which puts the line's
+ *   ends at −0.29), and [mouthThick] chosen so the resting arch is ~0.45 of its
+ *   radius deep. The line is thin at the bottom and fatter at the ends by construction
+ *   (the torus is squashed vertically), which is why [mouthTube] is 0.016.
+ * * **The horns are horns.** Round in section, thick at the root and tapering,
+ *   leaning out and then curling back in at the tip — [hornTilt] 50° and
+ *   [hornBend] −80° is a path that stays within 0.01 world units of the
+ *   picture's horn centreline (fitted, not drawn), then moved up by 0.07 on
+ *   request so the horns stand clear of the head. The mesh needed a rounded
+ *   profile for it: `Horn.build`'s straight cone is a thorn, and the picture's
+ *   are blunt. [hornTaper] 0.9 with [hornR] 0.255 reproduces the measured widths
+ *   (0.174 / 0.125 / 0.068 half-width at 53 / 73 / 89% of the length) to 0.018.
+ *   Most of that radius is buried in the head by design: the base is at
+ *   (0.413, 0.477), well inside the sphere, so there is no seam where it
+ *   emerges. [hornShade] 1.0 makes them the head's own blue at every mood.
+ *   (The first pass used the *ear* mesh, a flat rounded flap, and it read as a
+ *   cat. Don't go back: a flap has no thickness to catch light.)
+ *
+ * **Blue is a body colour here, and the mood still has to reach it.** The shell
+ * shader is a multiply, `uColor × grad × (uAmb + uDiff · diff)`, and the target is
+ * the picture's (≈ 27–50, 114–125, 240) at the face plane — and then *lighter*:
+ * the first match (36, 112, 235) read as too deep on the tablet, so [bodyBase]
+ * (0.200, 0.560, 1.000) lands at (59, 141, 245) after [bodyTint] 0.10 of the
+ * mood, with [bodyGrad] eased to 0.26 so the underside (54, 128, 222) does not
+ * sink. Back-solved against the lit factor, 0.956 at the face plane. Blue is one channel
+ * at its ceiling, which is why [bodyAmb] is as high as it is — at the 0.78 the
+ * other dark bodies use it tops out at 207 and reads navy, not cobalt.
+ *
+ * One thing that is *not* matched: the picture's head is oblate (693 wide, ~620
+ * tall) and the ball is a sphere. The renderer scales the body uniformly and the
+ * rim sphere is tied to it, so a squash is not a number here. The face is placed
+ * to keep the picture's proportions on the *ellipse*, not the circle — eyes at
+ * the middle, mouth 45% of the way down — rather than the pixel offsets from a
+ * circle's centre, which would have put the face too high.
+ */
+val ANDEE = BallLook(
+    name = "andee",
+    bodyBase = floatArrayOf(0.200f, 0.560f, 1.000f),
+    bodyTint = 0.10f,
+    bodyAlbedo = 1.00f,
+    bodyGrad = 0.26f,
+    bodyAmb = 0.94f,
+    bodyDiff = 0.20f,
+    // Soft, like the picture — a velvety plush, not lacquer. Low enough that
+    // the crown does not grow a white blob that would fight the catchlights.
+    bodyGloss = 0.22f,
+    bodyScale = 0.870f,
+    faceZ = 0.876f,
+    eyeX = 0.338f,
+    eyeY = -0.030f,
+    eyeRadius = 0.175f,
+    eyeCyl = 0.012f,
+    mouthR = 0.136f,
+    mouthTube = 0.016f,
+    mouthY = -0.305f,
+    mouthThick = 0.140f,
+    eyeColor = floatArrayOf(0.030f, 0.065f, 0.230f),
+    pupilR = 0f,
+    glintR = 0.038f,
+    glint2R = 0.023f,
+    glint2Color = floatArrayOf(0.45f, 0.70f, 1.00f),
+    // Light droplet on a mid-dark body, the same side of the split as [BEAR].
+    bubbleX = 0.085f,
+    bubbleY = -0.030f,
+    bubbleR = 0.085f,
+    bubbleColor = floatArrayOf(0.88f, 0.93f, 1.00f),
+    bubblePow = 3.0f,
+    bubbleShine = 26f,
+    bubbleInner = 0.10f,
+    mouthDeep = true,
+    // The picture has no cheeks. Kept faintly so the happy moods still flush.
+    blushColor = floatArrayOf(1f, 0.55f, 0.75f),
+    blushAlpha = 0.10f,
+    blushBlendNormal = true,
+    blushSize = 0.40f,
+    blushX = 0.440f,
+    blushY = -0.110f,
+    // A light rim, like the imp's and bear's: a dark outline on a mid-dark body
+    // is a smudge.
+    rimDark = false,
+    rimGain = 0.80f,
+    rimPow = 4.4f,
+    labelRes = R.string.ball_look_andee,
+
+    // See the class note: fitted to the picture's horn (base at 0.407), then lifted
+    // 0.07 on request so the horns stand clear of the head.
+    // Base buried at (0.413, 0.477) so only the curl shows.
+    hornH = 0.452f,
+    hornR = 0.255f,
+    hornX = 0.413f,
+    hornY = 0.477f,
+    hornZ = 0.450f,
+    hornTilt = 50f,
+    hornBend = -80f,
+    hornTaper = 0.9f,
+    hornShade = 1.00f,
+)
+
+/**
  * Pale mascot ball, dark bead eyes, hard outline.
  *
  * The eyes sit at 0.24 rather than 0.20 — a little higher on the head than the
@@ -1071,9 +1224,9 @@ private val IMP_PERSONA = """
  * [voice] and [persona] are both set here, so swiping to the imp changes what
  * the device sounds like and how it talks, not only what it looks like. That is
  * no longer the distinction it was — [BAJIE] and [RABBIT] both do it now, and
- * [CREAM] is the only look left wearing the house voice and the plain prompt,
- * which is the right place for it to be: it is the one that shipped first and
- * the one a factory reset lands on. Read the caveats on those two fields — in
+ * [ANDEE] and [CREAM] are the looks left wearing the house voice and the plain
+ * prompt, which is the right place for them to be: [ANDEE] is the one a factory
+ * reset lands on. Read the caveats on those two fields — in
  * particular, the persona reaches the local brain only.
  *
  * **It is black, and the black is the design.** The first build made it a
@@ -1926,11 +2079,13 @@ val BEAR = BallLook(
 object BallLooks {
     /**
      * Swipe order, and the first entry is what a device with no saved pick
-     * gets. [CREAM] stays first because it is what the window was designed
-     * around; [IMP] is last because it is the one a user should arrive at on
-     * purpose.
+     * gets. [ANDEE] is first because it is the house character — the one in the
+     * launcher icon and the README — and a user who has never swiped should see
+     * the thing the app is called; [CREAM] is what the window was originally
+     * designed around; [IMP] is last because it is the one a user should arrive
+     * at on purpose.
      */
-    val ALL = listOf(CREAM, BAJIE, RABBIT, BEAR, IMP)
+    val ALL = listOf(ANDEE, CREAM, BAJIE, RABBIT, BEAR, IMP)
 
     @Volatile
     private var requested = 0

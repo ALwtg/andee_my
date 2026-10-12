@@ -244,7 +244,15 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
             else Capsule.build(look.eyeRadius, look.eyeCyl, 4, 12)
         val mouth: Mesh = Torus.build(look.mouthR, look.mouthTube, 8, 24, PI.toFloat())
         val horn: Mesh? =
-            if (look.hornH > 0f) Horn.build(look.hornR, look.hornH, look.hornBend / DEG, 7, 12)
+            if (look.hornH > 0f)
+                Horn.build(
+                    look.hornR, look.hornH, look.hornBend / DEG,
+                    // A rounded profile packs its curvature into the last rings,
+                    // so it needs more of them than the straight thorn does.
+                    segs = if (look.hornTaper != 1f) 12 else 7,
+                    radialSegs = 12,
+                    taper = look.hornTaper,
+                )
             else null
         val barb: Mesh? =
             if (look.barbH > 0f) Horn.build(look.barbR, look.barbH, 0f, 4, 10) else null
@@ -342,6 +350,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
 
     /** Filled per frame from [bodyColor] — see [BallLook.earShade]. */
     private val earColor = FloatArray(3)
+    private val hornColor = FloatArray(3)
 
     /** Scratch for the nostril dots — a dark relative of [bodyColor]. */
     private val nostrilColor = FloatArray(3)
@@ -736,7 +745,12 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
      */
     private fun drawHorns() {
         val horn = meshes.horn ?: return
-        useShellWith(LOOK.hornColor)
+        if (LOOK.hornShade > 0f) {
+            for (i in 0..2) hornColor[i] = bodyColor[i] * LOOK.hornShade
+            useShellWith(hornColor)
+        } else {
+            useShellWith(LOOK.hornColor)
+        }
         for (side in -1..1 step 2) {
             composeModelFromRoot {
                 if (side < 0) Matrix.scaleM(local, 0, -1f, 1f, 1f)
@@ -1518,6 +1532,14 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
                 rotZ, lidScale,
                 gr, eyeFrontZ + GLINT_Z_STEP, WHITE,
             )
+            val g2 = LOOK.glint2R
+            if (g2 > 0f) {
+                drawDot(
+                    cx + LOOK.eyeRadius * 0.54f, cy + sink - LOOK.eyeRadius * 0.26f * follow,
+                    rotZ, lidScale,
+                    g2, eyeFrontZ + GLINT_Z_STEP, LOOK.glint2Color,
+                )
+            }
         }
     }
 

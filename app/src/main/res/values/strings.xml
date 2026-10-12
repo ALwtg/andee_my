@@ -595,6 +595,7 @@
     <!-- 球球的几种样子。用户在全屏卡片上左右滑动球球来换，换到哪个就用字幕
          报一下名字 —— 这个名字是给人看的，所以是资源，而不是 BallLook.name
          （那个是给日志和 diff 看的）。 -->
+    <string name="ball_look_andee">Andee</string>
     <string name="ball_look_cream">奶油</string>
     <string name="ball_look_bajie">八戒</string>
     <string name="ball_look_rabbit">贱贱兔</string>
