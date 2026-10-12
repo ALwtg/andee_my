@@ -95,7 +95,17 @@ import java.util.concurrent.Executors
  */
 class SelfCheckUi(
     private val context: Context,
-    private val onDismiss: () -> Unit,
+    /**
+     * The card is gone — put your house in order.
+     *
+     * @param yielding true when this close is the host stepping out of the way
+     *   of another screen (see [onYieldScreen]), false when the user asked for
+     *   it with ✕ or 完成. A host needs the difference, and only a host can act
+     *   on it: a user closing the check is asking for the assistant back, while
+     *   a yield is one step of handing the screen to somebody else and must not
+     *   undo itself. See `BodyCoreService.openSelfCheck`.
+     */
+    private val onDismiss: (yielding: Boolean) -> Unit,
     private val onOpenSettings: (() -> Unit)? = null,
     /** Fired when this card's own picker moved the language — see the class doc. */
     private val onLocaleChanged: () -> Unit = {},
@@ -156,6 +166,20 @@ class SelfCheckUi(
 
     private var hero: LinearLayout? = null
     private var rows: LinearLayout? = null
+
+    /**
+     * The rows' scroll container, kept for one reason only: [render] tears the
+     * rows down and rebuilds them, and a `ScrollView` whose children have just
+     * been removed has a content height of zero — the platform clamps its
+     * `scrollY` away the moment it relayouts. Without holding the view there is
+     * no way to put the user back where they were. See [render].
+     *
+     * Re-pointed by every [build], so after [rebuild] it is the *new* card's
+     * scroller; the outgoing one is simply dropped with the rest of the old
+     * card. Reading it while it is detached is harmless — [refreshLocal] and
+     * [repaintForLanguage] both bail on `root == null` before any redraw.
+     */
+    private var scroller: ScrollView? = null
 
     /**
      * The last list drawn, kept so a language switch can redraw it without
@@ -271,15 +295,25 @@ class SelfCheckUi(
      * only from a user pressing ✕ — [onYieldScreen] has the host close the card
      * on the way out to the browser. Fold, reopen the check, and the stale exit
      * would land after the second card was up.
+     *
+     * ### [yielding], and why the caller has to say
+     *
+     * The two closes look identical from in here and mean opposite things out
+     * there, so the one caller that knows which it is passes it: ✕ and 完成
+     * close with the default, and [onYieldScreen]'s host closes with `true`.
+     * The distinction exists because of what the *host* does with it — see
+     * [onDismiss] — and it cannot be inferred here, because the fold that
+     * accompanies a yield is the host's own doing and is already in flight by
+     * the time this runs.
      */
-    fun hide() {
+    fun hide(yielding: Boolean = false) {
         val v = root ?: return
         root = null
         val stage = host
         if (stage != null) {
             runCatching { stage.removeView(v) }
             OwnCard.hidden()
-            onDismiss()
+            onDismiss(yielding)
             return
         }
         val wm = wm ?: return
@@ -289,7 +323,7 @@ class SelfCheckUi(
                 runCatching { wm.removeView(v) }
                 closing = null
                 OwnCard.hidden()
-                onDismiss()
+                onDismiss(yielding)
             }
         }
     }
@@ -321,6 +355,30 @@ class SelfCheckUi(
         probe()
     }
 
+    /**
+     * Re-read the local half and redraw — the resume-shaped subset of [start].
+     *
+     * This is what a user who has just been off granting something in a system
+     * Settings screen needs to see when they come back, and nothing they do not.
+     * [SelfCheck.local] is offline and instant by construction, so this is cheap
+     * enough to run on every resume; [start] deliberately is not, because its
+     * second half holds the card open on a socket for seconds — and a check that
+     * runs *because* the user is staring at it is the last place to spend that.
+     *
+     * The three rows a local pass cannot answer keep their last reading rather
+     * than being reset to "checking…" — see [SelfCheck.mergeLocal], which is
+     * where that decision lives and why. Everything else is the fresh reading,
+     * so a permission granted in the Settings screen is reflected on return,
+     * which is the whole point.
+     *
+     * Safe to call while the card is not up: it is a no-op, exactly like
+     * [repaintForLanguage].
+     */
+    fun refreshLocal() {
+        if (root == null) return
+        render(SelfCheck.mergeLocal(SelfCheck.local(context), last))
+    }
+
     private fun probe() {
         val app = context.applicationContext
         prober.execute {
@@ -348,6 +406,16 @@ class SelfCheckUi(
         val attention = found.filter { SelfCheck.needsAttention(it) }
         val rest = found.filterNot { SelfCheck.needsAttention(it) }
 
+        // Where the user was, read before a single row is removed. Tearing the
+        // children out drops the scroller's content height to zero, and the
+        // platform clamps `scrollY` to that on the next layout pass — so every
+        // redraw used to land the list back at the summary. That was merely
+        // quiet while a redraw only happened on a deliberate tap; it stops being
+        // quiet now that [refreshLocal] redraws on every resume, because the row
+        // that sends the user out is very often the battery one, at the bottom.
+        // See [SelfCheckActivity.onResume].
+        val keep = scroller?.scrollY ?: 0
+
         hero?.removeAllViews()
         hero?.addView(summary(attention.size))
 
@@ -357,6 +425,16 @@ class SelfCheckUi(
             if (attention.isNotEmpty()) rows?.addView(sectionHeading(R.string.check_page_notes_lead))
             rest.forEach { rows?.addView(row(it)) }
         }
+
+        // Posted rather than called: the replacement rows are not measured yet,
+        // so a `scrollTo` here would be clamped away by the layout that follows
+        // it. Still the same frame, so nothing lands on screen first.
+        //
+        // `> 0` and not `!= 0` on purpose: it keeps the untouched case a genuine
+        // no-op rather than a redundant layout request, and a list that shrank
+        // under the user (a red row turning green) is clamped by the platform to
+        // the new bottom, which is the answer we want anyway.
+        if (keep > 0) scroller?.post { scroller?.scrollTo(0, keep) }
     }
 
     // ---- Language ----
@@ -467,6 +545,9 @@ class SelfCheckUi(
             // is one line too many.
             isVerticalScrollBarEnabled = false
         }
+        // Held as well as held locally: [render] needs it, and it only exists
+        // inside this method otherwise. See [scroller].
+        scroller = scroll
         val body = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             // Same 24dp as the settings form: this is the same card, and two
