@@ -1230,14 +1230,19 @@ object SelfCheck {
      * goes back to a plain-HTTP address, the host has to be added there or every
      * call dies as `CLEARTEXT communication ... not permitted`.
      *
-     * The domain resolves to the same host `:8099` used to be reached at. It is
-     * reachable over TLS only once that host serves 443 **and** the domain is
-     * ICP-filed — an unfiled domain on a mainland server is answered with a 403
-     * block page rather than reaching the app at all, which reads here as
-     * 查不到. Until both are true this row reports Unreachable everywhere; that
-     * is the intended failure, not a bug in the check.
+     * Was `https://andee.kuafuai.net`, which named a mainland host whose domain
+     * had to be ICP-filed before TLS would reach it at all — an unfiled domain
+     * there is answered with a 403 block page, which reads here as 查不到. The
+     * address behind this one is outside the mainland, so that particular trap
+     * is behind us.
+     *
+     * A domain still has to resolve **and** serve 443, though, and a fresh
+     * record does not propagate everywhere at once. Measured on the day of the
+     * move: `1.1.1.1` still answered NXDOMAIN while `223.5.5.5` already had the
+     * address, so a device on the wrong resolver reports Unreachable for as long
+     * as that lasts. That is the intended failure, not a bug in the check.
      */
-    private const val VERSION_API_BASE = "https://andee.kuafuai.net"
+    private const val VERSION_API_BASE = "https://api.heyandee.com"
 
     /**
      * The whole-call ceiling on the version probe, in milliseconds.

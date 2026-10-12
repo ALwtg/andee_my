@@ -7,7 +7,7 @@
          anything the user did.
 
          Only one host is listed, and it is not the version service any more.
-         That one moved to https://andee.kuafuai.net, so its cleartext hole was
+         That one moved to https://api.heyandee.com, so its cleartext hole was
          deleted rather than left behind: an exception for a host nobody calls
          only widens what the app will talk to in the clear. -->
     <domain-config cleartextTrafficPermitted="true">

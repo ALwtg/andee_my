@@ -28,6 +28,22 @@ hash into `versionName` at build time would close this hole; it is not implement
 
 ## [Unreleased]
 
+### Changed
+
+- **The version check moved to `https://api.heyandee.com`, from `https://andee.kuafuai.net`.**
+  `VERSION_API_BASE` is still a hardcoded constant in `device/SelfCheck.kt`, and still the only
+  address this app calls that the user did not configure — see `docs/permissions.md` — so the move is
+  one line of source plus the three places that quote it and have to stay in step: both `permissions`
+  documents and the note in `network_security_config.xml`.
+  The old host was on the mainland, where the domain had to be ICP-filed before TLS would reach it at
+  all; the new address resolves outside the mainland and retires that particular trap. It does not
+  retire the other one: a domain still has to resolve *and* serve 443, and a fresh record is not
+  everywhere at once. Measured while making the move, `1.1.1.1` still answered `NXDOMAIN` while
+  `223.5.5.5` already had the address — on the wrong resolver that reads as 查不到 on the 版本 row,
+  which is the intended failure rather than a fault to report. The service itself was checked before
+  the switch: the new host answers `GET /api/version` with the same envelope, and the same `data`
+  fields the client parses.
+
 ## [0.2.0] - 2026-10-10
 
 Three new capabilities and two permission fixes. A minor bump rather than a patch, because the three
