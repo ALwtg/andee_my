@@ -4,6 +4,7 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.ImageView
+import androidx.activity.result.contract.ActivityResultContracts
 import net.kuafuai.andee.BodyCoreService
 import net.kuafuai.andee.ScreenBodyService
 import net.kuafuai.andee.config.FactoryReset
@@ -110,6 +111,19 @@ import net.kuafuai.andee.i18n.AppLocale
  */
 class SelfCheckActivity : StageActivity() {
 
+    companion object {
+        /**
+         * Start-intent extra: ask for the screen-capture consent as soon as
+         * this page is up.
+         *
+         * Set by the body's notification action, which is the only way in —
+         * `MediaProjectionManager.createScreenCaptureIntent()` needs an
+         * Activity, and this is the only one the app has. See
+         * [requestScreenCapture].
+         */
+        const val EXTRA_SCREEN_CAPTURE = "screen_capture"
+    }
+
     /**
      * The card. Built here on the service-off path only, placed on [stage], and
      * gone with the Activity.
@@ -142,6 +156,13 @@ class SelfCheckActivity : StageActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // The notification's 允许看屏幕 action lands here — see
+        // [requestScreenCapture]. Asked before the branch below, because the
+        // point of the action is that the page it opens is a means to an end.
+        if (intent?.getBooleanExtra(EXTRA_SCREEN_CAPTURE, false) == true) {
+            requestScreenCapture()
+        }
 
         // A working assistant ⇒ this icon means what every other icon on the
         // home screen means: open the app. That is the *same request* a
@@ -326,6 +347,68 @@ class SelfCheckActivity : StageActivity() {
      * icon-as-app entry finishes before the card is ever built, and a lifecycle
      * callback arriving afterwards is not a good moment to throw.
      */
+    /**
+     * The screen-capture consent, and what the answer goes to.
+     *
+     * Registered as a field rather than from [onCreate] because the lifecycle
+     * requires the callback to exist before the Activity is started, and this
+     * page is started by an icon tap — there is no earlier moment.
+     *
+     * The grant goes to the *body*, not to this Activity: the capture has to
+     * outlive this page, and on Android 14 it has to be re-asked for every
+     * session, so the thing that owns it is the thing that is still running
+     * tomorrow. Nothing is announced here either — the body's own notification
+     * is what reports this state, and a second voice describing the same fact
+     * is how two surfaces start disagreeing.
+     */
+    private val captureConsent = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val granted = BodyCoreService.get()
+            ?.offerScreenCapture(result.resultCode, result.data) == true
+        android.util.Log.i("Body", "screen capture consent: granted=$granted")
+    }
+
+    /**
+     * Ask the user to let Andee read the screen without accessibility.
+     *
+     * **Only reachable while the assistant is blind**, which is the only time
+     * it is worth a system dialog: with accessibility on, `takeScreenshot` is
+     * richer, free and already granted — an aim grid the brain can tap from and
+     * the element list beside it — and asking for a second, weaker way in would
+     * be asking the user to make a decision with no benefit.
+     *
+     * The caller is the body's notification action, `Intent` extra
+     * [EXTRA_SCREEN_CAPTURE]. Failing to launch is not worth a card: the
+     * platform simply has no such screen on some ROMs, and the notification
+     * will go on offering it.
+     */
+    private fun requestScreenCapture() {
+        val mgr = getSystemService(android.media.projection.MediaProjectionManager::class.java)
+            ?: return
+        runCatching { captureConsent.launch(mgr.createScreenCaptureIntent()) }
+            .onFailure {
+                android.util.Log.w("Body", "screen capture consent would not launch", it)
+            }
+    }
+
+    /**
+     * The other half of [EXTRA_SCREEN_CAPTURE], and not a formality.
+     *
+     * This page is `singleTop`, and its two callers both routinely arrive while
+     * it is already the top instance: the notification action is tapped from
+     * the shade with the page up, and the launcher icon does the same. On that
+     * path `onCreate` does not run, so an extra read only there would be a
+     * button that works the first time and silently stops working afterwards —
+     * and the first time is the one where the user had not yet refused.
+     * [setIntent] keeps `intent` honest for anything that reads it later.
+     */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_SCREEN_CAPTURE, false)) requestScreenCapture()
+    }
+
     override fun onResume() {
         super.onResume()
         if (!::ui.isInitialized) return

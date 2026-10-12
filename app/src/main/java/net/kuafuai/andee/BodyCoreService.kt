@@ -127,17 +127,11 @@ class BodyCoreService : Service() {
     private var screen: ScreenController? = null
 
     /**
-     * The screen capability, for callers that can carry on without it.
-     *
-     * **Callers that cannot must go through here too, and let it throw.** A
-     * brain that asked to tap and got an exception it can read is being told
-     * the truth; a brain that asked to tap and got a silent no-op will try
-     * again, and again, and describe the device as broken.
+     * The screen capability, for callers that can carry on without it, and for
+     * the dispatcher — which turns its absence into a sentence rather than a
+     * no-op. See `CommandDispatcher.requireScreen`.
      */
-    private fun screenOrThrow(): ScreenController = screen ?: throw IllegalStateException(
-        "accessibility is off — screen.* needs Andee's accessibility service, " +
-            "which the system has to have enabled (Settings → Accessibility → Andee)"
-    )
+    private fun screenOrNull(): ScreenController? = screen
 
     private lateinit var dispatcher: CommandDispatcher
     private var wsServer: BodyWsServer? = null
@@ -198,6 +192,9 @@ class BodyCoreService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Before the notification, because the notification's own content is
+        // built from what this service can currently do.
+        capture = net.kuafuai.andee.screen.ScreenCapture(this)
         // First, and within the ~5 s the system allows: `startForegroundService`
         // owes a notification. Ours is load-bearing twice over — it is what
         // keeps this process alive when the accessibility service is taken
@@ -583,9 +580,11 @@ class BodyCoreService : Service() {
         dogMotion = net.kuafuai.andee.dog.DogMotion(dogLink, dogSense)
         // A *provider*, not the controller: the screen half can be taken away
         // and handed back at any time, and the dispatcher outlives both. See
-        // [screenOrThrow], which is what a call with no accessibility hits.
+        // `CommandDispatcher.requireScreen`, which turns its absence into a
+        // sentence the brain can read. The second provider is the
+        // accessibility-free way to *look* at the screen — see [captureFallback].
         dispatcher = CommandDispatcher(
-            ::screenOrThrow, window, ripple, marker,
+            ::screenOrNull, ::captureFallback, window, ripple, marker,
             net.kuafuai.andee.device.DeviceInfoController(this),
             net.kuafuai.andee.device.DeviceActionsController(this),
             net.kuafuai.andee.device.DeviceCommsController(this),
@@ -1317,6 +1316,108 @@ class BodyCoreService : Service() {
     }
 
     /**
+     * Take a screen-capture consent, and start capturing.
+     *
+     * Called with the result of `MediaProjectionManager.createScreenCaptureIntent()`,
+     * which only an Activity can launch — see `ui/SelfCheckActivity`.
+     *
+     * @return whether the screen can be read the non-accessibility way from now
+     *   on. False is "the user said no, or the platform did", and both are the
+     *   same thing to every caller.
+     */
+    fun offerScreenCapture(resultCode: Int, data: Intent?): Boolean {
+        if (resultCode != android.app.Activity.RESULT_OK || data == null) {
+            postNotification()
+            return false
+        }
+        // The type goes on **before** the projection is built, not after. From
+        // Android 14 `getMediaProjection` refuses an app whose foreground
+        // service does not already claim `mediaProjection`, and adding the type
+        // is only legal while we are visible — which is now, by definition:
+        // this result came back from an Activity.
+        captureWanted = true
+        promoteForWhileInUse()
+        val started = if (::capture.isInitialized) capture.start(resultCode, data) else false
+        if (!started) captureWanted = false
+        postNotification()
+        return started
+    }
+
+    /** Whether a capture can be taken without accessibility right now. */
+    fun hasScreenCapture(): Boolean = ::capture.isInitialized && capture.isAvailable()
+
+    /**
+     * A screenshot from the fallback path, in the shape the `screen.screenshot`
+     * tool returns.
+     *
+     * **Deliberately not [ScreenController.screenshot].** That one settles the
+     * screen by fingerprinting the accessibility tree, draws an aim grid for a
+     * tap that is about to happen, piggybacks the element list and logs a
+     * `shot_id` for the grounding record — every one of which needs
+     * accessibility, and all of which exist to serve *acting* on the screen.
+     * There is no acting without accessibility, so pretending to the brain that
+     * it holds a picture it can aim with is worse than handing it fewer fields.
+     * It gets the pixels and a sentence saying what it does not have.
+     *
+     * **Blocking — call it from a worker.**
+     */
+    fun captureFallback(reason: String): JSONObject? {
+        if (!hasScreenCapture()) return null
+        val bmp = capture.grab() ?: return null
+        var out: android.graphics.Bitmap? = null
+        return try {
+            val w = bmp.width
+            val h = bmp.height
+            // Same budget as the accessibility path, and for the same reason —
+            // see `ScreenController.SHOT_MAX_SIDE`: the raw 1600x2560 frame is
+            // ~765 KB of base64, and the vision tokens are billed whether or not
+            // the extra pixels help. The number is shared rather than copied so
+            // the two paths cannot drift into different picture sizes for the
+            // same tool.
+            val scale = net.kuafuai.andee.screen.ScreenCapture.SHOT_MAX_SIDE.toFloat() / maxOf(w, h)
+            out = if (scale < 1f) {
+                android.graphics.Bitmap.createScaledBitmap(
+                    bmp,
+                    (w * scale).toInt().coerceAtLeast(1),
+                    (h * scale).toInt().coerceAtLeast(1),
+                    true,
+                )
+            } else {
+                bmp
+            }
+            val bos = java.io.ByteArrayOutputStream()
+            out.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, bos)
+            val bytes = bos.toByteArray()
+            JSONObject()
+                .put(
+                    "png_base64",
+                    android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP),
+                )
+                // The *source* dimensions, like the accessibility path reports:
+                // every coordinate in this protocol is 0-1000 relative, so the
+                // model needs the shape of the screen, not of the PNG.
+                .put("width", w)
+                .put("height", h)
+                .put("bytes", bytes.size)
+                // Both of these are the honest half of this result. A brain that
+                // has been handed a picture for weeks without being told it
+                // cannot aim with this one will ask for a tap and be confused by
+                // the refusal.
+                .put(
+                    net.kuafuai.andee.screen.ScreenCapture.SOURCE,
+                    net.kuafuai.andee.screen.ScreenCapture.SOURCE_MEDIA_PROJECTION,
+                )
+                .put("note", net.kuafuai.andee.screen.ScreenCapture.PROJECTION_NOTE)
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "capture fallback ($reason) failed", t)
+            null
+        } finally {
+            if (out != null && out !== bmp) out.recycle()
+            bmp.recycle()
+        }
+    }
+
+    /**
      * The package in front, from the shim.
      *
      * `DeviceState.foregroundPkg` is written by the shim itself rather than
@@ -1378,6 +1479,10 @@ class BodyCoreService : Service() {
         // the ROM killed the process outright) — a revoked accessibility
         // service no longer comes through here at all, which is the point.
         screen = null
+        // Before the window goes and the process may be torn down: a projection
+        // left running shows the system's "screen is being captured" chrome to
+        // the user for a service that is no longer there.
+        if (::capture.isInitialized) capture.release()
         instanceRef.compareAndSet(this, null)
         // Last, and belt-and-braces: the notification is the one thing that
         // must not outlive the body, or the shade keeps promising a ball that
@@ -1434,40 +1539,87 @@ class BodyCoreService : Service() {
     }
 
     /**
-     * Add the microphone type to the foreground service, now that we can.
+     * The screen's pixels, for when accessibility is not there to be borrowed —
+     * see [ScreenCapture]. Owned here rather than by the controller because the
+     * whole point is that it outlives one.
+     */
+    private lateinit var capture: net.kuafuai.andee.screen.ScreenCapture
+
+    /**
+     * A capture consent has been granted, whether or not the projection is
+     * built yet.
+     *
+     * Read by [whileInUseType] and separate from `capture.isAvailable()` for
+     * one reason: the foreground service type has to be claimed *before*
+     * `getMediaProjection` is called on Android 14, so there is a moment where
+     * we are entitled to the type and do not yet hold a projection. Without
+     * this the type would be added one step too late and the capture would be
+     * refused on exactly the version that needs it most.
+     */
+    @Volatile
+    private var captureWanted = false
+
+    /**
+     * Add every while-in-use type we are now entitled to.
      *
      * Only legal from a context where the app is visible, which is why the
-     * caller is `ui/SelfCheckActivity` — the launcher icon — and nothing else.
-     * The payoff is the a11y-free case: with accessibility off, the wake word
-     * and the talk button are exactly what still works, and the mic type is
-     * what keeps them working on a device whose only remaining capability is
-     * this service.
+     * callers are the ones they are: `ui/SelfCheckActivity` — the launcher —
+     * for the microphone, and the same Activity again when it comes back with a
+     * capture permission. The platform refuses to *create* a
+     * microphone- or mediaProjection-typed foreground service from the
+     * background, and every other path into this service is background.
      *
-     * A no-op below API 34 (there is no type check to satisfy) and a no-op when
-     * the record permission is missing (the platform would refuse, and there is
-     * nothing to gain by asking).
+     * Composed rather than written out because the entitlement changes at
+     * runtime in two independent directions: record permission revoked, or a
+     * capture consent that Android 14 makes per-session.
      */
-    fun promoteForMicrophone() {
-        val granted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (!granted) return
-        // `SPECIAL_USE` is API 34 and reading the constant below it would be a
-        // NoSuchFieldError, not a default — so the type is composed rather than
-        // written out. Below 34 the microphone flag alone is the whole point of
-        // the call anyway; that is the version range where an app with only an
-        // accessibility service to its name loses the mic the moment that grant
-        // goes, which is the case this exists for.
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        } else {
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        }
+    fun promoteForWhileInUse() {
+        val type = whileInUseType() ?: return
         runCatching {
             startForeground(NOTIFY_BODY, buildNotification(), type)
         }.onFailure {
-            android.util.Log.w(TAG, "microphone promotion refused", it)
+            android.util.Log.w(TAG, "while-in-use promotion refused (type=$type)", it)
         }
+    }
+
+    private fun whileInUseType(): Int? {
+        var t = 0
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            t = t or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+        if (::capture.isInitialized && (captureWanted || capture.isAvailable())) {
+            t = t or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        }
+        if (t == 0) return null
+        // `SPECIAL_USE` is API 34 and reading the constant below it would be a
+        // NoSuchFieldError rather than a default, so it is added last and only
+        // where it exists. Above 34 it has to be in the set: the type is part of
+        // the service's declared identity there, not a label.
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            t or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else {
+            t
+        }
+    }
+
+    /**
+     * Keep the microphone type on the foreground service, now that we can.
+     *
+     * The payoff is the a11y-free case: with accessibility off, the wake word
+     * and the talk button are exactly what still works, and the mic type is
+     * what keeps them working on a device whose only remaining capability is
+     * this service. A no-op when the record permission is missing — the
+     * platform would refuse, and there is nothing to gain by asking.
+     */
+    fun promoteForMicrophone() {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        promoteForWhileInUse()
     }
 
     private fun ensureChannel() {
@@ -1552,6 +1704,31 @@ class BodyCoreService : Service() {
                     fix,
                 ).build()
             )
+            // A second way out, and only while this one is the only one left.
+            //
+            // Accessibility cannot be granted by the app, but the projection
+            // consent can at least be *asked for* — and being able to look is
+            // the whole of what a blind assistant can still do. Offered only
+            // when it is not already held, because a row that does nothing is
+            // a row the user learns to ignore, including the one above it.
+            val hasCapture = hasScreenCapture()
+            if (!hasCapture) {
+                val see = PendingIntent.getActivity(
+                    this,
+                    REQ_GRANT_CAPTURE,
+                    Intent(this, net.kuafuai.andee.ui.SelfCheckActivity::class.java)
+                        .putExtra(net.kuafuai.andee.ui.SelfCheckActivity.EXTRA_SCREEN_CAPTURE, true)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                b.addAction(
+                    Notification.Action.Builder(
+                        null,
+                        AppLocale.str(this, R.string.body_notify_action_see),
+                        see,
+                    ).build()
+                )
+            }
         }
         return b.build()
     }
@@ -2588,6 +2765,7 @@ class BodyCoreService : Service() {
         private const val NOTIFY_BODY = 0x0B0D
         private const val REQ_OPEN_APP = 0x0B0D
         private const val REQ_FIX_A11Y = 0x0B0E
+        private const val REQ_GRANT_CAPTURE = 0x0B0F
 
         /**
          * Begin the body, or hand an already-running one what it was asked for.

@@ -73,6 +73,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!--
+         The screen-capture fallback: MediaProjection, for when a ROM has
+         revoked accessibility and the assistant would otherwise be blind.
+         Added to the body's types so a capture can outlive a screen that
+         cannot be read the normal way. See screen/ScreenCapture.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Battery optimisation. Doze is what holds up the pending todos — they are
          AlarmManager alarms, so with the screen off a non-exempt app's reminders
          arrive late. Exempting is done from Settings' per-app request screen
@@ -145,7 +152,7 @@
             android:name=".BodyCoreService"
             android:label="@string/app_name"
             android:exported="false"
-            android:foregroundServiceType="specialUse|microphone">
+            android:foregroundServiceType="specialUse|microphone|mediaProjection">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="conversational device assistant: on-device ball, voice turn, reminders" />

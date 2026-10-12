@@ -3050,8 +3050,15 @@ class ScreenController(
         /** The relative coordinate space the brain speaks: 0..1000 both axes. */
         private const val NORM_MAX = 1000
 
-        /** Screenshot long side after downscale (generic_bridge value). */
-        private const val SHOT_MAX_SIDE = 1280
+        /**
+         * Screenshot long side after downscale (generic_bridge value).
+         *
+         * Owned by [ScreenCapture] and read from there, not copied: the
+         * MediaProjection fallback hands the brain pictures through the same
+         * tool, and a difference in size between the two sources is a
+         * difference the brain would have to learn for no reason.
+         */
+        private const val SHOT_MAX_SIDE = ScreenCapture.SHOT_MAX_SIDE
 
         /** Aim-grid columns. Letters run A.. — keep it ≤ 26. */
         private const val GRID_COLS = 8
