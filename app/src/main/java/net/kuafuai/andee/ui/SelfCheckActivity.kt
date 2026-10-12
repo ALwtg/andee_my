@@ -254,7 +254,10 @@ class SelfCheckActivity : StageActivity() {
         ui = SelfCheckUi(
             context = this,
             host = stage,
-            onDismiss = { leave() },
+            // The flag is not consulted here: this host has no assistant to
+            // unfold *at this point* — but see [onStageLeaving], which is where
+            // that assumption gets checked rather than trusted.
+            onDismiss = { _ -> leave() },
             // The two rows a first-run user actually has to act on — 大脑 and
             // 语音密钥 — are `Fix.OurSettings`, and this page used to draw them
             // with no button at all on the argument that the sheet belongs to the
@@ -283,9 +286,38 @@ class SelfCheckActivity : StageActivity() {
         revealStage()
     }
 
-    /** Give the ball back. Nothing to unfold: see [onCreate]. */
+    /**
+     * Give the screen back to the assistant — which, by now, may well exist.
+     *
+     * The first half is the original job: drop the ball off the ledge it was
+     * parked on while this page covered the screen.
+     *
+     * The second half corrects the assumption the first version was written on
+     * ("nothing to unfold: see [onCreate]"). That assumption is true when this
+     * page *opens* and false by the time it *closes*, because the page's own
+     * first row is the overlay grant and its own buttons send the user off to
+     * fix the rows they can. So the device this page exists for is precisely the
+     * one where the assistant comes up while the page is on screen — and the
+     * user closes the page onto a lone ball in the corner, with the full card
+     * they were just setting up nowhere to be found.
+     *
+     * That is the report: grant the permission, close the check, and get a ball
+     * instead of the assistant. The card is not "somewhere else" on that device;
+     * it is there and folded, and the one surface that knows the user has
+     * finished with the diagnosis is this one, on its way out.
+     *
+     * Unfolding here rather than after the exit animation is deliberate:
+     * [StageActivity.leave] hands the screen back synchronously before the
+     * window shrinks, so the card grows into place *underneath* the shrinking
+     * page rather than appearing after it — see that method's `onStageLeaving`.
+     *
+     * `BodyCoreService.get()` may be null, and that is the ordinary case this
+     * page opens in: nothing to hand back, and nothing to unfold.
+     */
     override fun onStageLeaving() {
-        BodyCoreService.get()?.ballWindow()?.setPagePerched(false)
+        val svc = BodyCoreService.get()
+        svc?.ballWindow()?.setPagePerched(false)
+        svc?.dispatcherForNotification()?.expand()
     }
 
     /**
@@ -426,6 +458,12 @@ class SelfCheckActivity : StageActivity() {
 
     override fun onResume() {
         super.onResume()
+
+        // Before anything else, and before the `ui` guard: the card this page
+        // drew may have stopped being the right surface to be showing while the
+        // user was away fixing it. See [handOverToBody].
+        if (handOverToBody()) return
+
         if (!::ui.isInitialized) return
         val now = VoiceConfig.uiLanguage(this)
         if (paintedLang.isNotEmpty() && now != paintedLang) ui.repaintForLanguage()
@@ -456,6 +494,49 @@ class SelfCheckActivity : StageActivity() {
             return
         }
         ui.refreshLocal()
+    }
+
+    /**
+     * Hand the screen to the assistant, if it has arrived.
+     *
+     * [onCreate] asks this question once, at launch, and at that moment the
+     * answer is usually *no*: this page is drawn before the body it starts has
+     * attached its overlays. But this page is also where the user fixes the
+     * reasons it was drawn at all — its first row *is* the overlay grant, and
+     * its buttons are all doors to system screens — so the answer changes while
+     * the page is up, and nothing asks again.
+     *
+     * What that looks like from the outside is the report this fixes: grant the
+     * permission, come back, and there is a diagnostic page on screen with a
+     * full-size assistant card painted over it. Two surfaces, one vision, and no
+     * way to tell which one the ✕ in the corner belongs to — it belongs to the
+     * card, so the user who means "close the check" folds the assistant instead
+     * and is left looking at a ball.
+     *
+     * So the page's job is over the moment the assistant can draw itself, which
+     * is the same question `SelfCheck.overlay` answers: this closes the page and
+     * unfolds the card in one breath, and the two never share the screen.
+     *
+     * Asked on *every* resume, unlike the local re-read below — and for the same
+     * reason, from the other side: the user is very often returning from exactly
+     * the Settings screen that granted this, which is a resume with the service
+     * newly up.
+     *
+     * Returns whether the hand-over happened, so [onResume] can stop: everything
+     * after that point is work on a card that is on its way out.
+     *
+     * Nothing happens unless the card is genuinely drawable. A red overlay row
+     * is on this very page, and closing the page for a card that cannot appear
+     * would trade a diagnosis for an empty screen — the one outcome worse than
+     * the bug being fixed here.
+     */
+    private fun handOverToBody(): Boolean {
+        val svc = BodyCoreService.get() ?: return false
+        if (!svc.ensureOverlays()) return false
+        val d = svc.dispatcherForNotification() ?: return false
+        d.expand()
+        leave()
+        return true
     }
 
     override fun onDestroy() {

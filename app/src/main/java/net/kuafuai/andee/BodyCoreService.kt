@@ -1819,7 +1819,20 @@ class BodyCoreService : Service() {
         if (selfCheck?.isShowing() == true) return
         val s = net.kuafuai.andee.ui.SelfCheckUi(
             context = this,
-            onDismiss = { selfCheck = null },
+            // A user closing the check is asking for the assistant back, so it
+            // comes back full size. Unfolding here and not in the ✕ handler is
+            // the point of the flag: this same callback also fires on the way
+            // out to a Settings page, and unfolding *there* would put the card
+            // back over the screen we just folded it to clear. See
+            // SelfCheckUi.onDismiss and SelfCheckUi.hide.
+            //
+            // Safe when the card was never folded, which is the ordinary case:
+            // `expand()` is idempotent, and ✕ from a full-size card is the user
+            // asking for the screen they already have.
+            onDismiss = { yielding ->
+                selfCheck = null
+                if (!yielding) dispatcher.expand()
+            },
             // Our own sheet, reached through the service because that is where
             // it lives. Never null from here: if this method is running, we are.
             onOpenSettings = { openSettings() },
@@ -1843,7 +1856,7 @@ class BodyCoreService : Service() {
             // that is what clears [selfCheck].
             onYieldScreen = {
                 dispatcher.compactForUser()
-                selfCheck?.hide()
+                selfCheck?.hide(yielding = true)
             },
             // The card owns its language switch; the ball and the scrollback live
             // in this service and have to be told the same way [openSettings]

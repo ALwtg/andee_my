@@ -95,7 +95,17 @@ import java.util.concurrent.Executors
  */
 class SelfCheckUi(
     private val context: Context,
-    private val onDismiss: () -> Unit,
+    /**
+     * The card is gone — put your house in order.
+     *
+     * @param yielding true when this close is the host stepping out of the way
+     *   of another screen (see [onYieldScreen]), false when the user asked for
+     *   it with ✕ or 完成. A host needs the difference, and only a host can act
+     *   on it: a user closing the check is asking for the assistant back, while
+     *   a yield is one step of handing the screen to somebody else and must not
+     *   undo itself. See `BodyCoreService.openSelfCheck`.
+     */
+    private val onDismiss: (yielding: Boolean) -> Unit,
     private val onOpenSettings: (() -> Unit)? = null,
     /** Fired when this card's own picker moved the language — see the class doc. */
     private val onLocaleChanged: () -> Unit = {},
@@ -285,15 +295,25 @@ class SelfCheckUi(
      * only from a user pressing ✕ — [onYieldScreen] has the host close the card
      * on the way out to the browser. Fold, reopen the check, and the stale exit
      * would land after the second card was up.
+     *
+     * ### [yielding], and why the caller has to say
+     *
+     * The two closes look identical from in here and mean opposite things out
+     * there, so the one caller that knows which it is passes it: ✕ and 完成
+     * close with the default, and [onYieldScreen]'s host closes with `true`.
+     * The distinction exists because of what the *host* does with it — see
+     * [onDismiss] — and it cannot be inferred here, because the fold that
+     * accompanies a yield is the host's own doing and is already in flight by
+     * the time this runs.
      */
-    fun hide() {
+    fun hide(yielding: Boolean = false) {
         val v = root ?: return
         root = null
         val stage = host
         if (stage != null) {
             runCatching { stage.removeView(v) }
             OwnCard.hidden()
-            onDismiss()
+            onDismiss(yielding)
             return
         }
         val wm = wm ?: return
@@ -303,7 +323,7 @@ class SelfCheckUi(
                 runCatching { wm.removeView(v) }
                 closing = null
                 OwnCard.hidden()
-                onDismiss()
+                onDismiss(yielding)
             }
         }
     }
