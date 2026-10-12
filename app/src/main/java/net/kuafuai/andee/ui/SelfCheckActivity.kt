@@ -10,6 +10,7 @@ import net.kuafuai.andee.ScreenBodyService
 import net.kuafuai.andee.config.FactoryReset
 import net.kuafuai.andee.config.Notebook
 import net.kuafuai.andee.config.VoiceConfig
+import net.kuafuai.andee.device.SelfCheck
 import net.kuafuai.andee.i18n.AppLocale
 
 /**
@@ -252,8 +253,19 @@ class SelfCheckActivity : StageActivity() {
         // it back"; only a null one means the user tapped the icon on purpose.
         val restored = savedInstanceState != null
 
+        // And a page that is already open outranks both.
+        //
+        // The way back from a system screen is often a *fresh launch*, not a
+        // resume: the platform can put a Settings screen in a task of its own,
+        // and a ROM is free to clear ours while the user is away. On that path
+        // `restored` is false and the intent looks exactly like a tap on the
+        // icon, so the branches below would take it for one. What tells them
+        // apart is whether the user is mid-list, and only something written down
+        // can still know that. See [SelfCheck.isPageOpen].
+        val checkOpen = SelfCheck.isPageOpen(this)
+
         val svc = BodyCoreService.get()
-        if (!restored && svc != null && svc.ensureOverlays()) {
+        if (!restored && !checkOpen && svc != null && svc.ensureOverlays()) {
             svc.dispatcherForNotification()?.expand()
             finish()
             return
@@ -265,12 +277,17 @@ class SelfCheckActivity : StageActivity() {
         // (first launch after a fresh grant). Falling through here would draw a
         // checklist for a device that is working, which is the exact report
         // this branch was rewritten to stop producing.
-        if (!restored && svc == null && ScreenBodyService.get() != null && Settings.canDrawOverlays(this)) {
+        if (!restored && !checkOpen && svc == null && ScreenBodyService.get() != null && Settings.canDrawOverlays(this)) {
             finish()
             return
         }
 
         // ---- Everything below is the case this class exists for ----
+        //
+        // Written down before a single row is drawn, because from here on the
+        // question "was there a page?" has to survive the process: see
+        // [SelfCheck.setPageOpen]. [onStageLeaving] is what clears it.
+        SelfCheck.setPageOpen(this, true)
         //
         // No service: accessibility is off, or the overlay grant is missing, or
         // the app was just reinstalled. There is no ball, no card and no window
@@ -345,6 +362,11 @@ class SelfCheckActivity : StageActivity() {
      * page opens in: nothing to hand back, and nothing to unfold.
      */
     override fun onStageLeaving() {
+        // The user is done with the list, and this is the only thing that says
+        // so — everything else about the page survives on purpose, including the
+        // process. Cleared *before* the overlays go up, so a launch on the far
+        // side of this is a launch with no page. See [SelfCheck.setPageOpen].
+        SelfCheck.setPageOpen(this, false)
         val svc = BodyCoreService.get()
         svc?.ballWindow()?.setPagePerched(false)
         // `ensureOverlays` before `expand`, not `expand` on its own.

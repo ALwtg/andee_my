@@ -67,6 +67,48 @@ import java.util.concurrent.TimeUnit
  */
 object SelfCheck {
 
+    /**
+     * The prefs file this feature keeps its bookkeeping in.
+     *
+     * Two writers, one file: `BodyCoreService.runStartupSelfCheck` remembers
+     * what it has already reported, and the checklist page remembers that it is
+     * still open — see [isPageOpen]. Named here rather than in both places.
+     */
+    const val PREFS = "self_check"
+
+    private const val PAGE_OPEN = "page_open"
+
+    /**
+     * Is the checklist page up, with the user not yet finished with it?
+     *
+     * **Persisted, and that is the whole point.** The page's rows are doors to
+     * system screens, and the way back from one is very often a *fresh launch*
+     * rather than a resume: the platform can put a Settings screen in a task of
+     * its own, and a ROM is free to clear ours while the user is away. On that
+     * path neither `savedInstanceState` nor the task remembers anything, so the
+     * only thing that can still know "there was a page here" is something
+     * written down.
+     *
+     * Without it, that fresh launch takes the branch meant for a user tapping
+     * the icon on a working device — hand the screen to the assistant — and the
+     * list the user was working through is gone. The report: "the check said the
+     * overlay was off, I granted it, came back, and I was on the assistant
+     * instead of the check".
+     *
+     * Cleared by the user closing the page and by nothing else, which is the
+     * same rule the page itself follows: only the user knows when the list is
+     * finished.
+     */
+    fun isPageOpen(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(PAGE_OPEN, false)
+
+    fun setPageOpen(context: Context, open: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(PAGE_OPEN, open)
+            .apply()
+    }
+
     enum class Level { OK, NOTE, WARN, FAIL }
 
     /**

@@ -420,7 +420,27 @@ class BodyCoreService : Service() {
         // report it either — the card it would raise needs the missing
         // permission. So this line is the only trace, and `ensureOverlays` is
         // the way back.
-        if (!window.show()) {
+        // **When the checklist page is the surface the user is on, this service
+        // shows nothing at all — not even the ball.**
+        //
+        // The page is drawn precisely when this service could not show itself,
+        // and it sends the user out to system screens through its own rows, so
+        // it is routinely still the page in front when this service starts
+        // again. Two reasons it must then stay out of the way entirely:
+        //
+        //  * unfolding the card puts a fullscreen overlay on top of it, and the
+        //    user who was mid-list reports "I granted it, came back, and I was on
+        //    the assistant" — the list is not gone, it is behind the card;
+        //  * this window is fullscreen *even when the ball is compact*, and it
+        //    swallows the touches it does not use — so a page with a ball in the
+        //    corner is a page whose buttons cannot be pressed. Measured on the
+        //    tablet: 完成 did nothing.
+        //
+        // Nothing is lost by staying out: the page's own exit calls
+        // [ensureOverlays], which is what shows this window and unfolds the card.
+        // See `SelfCheck.isPageOpen`.
+        val pageOwnsScreen = net.kuafuai.andee.device.SelfCheck.isPageOpen(this)
+        if (!pageOwnsScreen && !window.show()) {
             android.util.Log.e("Body", "overlay refused: no window (SYSTEM_ALERT_WINDOW?)")
         }
         // Little signboards (ask/alert cards) live in their own overlay
@@ -457,7 +477,13 @@ class BodyCoreService : Service() {
         // exitCompact() grows it to the recorded full-screen rectangle, so this
         // arrives as the same geometry change a long-press makes — one code
         // path, not a second way for the window to be born.
-        window.setCompact(false)
+        //
+        // Skipped while the checklist page owns the screen; that window is not
+        // even shown then, and [ensureOverlays] is what grows it when the page
+        // leaves. See the note on `show()` above.
+        if (!pageOwnsScreen) {
+            window.setCompact(false)
+        }
         net.kuafuai.andee.config.VoiceConfig.onSceneChanged = ::onSceneChanged
 
         // After the card: same window type, so insertion order is z-order and
@@ -743,7 +769,14 @@ class BodyCoreService : Service() {
                 .putLong(SELF_CHECK_SEEN_AT, now)
                 .apply()
             android.util.Log.w("Body", "self-check: $signature")
-            ui.post { showSelfCheckCard(problems) }
+            // Skipped while the checklist page is up: that page *is* the list, so
+            // a signboard carrying the same rows would be the same information
+            // twice, one surface on top of the other. The signature is recorded
+            // either way, so the card does not turn up the moment the user closes
+            // the page having just read all of it. See `SelfCheck.isPageOpen`.
+            if (!net.kuafuai.andee.device.SelfCheck.isPageOpen(app)) {
+                ui.post { showSelfCheckCard(problems) }
+            }
         }.start()
     }
 
@@ -2816,7 +2849,7 @@ class BodyCoreService : Service() {
         }
 
         /** Where [runStartupSelfCheck] remembers what it already said. */
-        private const val SELF_CHECK_PREFS = "self_check"
+        private const val SELF_CHECK_PREFS = net.kuafuai.andee.device.SelfCheck.PREFS
         private const val SELF_CHECK_SIGNATURE = "last_signature"
         private const val SELF_CHECK_SEEN_AT = "last_seen_at"
 
