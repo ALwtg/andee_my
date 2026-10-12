@@ -71,7 +71,7 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
      * Handed out for the same reasons as the two above, and one of its own: the
      * log lives on disk and has to be read and rendered into a page before there
      * is anything to open, and that read must not happen on the UI thread. See
-     * `ScreenBodyService.onTraceOpen`.
+     * `BodyCoreService.onTraceOpen`.
      *
      * **Only rows that have a log fire this.** A row with no
      * [ChatHistory.Entry.turn] — a scene being entered, a notification read out,
@@ -89,7 +89,7 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
      * is handed out rather than acted on here for the same reason the rows are:
      * starting a turn is the service's business (it writes the log, tells the
      * hub, lights the glow), and a list that could do it would be a second way
-     * to start a turn. See `ScreenBodyService.onSuggestionClick`.
+     * to start a turn. See `BodyCoreService.onSuggestionClick`.
      *
      * Three things are passed because they are used in different places: the
      * name is the key the scene is stored under and what adoption needs, the

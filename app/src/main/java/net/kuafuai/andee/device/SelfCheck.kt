@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit
  * reports the permission as on. Each of those has been reported by the user as
  * "坏了" at least once, and every one of them is decidable in advance.
  *
- * **One list, three readers.** [net.kuafuai.andee.ScreenBodyService] runs it at
+ * **One list, three readers.** [net.kuafuai.andee.BodyCoreService] runs it at
  * startup and puts up a nudge card if anything is wrong; that same service puts
  * it up on demand as a card from `✓` in the assistant's control bar; and
  * [net.kuafuai.andee.ui.SelfCheckActivity] hosts the very same card from the
@@ -207,6 +207,48 @@ object SelfCheck {
     /** [run] with no network, for the caller's first paint. */
     fun local(context: Context): List<Finding> = run(context, probe = false)
 
+    /**
+     * The three rows only a probe can answer — the backend, the version
+     * service, the voice host.
+     *
+     * Private because the *set* is the whole of what [mergeLocal] means: a
+     * caller that wants this behaviour calls [mergeLocal], and one that wants
+     * the raw facts calls [run]. Nothing outside should be matching on these
+     * ids by hand.
+     */
+    private val PROBED_IDS = setOf("backend", "version", "voice_host")
+
+    /**
+     * Splice a fresh no-probe pass over the last full one.
+     *
+     * [local] does not return the list minus three rows. With `probe = false`
+     * those three come back as "checking…" placeholders — which is exactly what
+     * lets a card paint its first frame instantly and fill in behind it — so
+     * handing that list to a card that has *already* answered them would wipe a
+     * real reading back to a placeholder, and nothing would come along to fill
+     * it in again: the probe only ever runs from a full pass.
+     *
+     * That is the whole job here. Every row this pass could not answer keeps
+     * what the previous pass found; every other row is the fresh reading, which
+     * is the point of re-reading at all. See
+     * [net.kuafuai.andee.ui.SelfCheckUi.refreshLocal] for the caller, and
+     * [SelfCheckMergeTest] for the cases that pin this down.
+     *
+     * ### The one thing it does not fix
+     *
+     * A device that has gone *offline* since the last full pass keeps the old
+     * network reading on these three rows, because a probe cannot tell "not
+     * asked" from "no network" — both land in the same branch of each one. The
+     * `network` row is local, so on its own it does turn red and say so, and
+     * that is the signal the user acts on. Splitting the two cases inside all
+     * three probes to make these agree is not worth three more branches today.
+     */
+    fun mergeLocal(fresh: List<Finding>, previous: List<Finding>?): List<Finding> {
+        if (previous == null) return fresh
+        val known = previous.associateBy { it.id }
+        return fresh.map { f -> if (f.id in PROBED_IDS) known[f.id] ?: f else f }
+    }
+
     // ---- The checks ----
 
     /**
@@ -282,7 +324,7 @@ object SelfCheck {
     /**
      * Which brain, and is it told where to go.
      *
-     * The *presence* half only. `ScreenBodyService.startBrain` already raises
+     * The *presence* half only. `BodyCoreService.startBrain` already raises
      * its own card for exactly these two states, so the startup call passes
      * `announce = false` and this row is what the user sees instead — one card
      * per start, listing everything, rather than two cards arguing.

@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * defined with its `onProgress` / `onFinal` lambdas, which is why everything
  * downstream — subtitles, ChatHistory, TTS, the edge glow, the fold, the stop
  * button — works unchanged. The two brains are mutually exclusive; see
- * `ScreenBodyService.startBrain`.
+ * `BodyCoreService.startBrain`.
  *
  * Four things in here are not stylistic choices:
  *
@@ -89,7 +89,7 @@ class LocalBrain(
     /**
      * What a quiet-hour sweep cost, in tokens, once it is over. The user pays
      * for these calls with their own key, so the settings screen shows the
-     * running total — see `ScreenBodyService`. Only [TurnKind.SWEEP] is
+     * running total — see `BodyCoreService`. Only [TurnKind.SWEEP] is
      * reported: a harvest is not optional, so counting it against a daily
      * budget the user set for reviews would be misleading.
      */

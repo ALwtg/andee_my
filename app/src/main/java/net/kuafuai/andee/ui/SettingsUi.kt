@@ -82,13 +82,13 @@ class SettingsUi(
     private val onDismiss: () -> Unit,
     /**
      * 恢复出厂设置, after the user has confirmed twice. Wired to
-     * `ScreenBodyService.applyFactoryReset`, which does the wiping *and*
+     * `BodyCoreService.applyFactoryReset`, which does the wiping *and*
      * rebuilds the brain — this class knows how to ask, not how to erase.
      */
     private val onFactoryReset: () -> Unit,
     /**
      * 清空聊天记录, after the user has confirmed. Wired to
-     * `ScreenBodyService.clearChatHistory`, which wipes the scrollback *and*
+     * `BodyCoreService.clearChatHistory`, which wipes the scrollback *and*
      * rebuilds the brain so the conversation goes with it — clearing only the
      * visible rows would leave the model remembering everything the user
      * just asked to forget.
@@ -96,7 +96,7 @@ class SettingsUi(
     private val onClearChat: () -> Unit,
     /**
      * 清空小本本, after the user has confirmed. Wired to
-     * `ScreenBodyService.clearNotebook`.
+     * `BodyCoreService.clearNotebook`.
      *
      * A separate errand from [onClearChat] rather than a checkbox on it: what
      * the assistant *chose to keep* outlives any one conversation, which is
@@ -552,7 +552,7 @@ class SettingsUi(
      * Who does the thinking, and how to reach them.
      *
      * The two halves are mutually exclusive on the service side too
-     * (`ScreenBodyService.startBrain` builds one brain or the other), so the
+     * (`BodyCoreService.startBrain` builds one brain or the other), so the
      * picker folds away the half that is not in play.
      */
     /**

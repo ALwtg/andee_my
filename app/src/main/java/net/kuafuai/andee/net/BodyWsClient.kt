@@ -255,7 +255,7 @@ class BodyWsClient(
         private const val MAX_BACKOFF_MS = 30_000L
 
         /**
-         * The connected client, for services outside ScreenBodyService's
+         * The connected client, for services outside BodyCoreService's
          * wiring (NotificationRelayService pushing `notification` events).
          * Null while the hub link is down — pushers drop silently by design:
          * buffering-and-replaying after reconnect would deliver stale

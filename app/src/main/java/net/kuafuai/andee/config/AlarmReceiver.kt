@@ -10,8 +10,8 @@ import android.util.Log
  * from the user.
  *
  * It decides nothing. A firing alarm is turned into either a wake-up call for
- * the running service ([net.kuafuai.andee.ScreenBodyService.wakeForTodo] /
- * [net.kuafuai.andee.ScreenBodyService.onSweepTimer]) or, when there is no
+ * the running service ([net.kuafuai.andee.BodyCoreService.wakeForTodo] /
+ * [net.kuafuai.andee.BodyCoreService.onSweepTimer]) or, when there is no
  * service to call, into a notification that says plainly that the promise was
  * not acted on. The state transitions themselves live in [Notebook] and
  * [Scheduler] so that this class stays a dispatcher — an alarm firing during a
@@ -36,7 +36,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 // the right to start a turn; both live in the service. No
                 // service means no brain to sweep for, and the timer gets
                 // re-armed when one starts.
-                net.kuafuai.andee.ScreenBodyService.get()?.onSweepTimer()
+                net.kuafuai.andee.BodyCoreService.get()?.onSweepTimer()
                     ?: Log.i(TAG, "sweep timer fired with no service; ignored")
 
             Intent.ACTION_BOOT_COMPLETED, QUICKBOOT ->
@@ -78,7 +78,7 @@ class AlarmReceiver : BroadcastReceiver() {
             null
         }
 
-        val service = net.kuafuai.andee.ScreenBodyService.get()
+        val service = net.kuafuai.andee.BodyCoreService.get()
         val patched = Notebook.patchTodo(
             context,
             todo.id,
