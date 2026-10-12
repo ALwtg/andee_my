@@ -1238,6 +1238,7 @@ class FloatingWindowUi(
     fun setWorking(on: Boolean) {
         ui.post {
             if (perchedByTask == on) return@post
+            if (on) dropSignboardBeforePerch()
             perchedByTask = on
             applyPerch()
             syncWorking()
@@ -1260,6 +1261,7 @@ class FloatingWindowUi(
     fun setPagePerched(on: Boolean) {
         ui.post {
             if (perchedByPage == on) return@post
+            if (on) dropSignboardBeforePerch()
             perchedByPage = on
             applyPerch()
             syncWorking()
@@ -1315,6 +1317,13 @@ class FloatingWindowUi(
             val cy = loc[1] + area.height / 2 + (ball?.translationY ?: 0f).toInt()
             cb(intArrayOf(cx - r, cy - r, cx + r, cy + r))
         }
+    }
+
+    /** While a signboard is up the window is card-sized, so a perch slide would drag the whole card into the corner. */
+    private fun dropSignboardBeforePerch() {
+        if (!compact || signboard == null) return
+        signboardEvictor?.invoke()
+        if (signboard != null) hideSignboard()
     }
 
     /** A signboard is up — the ball waits, attending, instead of idling. */

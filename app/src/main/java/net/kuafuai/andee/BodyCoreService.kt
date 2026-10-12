@@ -527,7 +527,10 @@ class BodyCoreService : Service() {
         }
         asr = AsrController(
             this, audio, window,
-            onTranscript = { submitUserTurn(it, "voice") },
+            onTranscript = {
+                voiceFailureReported = false
+                submitUserTurn(it, "voice")
+            },
             onError = { msg -> reportVoiceFailure(msg) },
         )
 
@@ -950,6 +953,8 @@ class BodyCoreService : Service() {
         // app — precisely the state `type_text` fails in.
         closeTyping()
         acceptBrainOutput = true
+        // A deliberate press that fails is owed its explanation again.
+        voiceFailureReported = false
         asr.toggle()
     }
 
@@ -1117,6 +1122,10 @@ class BodyCoreService : Service() {
         net.kuafuai.andee.ui.ImeSwitch.ensureHumanDefault(this)
     }
 
+    /** A voice failure was already shown; the auto follow-up mic would otherwise repeat it after every answer. */
+    @Volatile
+    private var voiceFailureReported = false
+
     /**
      * Voice failed, and the user has to be told *and* offered the way out.
      *
@@ -1135,6 +1144,8 @@ class BodyCoreService : Service() {
      */
     private fun reportVoiceFailure(msg: String) {
         android.util.Log.w("Body", "voice failed: $msg")
+        if (voiceFailureReported) return
+        voiceFailureReported = true
         net.kuafuai.andee.ui.ChatHistory.addError(
             AppLocale.str(this, R.string.svc_voice_error_line, msg)
         )
@@ -1788,6 +1799,7 @@ class BodyCoreService : Service() {
             context = this,
             onDismiss = {
                 settings = null
+                voiceFailureReported = false
                 if (rebuiltByReset) {
                     rebuiltByReset = false
                 } else {
