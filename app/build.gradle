@@ -50,6 +50,17 @@ android {
         buildConfigField "boolean", "CODEFLYING_SSL_ENABLED",  buildConfigBool('CODEFLYING_SSL_ENABLED')
         buildConfigField "String",  "DEFAULT_LANG",            buildConfigString('DEFAULT_LANG')
         buildConfigField "String",  "DEFAULT_THINKING",        buildConfigString('DEFAULT_THINKING')
+
+        // Verification hook, off unless asked for: `-PdbgSuffix=.dbg` builds a
+        // *parallel* package that installs next to whatever is already on the
+        // device. Needed because the package on the tablet was signed with a
+        // different key than this checkout, so `pm install -r` is refused
+        // (INSTALL_FAILED_UPDATE_INCOMPATIBLE) and the only alternative is
+        // uninstalling — which throws away the user's chat history, notebook
+        // and vault. Not for shipping; nothing else reads this property.
+        if (project.hasProperty('dbgSuffix')) {
+            applicationIdSuffix project.property('dbgSuffix')
+        }
     }
 
     buildTypes {
