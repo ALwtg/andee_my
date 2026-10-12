@@ -317,7 +317,15 @@ class SelfCheckActivity : StageActivity() {
     override fun onStageLeaving() {
         val svc = BodyCoreService.get()
         svc?.ballWindow()?.setPagePerched(false)
-        svc?.dispatcherForNotification()?.expand()
+        // `ensureOverlays` before `expand`, not `expand` on its own.
+        //
+        // **This is now the only way off this page**, so it is the only thing
+        // that puts an assistant on screen for a user who came in through it.
+        // Nothing has shown this service's overlays at any point while the page
+        // was up — the page is drawn precisely because they could not be shown
+        // — and expanding a window that was never attached draws nothing. The
+        // user would close the check onto a bare home screen.
+        if (svc?.ensureOverlays() == true) svc.dispatcherForNotification()?.expand()
     }
 
     /**
@@ -459,84 +467,40 @@ class SelfCheckActivity : StageActivity() {
     override fun onResume() {
         super.onResume()
 
-        // Before anything else, and before the `ui` guard: the card this page
-        // drew may have stopped being the right surface to be showing while the
-        // user was away fixing it. See [handOverToBody].
-        if (handOverToBody()) return
+        // Order matters here, and it is the reverse of what it was.
+        //
+        // Every row on this page sends the user out — 去开启, 允许, 去下载 — so
+        // the way back is a resume, and the first thing to do with one is
+        // re-read the half that is cheap to re-read. A row the user just fixed
+        // staying red reads as "the fix did not take", and the only other way
+        // to correct it was 重新检查 at the bottom of the list. Being an
+        // Activity is what makes noticing this possible at all: the same list
+        // on a working device is an overlay owned by the service, gets no
+        // resume callback, and is closed on the way out instead — see
+        // `BodyCoreService.openSelfCheck`. Local only, deliberately, and
+        // [SelfCheckUi.refreshLocal] carries that argument in full.
+        //
+        // **Nothing here closes the page.** This used to hand the screen to the
+        // assistant as soon as it could draw one, which is a return from
+        // granting the overlay — and it is also a return from fixing row one of
+        // five, where it took the list away and sent the user back through the
+        // launcher icon and 看自检 to get at row two. The page is now left up
+        // until the user closes it, which is the one signal that actually means
+        // "I am done here": ✕ or 完成, and [onStageLeaving] puts the assistant
+        // back. On a page whose whole job is to walk somebody down a list, the
+        // user is the only one who knows when the list is finished.
+        //
+        // Skipped on the first resume, which is `onCreate`'s own: the render
+        // there is the freshest thing there is, and re-reading would be a second
+        // pass over the same facts in the same frame.
+        if (::ui.isInitialized) {
+            val now = VoiceConfig.uiLanguage(this)
+            if (paintedLang.isNotEmpty() && now != paintedLang) ui.repaintForLanguage()
+            paintedLang = now
 
-        if (!::ui.isInitialized) return
-        val now = VoiceConfig.uiLanguage(this)
-        if (paintedLang.isNotEmpty() && now != paintedLang) ui.repaintForLanguage()
-        paintedLang = now
-
-        // Coming back from a system screen, and re-reading the local half.
-        //
-        // This page's own rows send the user out — 去开启, 允许, 去下载 — and the
-        // only thing that used to happen on the way back was the language
-        // comparison above. So a row the user had just fixed stayed red until
-        // they found 重新检查 at the bottom of the card, and a stale red row
-        // reads as "the fix did not take". Being an Activity is what makes
-        // noticing this possible at all: the same list on a working device is an
-        // overlay owned by the service and gets no resume callback, so there the
-        // card is closed on the way out instead and reopened reads fresh — see
-        // `BodyCoreService.openSelfCheck`.
-        //
-        // Local only, deliberately. The probes are a socket that holds the card
-        // for seconds, and running them every time the user comes back would
-        // make the check slower the more of it you have already done. See
-        // [SelfCheckUi.refreshLocal] for the whole argument, including why the
-        // three probed rows are carried over rather than reset.
-        //
-        // Skipped on the first resume, which is [onCreate]'s own: see
-        // [resumedOnce].
-        if (!resumedOnce) {
+            if (resumedOnce) ui.refreshLocal()
             resumedOnce = true
-            return
         }
-        ui.refreshLocal()
-    }
-
-    /**
-     * Hand the screen to the assistant, if it has arrived.
-     *
-     * [onCreate] asks this question once, at launch, and at that moment the
-     * answer is usually *no*: this page is drawn before the body it starts has
-     * attached its overlays. But this page is also where the user fixes the
-     * reasons it was drawn at all — its first row *is* the overlay grant, and
-     * its buttons are all doors to system screens — so the answer changes while
-     * the page is up, and nothing asks again.
-     *
-     * What that looks like from the outside is the report this fixes: grant the
-     * permission, come back, and there is a diagnostic page on screen with a
-     * full-size assistant card painted over it. Two surfaces, one vision, and no
-     * way to tell which one the ✕ in the corner belongs to — it belongs to the
-     * card, so the user who means "close the check" folds the assistant instead
-     * and is left looking at a ball.
-     *
-     * So the page's job is over the moment the assistant can draw itself, which
-     * is the same question `SelfCheck.overlay` answers: this closes the page and
-     * unfolds the card in one breath, and the two never share the screen.
-     *
-     * Asked on *every* resume, unlike the local re-read below — and for the same
-     * reason, from the other side: the user is very often returning from exactly
-     * the Settings screen that granted this, which is a resume with the service
-     * newly up.
-     *
-     * Returns whether the hand-over happened, so [onResume] can stop: everything
-     * after that point is work on a card that is on its way out.
-     *
-     * Nothing happens unless the card is genuinely drawable. A red overlay row
-     * is on this very page, and closing the page for a card that cannot appear
-     * would trade a diagnosis for an empty screen — the one outcome worse than
-     * the bug being fixed here.
-     */
-    private fun handOverToBody(): Boolean {
-        val svc = BodyCoreService.get() ?: return false
-        if (!svc.ensureOverlays()) return false
-        val d = svc.dispatcherForNotification() ?: return false
-        d.expand()
-        leave()
-        return true
     }
 
     override fun onDestroy() {
