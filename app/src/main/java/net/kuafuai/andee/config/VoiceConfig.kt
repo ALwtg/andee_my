@@ -143,6 +143,31 @@ data class VoiceConfig(
         /** Full TTS WebSocket URL for CodeFlying. */
         fun codeFlyingTtsEndpoint(): String = "${codeFlyingWsBaseUrl()}/voice/tts/bidirection"
 
+        /**
+         * Which palette the UI draws with. `true` = night, and false = day.
+         *
+         * **Night is the default.** A fresh install comes up dark, and so does a
+         * device updating from a build that predates this setting — which is why the
+         * test is "not day" rather than "is night". Inverted here on request; the
+         * light palette is still one tap away in 设置 → 外观 and is remembered from
+         * then on.
+         *
+         * Read straight off disk rather than out of [current], and that matters here:
+         * [net.kuafuai.andee.ui.Theme] reads this once at process start and again on
+         * every change, so the answer has to be the file's, not a snapshot of the
+         * other rows that happens to be in memory.
+         *
+         * Only the two strings are meaningful; the "day" one is written by the picker
+         * as [net.kuafuai.andee.ui.Theme.DAY].
+         */
+        fun nightTheme(context: Context): Boolean {
+            val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("theme", "").orEmpty().trim().lowercase()
+            // Only an explicit "day" turns night off. Absent or unrecognised reads as
+            // night, so the default cannot be lost by a build that never wrote it.
+            return saved != "day"
+        }
+
         /** Whether to show the 云端 (hub) tab in the backend picker. Default off. */
         fun showHub(context: Context): Boolean =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -602,6 +627,11 @@ data class VoiceConfig(
         // editable too, and is gone: the voice follows the ball's look, not a
         // row — see [lookSpeaker].)
         private val ALLOWED_KEYS = setOf(
+            // Which palette the UI draws with — see [net.kuafuai.andee.ui.Theme].
+            // In this list because [save] drops anything that is not: a key missing
+            // here is a write that silently does nothing, which on a theme means the
+            // picker moves, the card redraws and the setting is gone next launch.
+            "theme",
             "uid",
             "api_key",
             "asr_endpoint", "asr_resource_id",

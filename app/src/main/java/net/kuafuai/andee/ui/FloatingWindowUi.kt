@@ -278,6 +278,23 @@ class FloatingWindowUi(
     /** The ball's gesture vocabulary, pinned along the bottom of the full card. */
     private var tipsView: View? = null
 
+    /**
+     * The top bar's icon views, kept only so a theme change can re-tint them.
+     *
+     * `barButton` bakes its tint into a mutated drawable, so without this the bar
+     * keeps whichever palette the *window* was built in — the whole chrome of the
+     * card is built once and never again. That is how a light-mode grey ended up
+     * sitting on a night-mode well: measured on the tablet as `#7D8592` glyphs on a
+     * `#092E54` pill, which is a day value on a night ground.
+     */
+    private val barIcons = mutableListOf<ImageView>()
+
+    /** The scene chip's ✕, for the same reason — its colour is set at build too. */
+    private var sceneChipExit: TextView? = null
+
+    /** The top bar's corner radius. One number: applied at build and on a theme change. */
+    private val topBarRadius = dp(24)
+
     // Folded into p.alpha / p.flags by [applyWindow]. Main thread only.
     private var captureHidden = false
     private var compact = false
@@ -906,6 +923,73 @@ class FloatingWindowUi(
             historyView?.onLocaleChanged()
             renderSceneChip()
         }
+    }
+
+    /**
+     * The palette changed under us. See [Theme] for what sets it off and
+     * [net.kuafuai.andee.BodyCoreService] for who calls this.
+     *
+     * A different job from [onLocaleChanged] in exactly one place: **the backdrop is a
+     * decoded image rather than a colour read at build time.** [Backdrop.warm] is
+     * one-shot by design, so the cached decode has to be dropped before the new
+     * palette's file can be read at all — without that the card keeps the white wash
+     * under the dark palette, which is the single most visible way to get a theme
+     * switch wrong. Everything else is the same rebuild a language change is, so it is
+     * the same calls.
+     */
+    fun onThemeChanged() {
+        ui.post {
+            Backdrop.reset()
+            val bg = backdrop
+            if (bg != null) {
+                Backdrop.warm(context) { bmp ->
+                    bg.setImageBitmap(bmp)
+                    applyWindow()
+                }
+            }
+            applyPaletteToChrome()
+            historyView?.onThemeChanged()
+            renderSceneChip()
+            // The scrim is now the other palette's, and [paintCard] only pushes it when
+            // it differs from what the image already carries.
+            scrimShown = null
+            applyWindow()
+        }
+    }
+
+    /**
+     * Re-colour the chrome that was built once and has no way of hearing about a theme
+     * change on its own.
+     *
+     * **The cards rebuild; this bar does not.** [net.kuafuai.andee.ui.CardUi] and every
+     * card are constructed on demand, so they pick up the new palette by existing.
+     * The window's own chrome — built in [build] and never again — bakes its colours at
+     * construction, which is a silent failure exactly once per control and shows up as
+     * *one* unreadable element rather than as a broken screen. Both of the ones reported
+     * from the tablet were this: a light-mode grey left on a night-mode well, and the
+     * day ink left on the night photograph.
+     *
+     * The rule this is the last word on: **anything whose colour or fill is set at build
+     * time in this class needs a line here.** The top bar's own `background` is the one
+     * that proved it — it was missed twice, and what it looks like when it is missing is
+     * a dark pill under correctly-tinted glyphs, which reads as a design choice rather
+     * than as a stale value. If this list ever grows past a handful, the answer is to
+     * rebuild the chrome rather than to keep enumerating it.
+     */
+    private fun applyPaletteToChrome() {
+        val ink = Color.parseColor(Glass.PHOTO_INK)
+        // The bar's own fill first, then the glyphs that sit on it. Both are colours
+        // read at build; the fill is the one that has no way of looking wrong *and*
+        // being noticed.
+        topBarView?.background = Glass.well(context, topBarRadius)
+        for (v in barIcons) v.setColorFilter(ink)
+        // The tips sit on the photograph itself.
+        (tipsView as? TextView)?.setTextColor(ink)
+        // The scene chip is a well too, and its two labels are the card's greys.
+        sceneChip?.background = Glass.well(context, dp(22))
+        val soft = Color.parseColor(Glass.SECONDARY)
+        sceneChipText?.setTextColor(soft)
+        sceneChipExit?.setTextColor(soft)
     }
 
     /**
@@ -2260,7 +2344,10 @@ class FloatingWindowUi(
         val tips = TextView(context).apply {
             text = AppLocale.str(context, R.string.window_tips)
             textSize = Glass.Type.CAPTION
-            setTextColor(Color.parseColor(Glass.MUTED))
+            // PHOTO_INK, not MUTED: this line sits on the photograph itself, and a
+            // mid-grey has no contrast against a mid-tone ground — measured at roughly
+            // 1:1, which is why it disappeared. See [Glass.PHOTO_INK].
+            setTextColor(Color.parseColor(Glass.PHOTO_INK))
             gravity = Gravity.CENTER
             // The bottom padding clears the gesture bar, the same 30 dp the
             // scrollback's last row used to reserve for itself — this bar
@@ -2320,6 +2407,9 @@ class FloatingWindowUi(
                 Glass.pressable(this)
                 setOnClickListener { listeners.onSceneExitClick() }
                 layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply { leftMargin = dp(2) }
+                // Kept for the same reason the bar's glyphs are: its colour is set right
+                // here and nowhere else, so a theme change would otherwise leave it.
+                sceneChipExit = this
             })
         }
         sceneChip = chip
@@ -2375,8 +2465,11 @@ class FloatingWindowUi(
      * be managed by talking, but "what has it learned to do with me" is a
      * question a list answers better than a conversation. Five keys now.
      *
-     * All four keys are `Glass.LABEL` now rather than roughly half of them being
-     * dimmed: the dimmer ones were the drawer's contents and a folded `⋯`.
+     * The glyphs take [Glass.PHOTO_INK], not one of the card's inks. They sit on
+     * [Glass.well] over the photograph, which is the same ground the tips sit on, and a
+     * colour chosen against a card has no contrast there: [Glass.MUTED] was what they
+     * had, and on the light pill it came out around 1.4:1 — reported from the tablet as
+     * "看不清", and it is arithmetic rather than taste.
      */
     @SuppressLint("SetTextI18n")
     private fun buildTopBar(): View {
@@ -2387,7 +2480,7 @@ class FloatingWindowUi(
             // A recessed well rather than a panel: this pill floats over a card
             // that is itself translucent, so its base has to be darker than
             // what it sits on or the glyphs read against the user's app.
-            background = Glass.well(context, dp(24))
+            background = Glass.well(context, topBarRadius)
         }
 
         val keys = LinearLayout(context).apply {
@@ -2396,21 +2489,21 @@ class FloatingWindowUi(
         }
 
         keys.addView(
-            barButton(R.drawable.ic_artifacts, Glass.MUTED, "产物") { listeners.onArtifactsClick() }
+            barButton(R.drawable.ic_artifacts, Glass.PHOTO_INK, "产物") { listeners.onArtifactsClick() }
         )
-        keys.addView(barButton(R.drawable.ic_scene, Glass.MUTED, "情景") { listeners.onScenesClick() })
+        keys.addView(barButton(R.drawable.ic_scene, Glass.PHOTO_INK, "情景") { listeners.onScenesClick() })
         // ✓ and not ■: the stop button used to sit here, and stop is the one
         // action in this bar the ball can already perform — see onStopClick.
-        keys.addView(barButton(R.drawable.ic_check, Glass.MUTED, "自检") { listeners.onSelfCheckClick() })
+        keys.addView(barButton(R.drawable.ic_check, Glass.PHOTO_INK, "自检") { listeners.onSelfCheckClick() })
         // No ⌨ here. Typing moved onto the ball's double-tap, and the bar is
         // the wrong place for it twice over: it only exists while the card is
         // unfolded (so the way to type vanished with the fold — the same fault
         // that made "点右上角的 ⌨" a lie in a failure message), and it put a
         // second meaning on the one control the user already had to learn.
-        keys.addView(barButton(R.drawable.ic_settings, Glass.MUTED, "设置") { listeners.onSettingsClick() })
+        keys.addView(barButton(R.drawable.ic_settings, Glass.PHOTO_INK, "设置") { listeners.onSettingsClick() })
         // Reads as close, not as resize: the card is a thing you dismiss, and the
         // corner ball it folds into stays on screen either way.
-        keys.addView(barButton(R.drawable.ic_close, Glass.MUTED, "收起") { listeners.onMinimizeClick() })
+        keys.addView(barButton(R.drawable.ic_close, Glass.PHOTO_INK, "收起") { listeners.onMinimizeClick() })
 
         bar.addView(keys)
         return bar
@@ -2450,6 +2543,10 @@ class FloatingWindowUi(
                     setTint(Color.parseColor(color))
                 }
             )
+            // Kept so [applyPaletteToChrome] can re-tint it: the tint above is baked
+            // into a mutated drawable at build time and nothing tells this view about a
+            // theme change.
+            barIcons += this
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(pad, pad, pad, pad)
             contentDescription = description

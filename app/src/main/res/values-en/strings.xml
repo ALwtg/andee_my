@@ -523,6 +523,13 @@
     <string name="ball_look_imp">Imp</string>
 
     <!-- The expressions screen: the entry in settings, and the card that shows them all -->
+    <!-- Appearance: light / dark. The switch takes effect at once (see ui.Theme), so the
+         note says what it reaches rather than what it is. -->
+    <string name="settings_section_theme">Appearance</string>
+    <string name="settings_theme_note">Light is a white card with dark text; dark is a dark card with light text. It switches at once — card, pages, bubbles and everything around the ball together.</string>
+    <string name="settings_theme_day">Light</string>
+    <string name="settings_theme_night">Dark</string>
+
     <string name="settings_section_expr">Looks &amp; expressions</string>
     <string name="settings_expr_note">See every character and every expression; tap one to switch.</string>
     <string name="settings_expr_open">Open</string>

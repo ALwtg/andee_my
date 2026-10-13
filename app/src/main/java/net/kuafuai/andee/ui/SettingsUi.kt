@@ -360,7 +360,10 @@ class SettingsUi(
         // the credentials it can spend. 大脑 stays first because it is the one
         // setting that changes what the rest of the card means.
         brainSection(form)
-        expressionsSection(form)
+        // 外观 is the only appearance setting left up here: 形象与表情 moved into 高级,
+        // so the "these two are the same kind of setting" argument went with it. What is
+        // left in 常用 is what a person opens settings to change.
+        themeSection(form)
         wakeSection(form)
         notebookSection(form)
         notifySection(form)
@@ -425,6 +428,10 @@ class SettingsUi(
         // 火山 (the voice section) used to live here. It is now a sub-panel
         // of 后端 → 本机, so a user looking for its rows finds them next to
         // the backend they belong to — see [brainSection].
+        // 形象与表情, moved down here from 常用. It is a door rather than a setting —
+        // see [expressionsSection] — and a door that most users never open belongs
+        // behind the disclosure rather than in the column everyone scrolls.
+        expressionsSection(body)
         showHubSection(body)
         typingSection(body)
         diagnosticsSection(body)
@@ -693,10 +700,51 @@ class SettingsUi(
     }
 
     /**
+     * 浅色 / 深色 — which of [Glass]'s two palettes the whole app draws with.
+     *
+     * **Eager, like the language picker and for the same reason**: the redraw *is* the
+     * confirmation, and routing this through 保存 would mean the card you are looking
+     * at is the one thing that does not change until you leave it.
+     *
+     * [Theme.set] is what does the work, and it reaches every live surface itself —
+     * see its note on [Theme.onChanged]. All this has to do is move its own picker,
+     * which [rebuild] handles.
+     *
+     * Not in [picks]: it is already on disk by the time [rebuild] runs, the same
+     * arrangement [langPicker] has.
+     */
+    private fun themeSection(form: LinearLayout) {
+        val panel = group(
+            form,
+            lctx.getString(R.string.settings_section_theme),
+            lctx.getString(R.string.settings_theme_note),
+        )
+        val row = segments(
+            options = listOf(
+                Theme.DAY to lctx.getString(R.string.settings_theme_day),
+                Theme.NIGHT to lctx.getString(R.string.settings_theme_night),
+            ),
+            picked = if (Theme.night) Theme.NIGHT else Theme.DAY,
+            radius = dp(13),
+        ) { v ->
+            Theme.set(context, v == Theme.NIGHT)
+            rebuild()
+        }
+        panel.addView(row, rowParams(dp(7)))
+    }
+
+    /**
      * The door to [ExpressionsUi]. Nothing is edited here — the card it opens is
      * where a look is picked and where every expression can be tried — so the
      * section is a sentence and one button, like [vaultSection]'s door, and the
      * look picked inside is saved the moment it is picked rather than on 保存.
+     *
+     * Called from [advancedSection] rather than from the form's own list, which is
+     * where it used to be. The argument for moving it is in the name: it is a door,
+     * and what it opens is a card for *trying* looks rather than for setting
+     * anything. 常用 is the column a person scrolls looking for a knob; a door they
+     * open once should not be in it. Its body is unchanged — it takes its parent and
+     * draws the same section — so the only thing that moved is who calls it.
      */
     private fun expressionsSection(form: LinearLayout) {
         val panel = group(form, lctx.getString(R.string.settings_section_expr))

@@ -129,6 +129,9 @@ class TextInputActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before the first `Glass.*` read below: [Theme] holds the *default* palette
+        // until something loads the saved one, and this page draws immediately.
+        Theme.load(this)
         lctx = AppLocale.wrap(this)
 
         field = EditText(this).apply {
@@ -182,24 +185,31 @@ class TextInputActivity : Activity() {
 
         strip = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            // The *card* fill, not `Glass.panel`.
+            // **No fill, and that is the whole point.**
             //
-            // `Glass` is a two-layer stack: an almost-opaque black base, then
-            // white at low alpha on top of it. `panel` is the second layer —
-            // 6% white — and it is only ever correct *on top of a card*.
-            // Standing alone over somebody else's app it draws nothing at all,
-            // and the field's own background came out as whatever was behind
-            // it: measured over a white page, mean RGB 255,255,255 with
-            // `Glass.TITLE` white text on it. Contrast 0. That is the "输入框
-            // 是透明的" this replaces — not a matter of taste, arithmetic.
+            // This strip used to paint `Glass.card(frosted = false)` — a near-opaque
+            // slate — and the argument for it was real at the time. Read it, because
+            // the argument still holds and what changed is underneath: the strip stands
+            // over whatever app is behind, 6% white over a white document is nothing,
+            // and there is no blur to lean on (`Glass.frost` blurs behind a *window*,
+            // and this window is the whole screen). So the strip got the base fill and
+            // the field's own translucency went to work on an opaque wall.
             //
-            // So this strip gets the base. It has to stay readable over *any*
-            // backdrop, a white document and a night-mode terminal alike, and
-            // there is no blur to lean on: `Glass.frost` blurs behind a window,
-            // and this window is the whole screen (only this strip is painted),
-            // so asking for it would defocus everything the user was looking
-            // at. A dark bar over the bottom edge is the honest answer.
-            background = Glass.card(this@TextInputActivity, dp(20), frosted = false)
+            // **A translucent field on an opaque bar is a flat grey rectangle.** That
+            // is what "the input box has no glass" was, and no alpha on the field could
+            // have fixed it. What did change is that this window now paints [Backdrop]
+            // itself (see below), so the surface behind this bar is *ours*: a known
+            // blue wash rather than somebody's home screen. Nothing needs to be walled
+            // off any more, so the strip gets out of the way and the field is left with
+            // the thing it can actually be frosted against — the page. `Glass.well`'s
+            // 5% / 35% now shows the wash's gradient through the box, which is the
+            // effect this was asked for.
+            //
+            // The pre-warm window is still covered: the fill behind the backdrop image
+            // is the same slate this line used to paint, so a field opened in the first
+            // few hundred milliseconds gets a continuous surface rather than the
+            // desktop. Same arrangement as before, one layer down.
+            setPadding(dp(8), dp(8), dp(8), dp(8))
             setPadding(dp(8), dp(8), dp(8), dp(8))
             addView(thumbScroll, LinearLayout.LayoutParams(MATCH_PARENT, WRAP))
             addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP))

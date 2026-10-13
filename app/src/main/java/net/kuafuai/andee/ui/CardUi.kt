@@ -582,6 +582,13 @@ object CardUi {
 
         private val density = resources.displayMetrics.density
 
+        // The colours are re-read on every draw rather than only here, because a
+        // theme change is not an event this view is told about — it holds its own
+        // paint objects, so a colour baked in at construction is a colour it keeps.
+        // [CardUi] is not wired into the theme broadcast (see [Theme.onChanged]: one
+        // listener, the service) and this is what stands in for that: whichever card
+        // is on screen is at most one repaint away from being right, instead of one
+        // app restart.
         private val basePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = BASE }
         private val filmPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val rimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -626,6 +633,18 @@ object CardUi {
         }
 
         override fun dispatchDraw(canvas: Canvas) {
+            // The fill and the rim are re-read on every draw, not only at construction.
+            // A theme change is not an event this view is told about, so a colour baked
+            // into a paint object is a colour it keeps — see [BASE]. Two assignments,
+            // no allocation, and any repaint brings an open card back to the palette.
+            //
+            // The film's *gradient* is the one thing still built per size: it needs the
+            // card's height, and rebuilding a shader every frame to catch a theme change
+            // mid-card would be the wrong trade. A stale film on a changed card is a
+            // faint wash in the old palette's direction, not a wrong colour — the fill,
+            // the rim and every string inside are already correct by the lines below.
+            basePaint.color = BASE
+            rimPaint.color = RIM
             val shape = silhouette ?: buildSilhouette().also { silhouette = it }
             canvas.drawPath(shape, basePaint)
             canvas.drawPath(shape, filmPaint)
@@ -672,21 +691,38 @@ object CardUi {
             const val OVERLAP = 2f
 
             /**
-             * Black, and nearly opaque. [Glass.CARD_SOLID] is the fill the
-             * settings card falls back to when the compositor refuses to blur
-             * behind it, which is permanently this card's situation — so it is
-             * the same value for the same reason, not a coincidence worth
-             * re-deciding. See the class KDoc on why not lower.
+             * The card's base fill. [Glass.CARD_SOLID] is the fill the settings
+             * card falls back to when the compositor refuses to blur behind it,
+             * which is permanently this card's situation — so it is the same
+             * value for the same reason, not a coincidence worth re-deciding.
+             * See the class KDoc on why not lower.
+             *
+             * **A getter, and that is the fix for a real bug.** This was a plain
+             * `val`, and a `val` in a `companion object` is evaluated exactly once,
+             * when the class is first touched. So the card took whichever palette the
+             * process happened to be in *then* and kept it for the life of the
+             * process — through any number of theme changes and any number of new
+             * cards. The symptom is one dark card sitting in the middle of a light
+             * page, and it is worse than the "close it and open it again" limit the
+             * other floating cards have: reopening could never fix this one, only
+             * restarting the app could.
              */
-            val BASE = Color.parseColor(Glass.CARD_SOLID)
+            val BASE: Int get() = Color.parseColor(Glass.CARD_SOLID)
 
-            // Alpha in the low teens is the whole trick: high enough to lift
-            // the pane off what is behind it, low enough that the base colour
-            // still shows through, which is the only thing making it read as
-            // translucent rather than as grey paint.
-            val FILM_TOP = 0x2EFFFFFF
-            val FILM_BOTTOM = 0x0CFFFFFF
-            val RIM = 0x3DFFFFFF
+            // The glass. Alpha in the low teens is the whole trick: high enough to lift
+            // the pane off what is behind it, low enough that the base colour still
+            // shows through, which is the only thing making it read as translucent
+            // rather than as grey paint.
+            //
+            // **White films on the dark card, black ones on the light card, and in the
+            // same order** — because what a film means is *lifted*, and lifting a light
+            // pane means nothing at the top and a shadow at the bottom. Inverting the
+            // day values in place would shade the top of every card and light its
+            // bottom, which is the one arrangement that reads as wrong at a glance.
+            // Getters for the same reason [BASE] is one.
+            val FILM_TOP: Int get() = if (Theme.night) 0x2EFFFFFF else 0x00FFFFFF
+            val FILM_BOTTOM: Int get() = if (Theme.night) 0x0CFFFFFF else 0x24000000
+            val RIM: Int get() = if (Theme.night) 0x3DFFFFFF else 0x24000000
         }
     }
 }

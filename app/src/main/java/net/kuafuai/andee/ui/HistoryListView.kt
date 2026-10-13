@@ -346,6 +346,16 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
     }
 
     /**
+     * The palette changed.
+     *
+     * The same job as [onLocaleChanged], and aliased to it rather than renamed so
+     * each caller reads for its own cause: every row here is built from [Glass] and
+     * from resources at the moment it is added, so a change to either means the list
+     * has to be thrown away and rebuilt rather than relabelled in place.
+     */
+    fun onThemeChanged() = onLocaleChanged()
+
+    /**
      * The empty state's offer: one line inviting the user in, then a pane per
      * ready-made scene, showing the scene's **title** over what it actually
      * does, and carrying its **example**.
@@ -457,7 +467,7 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
             setPadding(dp(16), dp(12), dp(16), dp(12))
             isClickable = true
             background = RippleDrawable(
-                ColorStateList.valueOf(RIPPLE),
+                ColorStateList.valueOf(ripple()),
                 Glass.well(context, dp(18)),
                 null,
             )
@@ -545,7 +555,7 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
         if (e.role == ChatHistory.Role.PAGE && e.page != null) {
             bubble.isClickable = true
             bubble.background = RippleDrawable(
-                ColorStateList.valueOf(RIPPLE),
+                ColorStateList.valueOf(ripple()),
                 glass(false, false),
                 null,
             )
@@ -652,20 +662,19 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
     private fun glass(mine: Boolean, bad: Boolean = false): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.TOP_BOTTOM,
         when {
-            bad -> intArrayOf(TINT_TOP_BAD, TINT_BOTTOM_BAD)
-            mine -> intArrayOf(TINT_TOP_MINE, TINT_BOTTOM_MINE)
-            else -> intArrayOf(TINT_TOP, TINT_BOTTOM)
+            bad -> intArrayOf(tintTopBad(), tintBottomBad())
+            mine -> intArrayOf(tintTopMine(), tintBottomMine())
+            else -> intArrayOf(tintTop(), tintBottom())
         },
     ).apply {
+        // No `setStroke`: bubbles have no border in either palette, and the note above
+        // the tint functions is where that argument lives. One thing worth keeping from
+        // the border's history — when there *was* one it had to be a whole dp. The half
+        // it started as, `max(1, dp(1) / 2)`, resolves to ONE physical pixel at this
+        // density, 0.44 dp, which is below the width at which an edge is visible at all:
+        // the card spent a while with a border that existed in the source and nowhere on
+        // the screen, and the same trap is waiting for whatever is drawn here next.
         cornerRadius = dp(18).toFloat()
-        setStroke(
-            Math.max(1, dp(1) / 2),
-            when {
-                bad -> EDGE_BAD
-                mine -> EDGE_MINE
-                else -> EDGE
-            },
-        )
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
@@ -686,23 +695,65 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
         fun film(hex: String, alpha: Int): Int =
             (alpha shl 24) or (Color.parseColor(hex) and 0x00FFFFFF)
 
-        // Alpha in the low teens is the whole trick: high enough to lift the
-        // pane off the card, low enough that the card's colour still shows
-        // through it, which is the only thing making it read as translucent.
-        // These three are the neutral pane and match Glass's panel family.
-        val TINT_TOP = Color.parseColor("#1FFFFFFF")
-        val TINT_BOTTOM = Color.parseColor("#0FFFFFFF")
-        val EDGE = Color.parseColor("#2EFFFFFF")
+        // ---- Bubble material, per palette ----
+        //
+        // Functions rather than values, because a bubble takes its colours from
+        // whatever the theme is *when its row is built*, and rows are rebuilt on a
+        // theme change (see [onThemeChanged]). A cached pair would freeze whichever
+        // palette the process happened to draw its first bubble in.
+        //
+        // **The rule that survives both palettes: the top of a bubble is the LIGHTER
+        // end.** On the dark card the films were white, so "heavy at the top" *was*
+        // lighter at the top; on the white card the films are black and the same pair
+        // has to be written the other way round. Getting it backwards shades every
+        // bubble from below, and a surface lit from below reads as a flat band however
+        // carefully its fill is chosen — the one mistake here that is invisible in the
+        // source and obvious on the screen.
+        //
+        // Day's numbers are also raised from the low teens: at 6–12% over a white
+        // card, on a bubble that spans the full width (see [buildRow] for why it
+        // does), there was not enough fill for it to read as a surface rather than as
+        // a band of slightly-off white.
+        private const val NEUTRAL_TOP_DAY = "#14000000"
+        private const val NEUTRAL_BOTTOM_DAY = "#29000000"
+        private const val NEUTRAL_TOP_NIGHT = "#1FFFFFFF"
+        private const val NEUTRAL_BOTTOM_NIGHT = "#0FFFFFFF"
 
-        val TINT_TOP_MINE = film(Glass.ACCENT, 0x2C)
-        val TINT_BOTTOM_MINE = film(Glass.ACCENT, 0x14)
-        val EDGE_MINE = film(Glass.ACCENT, 0x40)
+        private fun pick(day: String, night: String): Int =
+            Color.parseColor(if (Theme.night) night else day)
 
-        val TINT_TOP_BAD = film(Glass.DANGER, 0x2C)
-        val TINT_BOTTOM_BAD = film(Glass.DANGER, 0x14)
-        val EDGE_BAD = film(Glass.DANGER, 0x4D)
+        fun tintTop(): Int = pick(NEUTRAL_TOP_DAY, NEUTRAL_TOP_NIGHT)
+        fun tintBottom(): Int = pick(NEUTRAL_BOTTOM_DAY, NEUTRAL_BOTTOM_NIGHT)
+
+        // The accent and the danger colour need more of it than the neutral does: a
+        // hue at an alpha is denser at the heavy end, so these run 10% → 20% by day
+        // where the neutral runs 8% → 16%. Night is the pair this app shipped with.
+        fun tintTopMine(): Int = film(Glass.ACCENT, if (Theme.night) 0x2C else 0x1A)
+        fun tintBottomMine(): Int = film(Glass.ACCENT, if (Theme.night) 0x14 else 0x33)
+
+        fun tintTopBad(): Int = film(Glass.DANGER, if (Theme.night) 0x2C else 0x1A)
+        fun tintBottomBad(): Int = film(Glass.DANGER, if (Theme.night) 0x14 else 0x33)
+
+        // ---- No borders, in either palette ----
+        //
+        // There used to be three here, one per row kind, and they were tried in both
+        // directions: a dark 1 dp line on the light card, a white one on the dark card.
+        // **Both read as a drawn box**, which is what "看着比较 low" was about — an
+        // outline round every row makes a table cell out of a message, and once the page
+        // became a photograph the light one looked like a rectangle drawn on the picture.
+        //
+        // A bubble is defined by its fill and its gradient alone, which is all an iOS
+        // bubble relies on, and the fills do separate: the rows are 4–20% films over a
+        // backdrop the palette already controls. Nothing here is waiting for a border to
+        // come back — if one ever does, it belongs to the palette as a named constant
+        // rather than to a per-row `when`.
 
         /** The tap on a page row, in the accent it is labelled with. */
-        val RIPPLE = film(Glass.ACCENT, 0x33)
+        /**
+         * The press ripple, in the accent. A function for the same reason the tints
+         * are: [Glass.ACCENT] is a different colour in each palette, and a value
+         * computed at class-load would ripple in whichever one was in force then.
+         */
+        fun ripple(): Int = film(Glass.ACCENT, 0x33)
     }
 }

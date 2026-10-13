@@ -189,6 +189,12 @@ class SelfCheckActivity : StageActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // The saved palette, before the first view this page draws. The service loads
+        // it too, but this page is reachable from the launcher, so on a cold start
+        // nothing guarantees the service's own [Theme.load] has run yet — and [Theme]
+        // holds the *default* until then rather than the user's answer.
+        Theme.load(this)
+
         // The notification's 允许看屏幕 action lands here — see
         // [requestScreenCapture]. Asked before the branch below, because the
         // point of the action is that the page it opens is a means to an end.

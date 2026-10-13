@@ -55,9 +55,28 @@ import kotlin.math.roundToInt
  *    look instead of a card with a transparent hole in it — the same trade
  *    `backdropUp` was written for.
  *
- * The image itself lives in `res/drawable-nodpi/backdrop.jpg`. Any photo will
- * do: the scrim is derived from the image's own brightness rather than being a
- * constant, so swapping the file is the whole procedure. See [scrim].
+ * **One photograph serves both palettes, veiled in opposite directions.** The image is
+ * the landscape this app shipped with, and it is the only texture in a UI that is
+ * otherwise flat vector shapes. It is blurred once and then filmed over:
+ *
+ *  * under the **night** palette it takes a black veil, 0.22 / 0.38 as it always was,
+ *    which is why the page reads `#243C49` — the original `backdrop.jpg` behaviour, kept
+ *    to the digit;
+ *  * under the **day** palette it takes a **white** one, to 0.70, so the same photograph
+ *    sits behind dark type at nearly half its own contrast: a landscape you can read as
+ *    sky and meadow rather than a texture you have to be told about, and still light
+ *    enough for the type. That target is the dial for how visible the image is — see
+ *    [DAY_TARGET_LUMA].
+ *
+ * That is the whole difference. Nothing about the file, the blur or the box changes
+ * between the two — see [veilFor] for the arithmetic, and the constants under it for why
+ * one direction needs a floor and the other a ceiling.
+ *
+ * It has been flat white in between, which lost because **a material needs something to
+ * be made of**: glass over white is white, and the card stopped reading as a surface at
+ * all. A veil over a photograph is what makes the pane a pane — and it is why the
+ * bubbles and the input field read as frosted glass on this backdrop and only as pale
+ * rectangles on a flat one.
  */
 object Backdrop {
 
@@ -83,24 +102,64 @@ object Backdrop {
     private const val BLUR_PASSES = 3
 
     /**
-     * What the backdrop's mean luminance should end up at, once the scrim is on.
+     * How far the photograph is pushed, and which way.
      *
-     * Started at 0.13 — what `CARD_FROSTED` (60% black over a blurred desktop)
-     * composites to on average — and was raised to 0.22 after use: on a card
-     * that stays up for minutes, 0.13 read as a black wall with a photo buried
-     * in it. 0.22 is about the ceiling: past it the pale ball and the
-     * `SECONDARY` text start to lose contrast against the image.
+     * **One image, two palettes, two directions** — and the direction is the whole of
+     * it. Night puts light type on the page, so the photo is pushed *down* under a black
+     * veil until its mean luminance is somewhere dark: 0.22 was picked on a device
+     * because 0.13 — what a 60%-black card composites to over a blurred desktop — read
+     * as a black wall with a photo buried in it. The 0.38 floor is the other half of
+     * that, a promise of *some* darkening so a bright image can never come back bright
+     * enough to swallow the pale ball. Those two numbers are why the backdrop lands on
+     * `#243C49`, which is what this app shipped with.
+     *
+     * Day puts dark type on the page, so the same photograph is pushed *up* under a
+     * **white** veil instead. Nothing about the image differs between the two; only the
+     * film over it does. See [veilFor] for the arithmetic.
+     *
+     * **[DAY_TARGET_LUMA] is the "how much do you want to see the photograph" dial** —
+     * turn it down to let more of the image through, up to hide it. Walked down three
+     * times on request: 0.88 → 0.82 → 0.70 → 0.62.
+     *
+     * The relation that makes this number tractable is
+     *
+     *     surviving contrast of the photograph = (1 − target) / (1 − luma)
+     *
+     * which at this image's luma of 0.364 runs 0.28, 0.44, 0.50, **0.60** across those
+     * four values — so roughly two points of image per hundredth of target, and each step
+     * is a large visible one.
+     *
+     * **How far down it can go is set by type contrast, not taste.** The page's mean
+     * luminance *is* this number, and the fullscreen card has no fill of its own — the
+     * photograph *is* the conversation's background, so its text sits directly on the
+     * image. Meanwhile the bubbles are translucent films of 8–16% black, which is nothing
+     * much to sit on when what is underneath varies. The numbers to keep in mind while
+     * turning it: [SECONDARY] is a 0.36 grey, so it needs the ground under it to stay
+     * above about 0.55, and the photograph's darker half lands near 0.45 at this target.
+     * See [veilFor].
      */
-    private const val TARGET_LUMA = 0.22f
+    private const val NIGHT_TARGET_LUMA = 0.22f
+    private const val NIGHT_VEIL_MIN = 0.38f
+    private const val DAY_TARGET_LUMA = 0.62f
 
     /**
-     * Bounds on the derived scrim, so a very dark or very bright photo cannot
-     * walk the card's base colour out of the range the palette assumes. The floor
-     * keeps text legible over a near-black image; the ceiling keeps the image
-     * from disappearing under a near-white one.
+     * Night's other clamp: a near-black image must not be darkened into nothing.
      */
-    private const val SCRIM_MIN = 0.38f
-    private const val SCRIM_MAX = 0.75f
+    private const val NIGHT_VEIL_MAX = 0.75f
+
+    /**
+     * The ceiling on day's lift, and it is not the mirror of night's floor.
+     *
+     * A floor is needed in one direction and a ceiling in the other, because the two
+     * have opposite failure modes. Under-darkening a bright image leaves dark type
+     * fighting a photograph; under-*lightening* a dark one does exactly the same, so day
+     * needs a guaranteed minimum lift — which the `(target − luma) / (1 − luma)` form
+     * gives for free, since it climbs to 1 as the image darkens. What is left to guard
+     * is the far end: without a cap, a near-black photo would be washed to a blank white
+     * page, and "use the photograph in light mode too" would quietly have become "use a
+     * white page". 0.90 keeps a tenth of the image's own contrast alive.
+     */
+    private const val DAY_VEIL_MAX = 0.90f
 
     private val ui = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { r ->
@@ -117,6 +176,21 @@ object Backdrop {
 
     /** Whether [bitmap] and [scrim] are worth reading yet. */
     fun ready(): Boolean = ready
+
+    /**
+     * Forget the decode, so the next [warm] redoes it against the current theme.
+     *
+     * Called on a theme change. [warm] is one-shot by design — "safe to call more than
+     * once; only the first does work" — and the two palettes have two different files,
+     * so without this the card would keep the day wash under the night palette. That is
+     * the most visible way to get a theme switch wrong, and it is silent: the palette
+     * around it would all be correct.
+     */
+    fun reset() {
+        ready = false
+        bitmap = null
+        scrim = 0
+    }
 
     fun bitmap(): Bitmap? = bitmap
 
@@ -159,15 +233,37 @@ object Backdrop {
         boxBlur(px, w, h)
 
         val luma = meanLuma(px)
-        val alpha = (1f - TARGET_LUMA / max(luma, 0.02f)).coerceIn(SCRIM_MIN, SCRIM_MAX)
+        val veil = veilFor(luma)
         Log.i(
             TAG,
-            "backdrop %dx%d  mean luma %.3f → scrim %.0f%% black".format(
-                w, h, luma, alpha * 100,
+            "backdrop %dx%d  mean luma %.3f → veil %.0f%% %s".format(
+                w, h, luma, Color.alpha(veil) * 100f / 255f, if (Theme.night) "black" else "white",
             ),
         )
-        return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888) to
-            Color.argb((alpha * 255).roundToInt(), 0, 0, 0)
+        return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888) to veil
+    }
+
+    /**
+     * The film that goes over the photograph, as ARGB, for the palette in force.
+     *
+     * Two formulas, because the two palettes fail in opposite directions. A black veil
+     * leaves `luma × (1 − a)`, so the alpha falls straight out of the target. A white one
+     * leaves `luma × (1 − a) + a`, which inverts to `(target − luma) / (1 − luma)` — and
+     * that form is self-limiting in the useful direction: an image already brighter than
+     * the target yields a negative alpha, i.e. no veil at all, which is the right answer
+     * for a photograph pale enough for dark type to sit on unaided.
+     *
+     * Worker thread only.
+     */
+    private fun veilFor(luma: Float): Int {
+        val l = max(luma, 0.02f)
+        return if (Theme.night) {
+            val a = (1f - NIGHT_TARGET_LUMA / l).coerceIn(NIGHT_VEIL_MIN, NIGHT_VEIL_MAX)
+            Color.argb((a * 255).roundToInt(), 0, 0, 0)
+        } else {
+            val a = ((DAY_TARGET_LUMA - l) / (1f - l)).coerceIn(0f, DAY_VEIL_MAX)
+            Color.argb((a * 255).roundToInt(), 255, 255, 255)
+        }
     }
 
     /**
@@ -180,6 +276,10 @@ object Backdrop {
      * that decides it is more code than the scaled copy it saves.
      */
     private fun decode(context: Context): Bitmap {
+        // One file, both palettes. What differs between day and night is the *veil*
+        // over this image, not the image — see [veilFor] — so a second file would have
+        // nothing of its own to say. This is the photograph the app shipped with, and
+        // it is the only texture in a UI that is otherwise flat vector shapes.
         val id = net.kuafuai.andee.R.drawable.backdrop
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeResource(context.resources, id, bounds)

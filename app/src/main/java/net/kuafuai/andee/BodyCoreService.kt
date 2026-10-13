@@ -200,6 +200,16 @@ class BodyCoreService : Service() {
         // keeps this process alive when the accessibility service is taken
         // away, and it is the way back (see [postNotification]).
         startForegroundCompat()
+        // The saved palette, and **before any view exists**: every colour the first card
+        // draws is read from it, so a service that adopted it late would come up in the
+        // other theme and only correct itself on the next change.
+        net.kuafuai.andee.ui.Theme.load(this)
+        // One hook rather than one per surface — [net.kuafuai.andee.ui.Theme.set] fires
+        // it, and this service is the only owner of the live UI. Set before the window
+        // is built and guarded, because a change landing in that gap must not crash.
+        net.kuafuai.andee.ui.Theme.onChanged = {
+            ui.post { if (::window.isInitialized) window.onThemeChanged() }
+        }
         window = FloatingWindowUi(this, object : FloatingWindowUi.Listeners {
             override fun onTalkClick() {
                 // Deliberately no unfold. Talking from the corner ball is the

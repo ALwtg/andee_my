@@ -84,78 +84,259 @@ import android.view.animation.PathInterpolator
 object Glass {
 
     // ---- Palette ----
+    //
+    // **Light.** The card is a white surface now, and every name below kept its
+    // name through the change so the call sites did not have to move — what moved
+    // is the direction each one leans.
+    //
+    // The old values were all "a white film over a near-black card": `#1FFFFFFF`
+    // for a panel, `#2BFFFFFF` for an edge, `#FFFFFF` for a title. Not one of them
+    // survives on white — a 6% white film over white *is* white. So each film is
+    // now the same alpha in black, each text colour went from near-white to
+    // near-black, and the three state colours were darkened until they carry on a
+    // white field rather than glowing against a dark one.
+    //
+    // The exception is [TINT_START]/[TINT_END]: a saturated gradient reads on either
+    // ground, and it is the one place colour is allowed to be loud.
 
-    /** The card's fill when [frost] got its blur: dark enough to read against. */
-    const val CARD_FROSTED = "#99000000"
+    /**
+     * The two palettes, behind one set of names.
+     *
+     * **Day is dark-on-light and night is light-on-dark, so most pairs are opposites**
+     * — a film that is black at low alpha in one is white at low alpha in the other,
+     * and near-black text becomes near-white. The night values are the ones this app
+     * shipped with before the light card, name for name, so night is a look that was
+     * already tuned on a tablet rather than a set of colours invented for a switch.
+     *
+     * **Three things are deliberately not a plain inversion**, because what they mean
+     * is a position rather than a colour:
+     *  * [well] is *recessed* on both palettes — darker than what it sits on. A
+     *    mirrored day value would make every text field glow.
+     *  * [thumb] is *raised* on both — lighter than the well it slides in.
+     *  * [sheen] flips end for end rather than in place, because its job is a lit
+     *    edge and the direction the light comes from does not change with the theme.
+     */
+    private class Palette(
+        val cardFrosted: String,
+        val cardSolid: String,
+        val hairline: String,
+        val panel: String,
+        val panelEdge: String,
+        val glass: String,
+        val glassEdge: String,
+        val well: String,
+        val wellEdge: String,
+        val thumb: String,
+        val thumbEdge: String,
+        /** Gradient stops for [sheen], in the order the gradient runs: top to bottom. */
+        val sheen: IntArray,
+        val title: String,
+        val label: String,
+        val secondary: String,
+        val muted: String,
+        val photoInk: String,
+        val accent: String,
+        val danger: String,
+        val ok: String,
+        val warn: String,
+    )
 
-    /** …and when it did not. Nearly opaque, because there is nothing to show. */
-    const val CARD_SOLID = "#F2060608"
+    private fun stops(vararg hex: String): IntArray =
+        IntArray(hex.size) { Color.parseColor(hex[it]) }
 
-    /** The card's edge. The one place a bright hairline belongs. */
-    const val HAIRLINE = "#2BFFFFFF"
+    private val DAY = Palette(
+        cardFrosted = "#F2FFFFFF",
+        cardSolid = "#FFFFFFFF",
+        hairline = "#24000000",
+        panel = "#0A000000",
+        panelEdge = "#14000000",
+        glass = "#0F000000",
+        glassEdge = "#24000000",
+        well = "#0D000000",
+        wellEdge = "#1A000000",
+        thumb = "#FFFFFFFF",
+        thumbEdge = "#2E000000",
+        sheen = stops("#1FFFFFFF", "#00FFFFFF", "#00FFFFFF", "#14000000"),
+        title = "#0E1116",
+        label = "#2B313B",
+        secondary = "#5A6270",
+        muted = "#7D8592",
+        photoInk = "#252A33",
+        accent = "#3B62E0",
+        danger = "#DC2626",
+        ok = "#16A34A",
+        warn = "#D97706",
+    )
+
+    private val NIGHT = Palette(
+        cardFrosted = "#99000000",
+        cardSolid = "#F2060608",
+        hairline = "#2BFFFFFF",
+        panel = "#0FFFFFFF",
+        panelEdge = "#17FFFFFF",
+        glass = "#1FFFFFFF",
+        glassEdge = "#38FFFFFF",
+        well = "#59000000",
+        wellEdge = "#1AFFFFFF",
+        thumb = "#2EFFFFFF",
+        thumbEdge = "#40FFFFFF",
+        sheen = stops("#1FFFFFFF", "#00FFFFFF"),
+        title = "#FFFFFF",
+        label = "#DCE1EA",
+        secondary = "#8F97A6",
+        muted = "#5F6775",
+        photoInk = "#98A0AE",
+        accent = "#7FA5FF",
+        danger = "#FF6B6B",
+        ok = "#4ADE80",
+        warn = "#FBBF24",
+    )
+
+    /**
+     * The palette in force, resolved on every access rather than cached — the theme
+     * can change between two builds of what looks like the same view, which is the
+     * entire reason [Theme.onChanged] exists.
+     */
+    private val active: Palette get() = if (Theme.night) NIGHT else DAY
+
+    // ---- The names, as getters rather than constants ----
+    //
+    // Every call site still reads `Glass.TITLE`. What changed is *when* it is read:
+    // a `const val` is inlined into its readers at compile time and therefore cannot
+    // vary at runtime at all, which is the whole reason a theme switch could not be
+    // added as a plain setting. Turning them into getters is what makes the switch
+    // possible without touching forty call sites; the price is that the compiler no
+    // longer folds them, which for a handful of `Color.parseColor` calls per card
+    // build is nothing.
+    //
+    // ⚠️ The consequence to remember: **any `Glass.*` read is a read of whatever the
+    // theme was when it ran**, so a view built before a change keeps the old colours
+    // until it is rebuilt. Nothing may assume otherwise — every surface subscribes.
+
+    /**
+     * The card's fill when [frost] got its blur.
+     *
+     * Day is 95% rather than opaque, and the 5% is doing specific work: the card ends
+     * up *lighter* than the page it sits on ([Backdrop]'s wash averages ~#F9FAFD), so
+     * the pane reads as a raised surface and the wash underneath gives it something to
+     * sit on. At 100% white the card and the page would be the same white and the card
+     * would be a rectangle drawn in nothing. Night is the 60% black it always was,
+     * over a photo.
+     */
+    val CARD_FROSTED: String get() = active.cardFrosted
+
+    /** …and when it did not. Opaque, because there is nothing to show through it. */
+    val CARD_SOLID: String get() = active.cardSolid
+
+    /**
+     * The card's edge. In day this is *the separation*, and the one piece of the iOS
+     * material recipe that survives a white surface — see [sheen]. In night it is the
+     * bright hairline the dark card was built around, which is the same job from the
+     * other side.
+     */
+    val HAIRLINE: String get() = active.hairline
 
     /** A grouped surface sitting on the card. */
-    const val PANEL = "#0FFFFFFF"
-    const val PANEL_EDGE = "#17FFFFFF"
+    val PANEL: String get() = active.panel
+    val PANEL_EDGE: String get() = active.panelEdge
 
     /**
      * A card sitting on the blurred backdrop instead of on [PANEL].
      *
-     * [PANEL] cannot do this job: 6% white is the right film for a row group
-     * *inside* a 60%-black card and is invisible over the fullscreen backdrop,
-     * because those two surfaces have nothing in common — one is nearly opaque
-     * black, the other is a blurred photo at ~13% mean luma. This pair is the
-     * glassmorphism recipe proper, and the numbers are the balance that makes
-     * it read as a pane rather than as a hole: enough fill for [LABEL] and
-     * [SECONDARY] to sit on, enough edge and sheen to give the rectangle a lit
-     * top. See [glass].
+     * [PANEL] cannot do this job: it is the right film for a row group *inside* a
+     * card and too weak over the fullscreen backdrop, because those two surfaces have
+     * nothing in common — one is a card, the other is whatever the backdrop is
+     * painted with. This pair is the glassmorphism recipe proper, and the numbers are
+     * the balance that makes it read as a pane rather than as a hole: enough fill for
+     * [LABEL] and [SECONDARY] to sit on, enough edge and sheen to give the rectangle
+     * a lit top. See [glass].
      *
-     * **Currently no caller.** It was written for the self-check page, which was
-     * a fullscreen surface on [net.kuafuai.andee.ui.Backdrop] with these rows on
-     * it for one day; that page is now a `Glass.card` opened from `✓` (see
+     * **Currently no caller.** It was written for the self-check page, which was a
+     * fullscreen surface on [net.kuafuai.andee.ui.Backdrop] with these rows on it for
+     * one day; that page is now a `Glass.card` opened from `✓` (see
      * [net.kuafuai.andee.ui.SelfCheckUi]) and its rows are [PANEL], because a
-     * surface's fill is decided by what is directly underneath it and nothing
-     * else — 12% white on a 60%-black card is a grey box. The distinction is
-     * kept, rather than the two constants deleted, because the *fact* behind it
-     * has not gone anywhere: [Backdrop] is still what
-     * [net.kuafuai.andee.ui.TextInputActivity] and the launcher self-check host
-     * paint themselves with, and anything put on top of it needs this fill and
-     * not [PANEL].
+     * surface's fill is decided by what is directly underneath it and nothing else.
+     * The distinction is kept, rather than the two constants deleted, because the
+     * *fact* behind it has not gone anywhere: [Backdrop] is still what
+     * [net.kuafuai.andee.ui.TextInputActivity] and the launcher self-check host paint
+     * themselves with, and anything put on top of it needs this fill and not [PANEL].
      */
-    const val GLASS = "#1FFFFFFF"
-    const val GLASS_EDGE = "#38FFFFFF"
+    val GLASS: String get() = active.glass
+    val GLASS_EDGE: String get() = active.glassEdge
 
-    /** Recessed: text fields and the track a segmented picker slides in. */
-    const val WELL = "#59000000"
-    const val WELL_EDGE = "#1AFFFFFF"
+    /**
+     * Recessed: text fields and the track a segmented picker slides in.
+     *
+     * **Darker than what it sits on in both palettes** — 5% black on a white card, 35%
+     * black on a dark one. Mirroring the day value instead would put a 35% *white*
+     * film here and make every text field glow.
+     */
+    val WELL: String get() = active.well
+    val WELL_EDGE: String get() = active.wellEdge
 
-    /** The pane that slides between segments. Lighter than what it sits on. */
-    const val THUMB = "#2EFFFFFF"
-    const val THUMB_EDGE = "#40FFFFFF"
+    /**
+     * The pane that slides between segments: raised rather than recessed, so it is
+     * *lighter* than the well it slides in on both palettes — pure white over day's
+     * 5% black, 18% white over night's 35% black.
+     */
+    val THUMB: String get() = active.thumb
+    val THUMB_EDGE: String get() = active.thumbEdge
 
-    /** The highlight that makes a flat rectangle read as a pane of something. */
-    private const val SHEEN_TOP = "#1FFFFFFF"
-    private const val SHEEN_BOTTOM = "#00FFFFFF"
+    // The ramp. Day runs dark→light in this order, night runs light→dark. The two
+    // light ends of day sit closer to the middle than an exact mirror of the night
+    // values would put them: mirroring #5F6775 for contrast on white gives roughly
+    // #98A0AD, a 2.2:1 grey — legible as a whisper of text and *not* legible as the
+    // row of bar icons, which is what actually reads [MUTED] (`FloatingWindowUi.
+    // barButton`). Light-on-dark forgives a low ratio; dark-on-light does not.
+    val TITLE: String get() = active.title
+    val LABEL: String get() = active.label
+    val SECONDARY: String get() = active.secondary
+    val MUTED: String get() = active.muted
 
-    const val TITLE = "#FFFFFF"
-    const val LABEL = "#DCE1EA"
-    const val SECONDARY = "#8F97A6"
-    const val MUTED = "#5F6775"
+    /**
+     * Ink for things that sit **on the backdrop photograph, or on a well over it** rather
+     * than on a card: the gesture tips along the bottom of the full card, and the top
+     * bar's five icons.
+     *
+     * **The value is bracketed by two measured failures, and both are worth knowing
+     * before moving it.** [MUTED] is what these two had, and it is chosen against a
+     * card — white in day, near-black at night — so on a photograph it has no ground to
+     * stand on: measured **1.4:1**, reported from the tablet as 看不清. Moving to the
+     * other end of the ramp fixed the legibility and overshot it: near-black on the light
+     * page's mid-blue sky measured **6:1** and read as a lump, reported as 太突兀.
+     *
+     * So this is the middle of the ramp — about **3:1** against either ground, which is
+     * the threshold for *graphics* rather than for body text, and these callers are large
+     * solid glyphs and one small caption rather than prose. Both ends of the ramp fail on
+     * an image, at opposite extremes, and there is no setting that is both quiet and
+     * legible on a background whose brightness is somebody else's photograph.
+     *
+     * The rule to carry: **a colour chosen against a known ground has no guarantee once
+     * the ground is an image.** Anything else landing directly on the photograph takes
+     * this token and not one of the card's.
+     */
+    val PHOTO_INK: String get() = active.photoInk
 
     /** Section headings and anything tappable that is only text. */
-    const val ACCENT = "#7FA5FF"
+    val ACCENT: String get() = active.accent
 
-    /** The primary button is a gradient, which is the one place colour is loud. */
+    /**
+     * The primary button is a gradient, which is the one place colour is loud.
+     *
+     * The only two colours here that are **not** theme-dependent: a saturated
+     * blue-to-violet gradient with white text on it reads on a white card and on a
+     * dark one, and it is what makes the button the loudest thing on either.
+     */
     const val TINT_START = "#4C6FFF"
     const val TINT_END = "#8250FF"
 
-    const val DANGER = "#FF6B6B"
+    val DANGER: String get() = active.danger
 
     /** Done, granted, reachable — the self-check's green and nothing else's. */
-    const val OK = "#4ADE80"
+    val OK: String get() = active.ok
 
     /** Works, but degrades silently. */
-    const val WARN = "#FBBF24"
+    val WARN: String get() = active.warn
 
     // ---- Type ----
 
@@ -346,12 +527,24 @@ object Glass {
         LayerDrawable(arrayOf(base, sheen(radius)))
 
     /**
-     * A white gradient fading out downward. It is what separates "a rectangle
-     * filled with 6% white" from something that looks lit from above.
+     * The shading that makes a flat rectangle read as a solid: `TOP_BOTTOM`, from
+     * [Palette.sheen].
+     *
+     * **The one gradient whose direction belongs to the theme rather than to its
+     * colour.** Light comes from above on both, so the *top* is the lit end on both —
+     * but "lit" means opposite things: on the dark card it is a white film fading
+     * downward to nothing, and on the white card it is a bright top that is mostly
+     * invisible, followed by a shadow along the bottom. Inverting the day stops in
+     * place instead of reversing them would shade the top of every surface and leave
+     * its bottom lit, which is the one arrangement that reads as wrong at a glance
+     * without being nameable.
+     *
+     * Day's empty middle is deliberate. A gradient tinted end to end turns the card
+     * into a sheet of grey with a light top, which is what a light card must not be.
      */
     private fun sheen(radius: Int): Drawable = GradientDrawable(
         GradientDrawable.Orientation.TOP_BOTTOM,
-        intArrayOf(Color.parseColor(SHEEN_TOP), Color.parseColor(SHEEN_BOTTOM)),
+        active.sheen,
     ).apply { cornerRadius = radius.toFloat() }
 
     // ---- Card motion ----
