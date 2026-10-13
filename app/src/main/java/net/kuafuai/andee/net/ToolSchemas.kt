@@ -905,32 +905,16 @@ object ToolSchemas {
         a URL they would have to go and open themselves. Keep `controls` on
         a player. A plain http:// address will not load.
 
-        HOUSE STYLE — follow it unless the user asked for something else.
-        This is what the rest of the device looks like; a page that ignores
-        it reads as a stray web page, not as part of Andee.
+        Two things about the page itself, and neither is a matter of taste.
+        The WebView lays the page out at the width its own viewport tag asks
+        for, so send one:
 
         <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 
-        Colours (use these exact values, no others):
-          page background  #0F172A
-          card / surface   #1E293B
-          hairline border  rgba(148,163,184,.18)
-          body text        #F8FAFC
-          secondary text   #94A3B8
-          accent           #9DB4FF   ← the ball's colour; ONE accent only
+        And a ✕完成 pill floats over the top-right corner so the user can
+        always leave — keep roughly 110×44px clear there.
 
-        Type: font-family:-apple-system,"PingFang SC","Noto Sans CJK SC",
-        system-ui,sans-serif — name the CJK families explicitly or Chinese
-        falls back to a default glyph set and the page instantly looks cheap.
-        Sizes 28 / 20 / 16 / 13 px, line-height 1.6.
-
-        Layout: portrait, ONE column, 20px page gutters, spacing in
-        multiples of 8px, card radius 14px. Use the hairline border to
-        separate cards — no heavy box-shadows, no gradients, no glow.
-        Large touch targets (44px minimum); type readable without zooming.
-
-        A ✕完成 pill floats over the top-right corner so the user can always
-        leave — keep roughly 110×44px clear there.
+        Everything else — colour, type size, layout — is yours to pick.
     """.trimIndent(),
             required = listOf("html"),
             props = mapOf(
