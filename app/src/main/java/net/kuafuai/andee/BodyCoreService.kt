@@ -1869,6 +1869,11 @@ class BodyCoreService : Service() {
      *  * **No `closeTyping()`.** Unlike [openSettings] there is no text field
      *    here, so there is no keyboard to hand back and nothing to compete for
      *    focus.
+     *  * **It hands the trip over, it does not make it.** A row that leaves the
+     *    device hands the Intent to `SelfCheckActivity.showForErrand` instead of
+     *    launching it — a window cannot be left up over the destination and has
+     *    no way to be told the user came back. See [onErrand] below, which is
+     *    where the whole argument is.
      */
     private fun openSelfCheck() {
         if (selfCheck?.isShowing() == true) return
@@ -1891,25 +1896,50 @@ class BodyCoreService : Service() {
             // Our own sheet, reached through the service because that is where
             // it lives. Never null from here: if this method is running, we are.
             onOpenSettings = { openSettings() },
-            // Give the screen back to the page we are about to open. Both windows
-            // here — the folded-back assistant card and this very card — are
-            // TYPE_APPLICATION_OVERLAY, and an overlay outranks every Activity on
-            // the device. Without this, 去下载 opened a browser underneath the
-            // card that had just asked the user to look at it, and 去开启 did the
-            // same to the system Settings page. The fold is the one every
-            // screen.* tool call and ⤡ already perform; this is one more place
-            // that needs it. See SelfCheckUi.apply for the full argument.
+            // A row is sending the user to another screen, and **this card hands
+            // the trip over rather than making it**.
             //
-            // The card is closed rather than hidden, because there is no honest
-            // way back: the browser is not ours and reports nothing when the user
-            // returns, so a card left up would sit over whatever they actually
-            // came back to. Folding the assistant is what makes the way back
-            // sane instead — the ball is there, and the check reopens from ✓
-            // with a fresh reading, which is what the user wants after they have
-            // been off changing something anyway. Closing has to come last:
-            // SelfCheckUi.hide runs onDismiss from Glass.exit's completion, and
-            // that is what clears [selfCheck].
-            onYieldScreen = {
+            // Two facts about this card make it the wrong vehicle and the page
+            // the right one, and both were measured rather than reasoned about:
+            //
+            //  * **It cannot be left up.** This card and the assistant's card
+            //    behind it are both TYPE_APPLICATION_OVERLAY, and an overlay
+            //    outranks every Activity on the device — a card left up sits on
+            //    the Settings screen the user was just sent to use. Reported
+            //    from the field as "点击去下载ADB的时候，应该退出全屏，不然挡住浏览器了".
+            //  * **It cannot come back.** A window gets no `onResume`, and the
+            //    destination goes out with FLAG_ACTIVITY_NEW_TASK into a task of
+            //    its own, so back from Settings has nowhere of ours to return to.
+            //    The user's own A/B, in one message: 「首次…逐项点击处理，回来后还是
+            //    检查项的页面。但是…点击处理，处理完退回来，就回到桌面了」 — the good
+            //    half of that was the *page*, which sits in the same task as the
+            //    screen it opened and is simply resumed when the user gets back.
+            //
+            // So the check changes hands: [SelfCheckActivity.showForErrand] puts
+            // the same card on a stage that can survive the trip, and the errand
+            // is launched from *there* — owned by a task that outlives the app
+            // the user is looking at. Whatever they fix, they come back to the
+            // list, and ✕ on that page is the established hand-back (see
+            // `SelfCheckActivity.onStageLeaving`: overlays back up and the
+            // assistant unfolds full size).
+            //
+            // The assistant is still folded first, and it is not optional: this
+            // window is the one covering the screen, and it has to be out of the
+            // way before a page can be seen under it. The ball also goes onto the
+            // ledge (`setPagePerched`), the same shape `openPageFrom` gives a
+            // page, so it hangs off the edge of the card instead of on top of a
+            // row — the page is a fullscreen surface and a ball parked in the
+            // middle of it is the bug that flag exists to prevent.
+            //
+            // Order matters twice. `showForErrand` first, because the page is
+            // what has to be *under* the destination and its window should be up
+            // before the card finishes sinking (the two cards are the same size
+            // in the same place, so the swap is invisible). `hide` last, because
+            // `SelfCheckUi.hide` runs `onDismiss` from `Glass.exit`'s completion
+            // and that is what clears [selfCheck].
+            onErrand = { there ->
+                window.setPagePerched(true)
+                net.kuafuai.andee.ui.SelfCheckActivity.showForErrand(this, there)
                 dispatcher.compactForUser()
                 selfCheck?.hide(yielding = true)
             },

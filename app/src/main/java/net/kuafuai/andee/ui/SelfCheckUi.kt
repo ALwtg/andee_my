@@ -99,7 +99,7 @@ class SelfCheckUi(
      * The card is gone — put your house in order.
      *
      * @param yielding true when this close is the host stepping out of the way
-     *   of another screen (see [onYieldScreen]), false when the user asked for
+     *   of another screen (see [onErrand]), false when the user asked for
      *   it with ✕ or 完成. A host needs the difference, and only a host can act
      *   on it: a user closing the check is asking for the assistant back, while
      *   a yield is one step of handing the screen to somebody else and must not
@@ -110,16 +110,27 @@ class SelfCheckUi(
     /** Fired when this card's own picker moved the language — see the class doc. */
     private val onLocaleChanged: () -> Unit = {},
     /**
-     * Fired just before the user is sent to another screen, so the host can get
-     * out of the way. See [apply] for the whole argument.
+     * A row has picked somewhere to send the user, and this host has to say
+     * whether it can carry the trip itself.
      *
-     * Default no-op, and that is the Activity host's correct answer rather than
-     * a shrug: there the card *is* an Activity, so the system draws whatever it
-     * starts on top of it and there is nothing to yield. Only the window host —
-     * where this card and the assistant's card behind it are both overlays —
-     * has anything to do, and it is the only host that passes this.
+     * `null` — the Activity host — means "launch it from here": whatever this
+     * card starts lands on top of this page, the page is still in the task when
+     * the user comes back, and the list is simply still there for them. See
+     * [apply].
+     *
+     * Non-null means the host is an overlay and **cannot** carry it, so it takes
+     * the Intent and owes the user the list back. That is the window host, and
+     * the whole argument is in `BodyCoreService.openSelfCheck`: an overlay
+     * outranks every Activity on the device, so this card would sit on the
+     * Settings screen it just asked the user to go and use, and a window gets no
+     * `onResume` to notice them coming back. It hands the trip to
+     * [SelfCheckActivity] instead of throwing the list away.
+     *
+     * Renamed from `onYieldScreen` with the fix: "yield" described the card
+     * getting out of the way, which was never the part that needed deciding —
+     * what the caller does *next* is. See `SelfCheckActivity.showForErrand`.
      */
-    private val onYieldScreen: () -> Unit = {},
+    private val onErrand: ((Intent) -> Unit)? = null,
     /** Non-null ⇒ that host places the card and this class owns no window. */
     private val host: FrameLayout? = null,
 ) {
@@ -292,15 +303,15 @@ class SelfCheckUi(
      * then believes no card is up while one is on screen.
      *
      * Narrow either way, but this change widened it: `hide()` no longer comes
-     * only from a user pressing ✕ — [onYieldScreen] has the host close the card
-     * on the way out to the browser. Fold, reopen the check, and the stale exit
+     * only from a user pressing ✕ — [onErrand] has the host close the card on
+     * the way out to the browser. Fold, reopen the check, and the stale exit
      * would land after the second card was up.
      *
      * ### [yielding], and why the caller has to say
      *
      * The two closes look identical from in here and mean opposite things out
      * there, so the one caller that knows which it is passes it: ✕ and 完成
-     * close with the default, and [onYieldScreen]'s host closes with `true`.
+     * close with the default, and [onErrand]'s host closes with `true`.
      * The distinction exists because of what the *host* does with it — see
      * [onDismiss] — and it cannot be inferred here, because the fold that
      * accompanies a yield is the host's own doing and is already in flight by
@@ -809,7 +820,7 @@ class SelfCheckUi(
     /**
      * Every fix is a `startActivity` — nothing here closes a gap by itself.
      *
-     * ### The card gets out of the way first, and why it has to
+     * ### The card cannot make this trip, and that has to be decided here
      *
      * In the window host this card is a `TYPE_APPLICATION_OVERLAY` sized to 98%
      * × 96% of the display, and **an overlay outranks every Activity on the
@@ -820,52 +831,53 @@ class SelfCheckUi(
      * wrong — they are ordinary Activities and they do come up. They just come up
      * behind us.
      *
-     * So every door but one tells the host to yield first — see
-     * [onYieldScreen]. It is deliberately *every* door and not just the browser:
-     * 去开启 and 允许 are the same mistake against the same kind of window, and
-     * fixing only the one that got reported would leave two dead buttons behind
-     * a live one.
+     * ### Yielding was half the fix, and the missing half was reported as this
      *
-     * [SelfCheck.Fix.OurSettings] is the exception, and it is the reason the
-     * yield is here and not in [launch]: that sheet is an overlay of ours too,
-     * and the design is that it comes up **over** this card so the list is still
-     * behind it to return to. Yielding for it would close the card the user is
-     * meant to come back to.
+     * The card was then closed and the assistant folded to the ball before the
+     * destination was launched, which cleared the screen correctly and **lost the
+     * list**: a window gets no `onResume`, and the destination went out with
+     * `FLAG_ACTIVITY_NEW_TASK` into a task of its own, so back from the Settings
+     * screen had nowhere to return to and dropped the user on the launcher with
+     * a ball in the corner. The user's own comparison, and it is the one to
+     * satisfy: on the device where the check is the *page* (no assistant yet,
+     * first install) a row's 处理 sends them to Settings and coming back lands
+     * on the list — so that has to be true from the card too:
+     * 「点处理，处理完退回来，就回到桌面了」.
      *
-     * The card itself is not closed here — delivering the yield is the host's
-     * job, because only the host knows whether there is anything to close. On
-     * the Activity host there is not: that card *is* an Activity, so whatever it
-     * starts is drawn on top of it by the system already. See [onYieldScreen].
+     * The fix is [onErrand]: the host that cannot survive the trip is asked to
+     * take the Intent, and the one that can leave the per-row decision alone.
+     * `launch` below is therefore the *Activity* host's path — the card's starts
+     * nothing itself any more.
+     *
+     * [SelfCheck.Fix.OurSettings] is the exception and the reason this is not one
+     * loop over every fix: that sheet is an overlay of ours, drawn **over** this
+     * card so that the list is still behind it to return to. Handing that trip
+     * away would close the card the user is meant to come back to — see
+     * `BodyCoreService.openSelfCheck`.
      */
     private fun apply(f: SelfCheck.Finding) {
-        val fix = f.fix
-        if (fix !is SelfCheck.Fix.OurSettings) {
-            // Only if there is somewhere to go. Yielding and failing is the one
-            // outcome with nothing on screen: the card is gone and so is the
-            // page it promised. Cheap to rule out — see [openable] — and this is
-            // not hypothetical, a HONOR really has Settings screens with no
-            // Activity behind the action.
-            if (!openable(fix)) {
-                toastNoScreen()
-                return
-            }
-            onYieldScreen()
-        }
-        when (fix) {
-            // Both of these leave the device, and both are already spelled out by
-            // [intentFor] — the same call [openable] asked, so what was checked
-            // and what gets launched can never be two different Intents. 去下载
-            // is the link: a browser, not Settings, and the user comes back
-            // through wherever they were with 重新检查 to tell them whether it
-            // took.
-            is SelfCheck.Fix.Screen, is SelfCheck.Fix.Link -> launch(intentFor(fix))
-
-            is SelfCheck.Fix.Grant -> launch(
-                Intent(context, PermissionRequestActivity::class.java)
-                    .putExtra("permissions", fix.permissions.toTypedArray())
-            )
-
+        when (val fix = f.fix) {
             is SelfCheck.Fix.OurSettings -> onOpenSettings?.invoke()
+
+            // The three that leave us, under one roof because they are one
+            // decision: the destination is spelled out by [intentFor] (the same
+            // call [openable] asked, so what was checked and what gets launched
+            // can never be two different Intents), and who launches it depends
+            // only on whether the host can come back from it.
+            is SelfCheck.Fix.Screen, is SelfCheck.Fix.Link, is SelfCheck.Fix.Grant -> {
+                // Only if there is somewhere to go. Leaving and failing is the
+                // one outcome with nothing on screen: the card is gone and so
+                // is the page it promised. Cheap to rule out — see [openable] —
+                // and this is not hypothetical, a HONOR really has Settings
+                // screens with no Activity behind the action.
+                if (!openable(fix)) {
+                    toastNoScreen()
+                    return
+                }
+                val there = intentFor(fix)
+                onErrand?.let { hand -> hand(there); return }
+                launch(there)
+            }
 
             is SelfCheck.Fix.Adb, SelfCheck.Fix.Nothing -> Unit
         }
@@ -873,16 +885,21 @@ class SelfCheckUi(
 
     /**
      * Whether [fix] has an Activity on this device at all — asked **before**
-     * [onYieldScreen] closes the card, so the two can never disagree.
+     * anything is closed or handed over, so the two can never disagree.
      *
      * Everything this card cannot open is either its own ([Fix.OurSettings],
      * [Fix.Grant]) or has nothing to open ([Fix.Adb], [Fix.Nothing]), so only
-     * the two that leave the device are worth asking about.
+     * the two that leave the device are worth asking about. `Grant` counts as
+     * ours and not as a query: `PermissionRequestActivity` is in *this* APK, so
+     * a `queryIntentActivities` for it would answer about a component that is
+     * guaranteed to be there — the honest question for that row is whether the
+     * user grants it, which is the dialog's job.
      *
      * `queryIntentActivities` rather than `resolveActivity`: the stricter call
      * wants a default-browsing handler, and a device with several browsers and
      * no default set would read as "nowhere to go" for 去下载 — refusing to
-     * yield on the very button this exists to serve. When the query itself
+     * send the user out on the very button this exists to serve. When the query
+     * itself
      * fails the answer is `true`: that defers to [launch]'s own failure toast,
      * which is the honest fallback rather than a second guess.
      */
@@ -898,14 +915,16 @@ class SelfCheckUi(
     }
 
     /**
-     * The Intent [apply] will hand to [launch]; one definition, asked twice.
+     * The Intent [apply] will hand over or launch; one definition, asked twice.
      *
-     * Only the two that leave the device are spelled out. The `else` is an empty
-     * Intent rather than a throw because no caller reaches it — [apply] routes
-     * the other three fixes to their own branches and [openable] short-circuits
-     * before asking — but an empty Intent resolving to nothing reads as "no
-     * Activity for a fix that never wanted one", while a throw here would take
-     * the card down for a case that cannot happen.
+     * The three that leave us are spelled out, [Fix.Grant] included: its
+     * destination is `PermissionRequestActivity` — ours, and an Activity, which
+     * is exactly why it belongs here rather than in a branch of its own. The
+     * `else` is an empty Intent rather than a throw because no caller reaches
+     * it — [apply] routes the other two fixes to their own branches and
+     * [openable] short-circuits before asking — but an empty Intent resolving to
+     * nothing reads as "no Activity for a fix that never wanted one", while a
+     * throw here would take the card down for a case that cannot happen.
      */
     private fun intentFor(fix: SelfCheck.Fix): Intent = when (fix) {
         is SelfCheck.Fix.Screen -> Intent(fix.action).apply {
@@ -914,6 +933,9 @@ class SelfCheckUi(
         }
 
         is SelfCheck.Fix.Link -> Intent(Intent.ACTION_VIEW, Uri.parse(fix.url))
+
+        is SelfCheck.Fix.Grant -> Intent(context, PermissionRequestActivity::class.java)
+            .putExtra("permissions", fix.permissions.toTypedArray())
 
         else -> Intent()
     }
@@ -937,16 +959,20 @@ class SelfCheckUi(
      * rule this whole card is built on. So the failure gets a voice.
      *
      * This is the second line of defence, not the first: [openable] already
-     * refuses to yield when there is nowhere to go. It still has to exist,
+     * refuses to leave when there is nowhere to go. It still has to exist,
      * because the check and the launch are separated by the card's exit
      * animation — long enough for the answer to change. And unlike
      * [openable]'s refusal, this one arrives after the card is gone, so the
      * toast is the only thing left to say.
+     *
+     * **Only the Activity host reaches this now.** The window host hands the
+     * Intent to [onErrand] and never launches anything itself, so the `host ==
+     * null` test below is not a branch any more — a Service Context still needs
+     * the flag, and an Activity must not have it (it would put somebody else's
+     * settings screen in a task of its own, which is also what used to make the
+     * way back impossible).
      */
     private fun launch(intent: Intent) {
-        // Only when there is no Activity of ours in play: from a Service Context
-        // the flag is mandatory, and from an Activity it would put somebody
-        // else's settings screen in a task of its own.
         if (host == null) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val ok = runCatching { context.startActivity(intent) }.onFailure {
             Log.w(TAG, "self-check: no activity for ${intent.action}", it)

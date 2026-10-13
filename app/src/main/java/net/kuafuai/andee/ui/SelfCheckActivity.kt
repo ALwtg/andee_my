@@ -1,11 +1,14 @@
 package net.kuafuai.andee.ui
 
+import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import net.kuafuai.andee.BodyCoreService
+import net.kuafuai.andee.R
 import net.kuafuai.andee.ScreenBodyService
 import net.kuafuai.andee.config.FactoryReset
 import net.kuafuai.andee.config.Notebook
@@ -27,7 +30,9 @@ import net.kuafuai.andee.i18n.AppLocale
  * So on a working device this Activity is never *seen*: the icon starts it, it
  * hands the request to the service and finishes — see the next section. All the
  * drawing it used to do lives in [SelfCheckUi] now, and what is left here is the
- * case the card cannot cover.
+ * case the card cannot cover. There is exactly one exception, and it is not a
+ * door the user opened: the card hands this page the trips it cannot carry,
+ * below.
  *
  * ### Why it still has to exist, and why it still has to be in the launcher
  *
@@ -85,6 +90,23 @@ import net.kuafuai.andee.i18n.AppLocale
  * hosts differ in exactly two things — where the card goes, and whether we may
  * ask the compositor to blur — and both of those are [SelfCheckUi]'s to decide.
  *
+ * ### And the carrier for the card's errands (2026-10-13)
+ *
+ * The one thing the *card* cannot do is survive a trip, so this page now comes
+ * up in the middle of a working device after all: when a row on the card sends
+ * the user to a system screen, the card hands the Intent over rather than
+ * closing the list. See [showForErrand], which is where that argument lives —
+ * including why the destination must be launched from here (it lands in *this*
+ * page's task, so back has somewhere to return to) and why a rebuilt page must
+ * not re-run it.
+ *
+ * So "on a working device this Activity is never seen" needs one amendment: it
+ * is never seen *as the assistant's app* — every open of it that the user did
+ * not ask for by hand still ends in `expand()` and `finish()` — but it is now
+ * what carries a row's trip, and the user lands on it when they come back from
+ * Settings. That is deliberate: the list is what they left, and coming back to
+ * it is the whole point.
+ *
  * ### The backdrop is what makes the card's fill honest
  *
  * [SelfCheckUi] hands the card the *frosted* fill unconditionally when it is
@@ -125,6 +147,17 @@ class SelfCheckActivity : StageActivity() {
         const val EXTRA_SCREEN_CAPTURE = "screen_capture"
 
         /**
+         * Start-intent extra: the screen the check card was asked to open, and
+         * could not carry itself.
+         *
+         * An `Intent` extra rather than a set of fields, because it *is* one:
+         * the card built it with `SelfCheckUi.intentFor` (the same call that
+         * decided there was anything to open) and this page must launch
+         * *that*, not a reconstruction of it. See [showForErrand].
+         */
+        private const val EXTRA_ERRAND = "errand"
+
+        /**
          * When to look again after a resume with red rows still on the page.
          *
          * Two, at a spacing wide enough to be a different moment for the
@@ -132,6 +165,52 @@ class SelfCheckActivity : StageActivity() {
          * [settleRecheck].
          */
         private val SETTLE_AT_MS = longArrayOf(1_500L, 5_000L)
+
+        /**
+         * Bring this page up to carry an errand the check card cannot make
+         * itself, and open [errand] from here.
+         *
+         * ### Why the errand needs a page at all
+         *
+         * The card is a `TYPE_APPLICATION_OVERLAY`, which outranks every
+         * Activity on the device, so a card left up would sit on the Settings
+         * screen it had just sent the user to. Closing it works and **loses the
+         * list**: a window gets no `onResume`, and the destination leaves with
+         * `FLAG_ACTIVITY_NEW_TASK` into a task of its own, so pressing back has
+         * nowhere of ours to return to. The report is exact about the shape of
+         * it: from the page, 处理 → away → back lands on the list; from the
+         * card, the same three taps land on the desktop with a ball in the
+         * corner.
+         *
+         * An Activity has both properties the card lacks. It is *in the task*
+         * the destination is started into (this page passes the Intent on
+         * without `NEW_TASK`), and it gets [onResume] when the user comes back —
+         * which is also where the row they just fixed is re-read and turns
+         * green. So the trip is handed over rather than thrown away, and the
+         * user comes back to the same card, on a stage, with the same rows.
+         *
+         * ### Two traps, both paid for once already
+         *
+         *  * **`NEW_TASK` is set here and nowhere else.** The caller is the
+         *    service, and `startActivity` without the flag throws from a Service
+         *    Context. It belongs on *this* Intent only — the errand inside must
+         *    not have it, or the destination lands in a task of its own and the
+         *    way back is gone again, which is the bug this whole path exists to
+         *    fix.
+         *  * **A re-creation must not re-open the errand.** The user is off in
+         *    Settings for as long as they like and a ROM is free to rebuild this
+         *    page meanwhile; re-running the errand there would throw them back
+         *    into the screen they are trying to leave. [onCreate] launches it
+         *    only on a fresh creation — see the `savedInstanceState` test — and
+         *    drops the extra as it does, so nothing downstream can either.
+         */
+        fun showForErrand(context: android.content.Context, errand: Intent) {
+            context.startActivity(
+                Intent(context, SelfCheckActivity::class.java)
+                    .putExtra(EXTRA_ERRAND, errand)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
     }
     /**
      * The card. Built here on the service-off path only, placed on [stage], and
@@ -270,8 +349,17 @@ class SelfCheckActivity : StageActivity() {
         // can still know that. See [SelfCheck.isPageOpen].
         val checkOpen = SelfCheck.isPageOpen(this)
 
+        // And an errand outranks everything, because it is the one case where
+        // this page has been *asked* for: the card handed it a screen to open
+        // and the user is waiting to be sent there. Completing the icon's
+        // branches instead would expand the assistant and throw the errand away
+        // — a tap that does nothing, on the path the user just took because the
+        // list told them to. See [showForErrand].
+        val errand = intent?.getParcelableExtra<Intent>(EXTRA_ERRAND)
+        val carrying = errand != null
+
         val svc = BodyCoreService.get()
-        if (!restored && !checkOpen && svc != null && svc.ensureOverlays()) {
+        if (!restored && !checkOpen && !carrying && svc != null && svc.ensureOverlays()) {
             svc.dispatcherForNotification()?.expand()
             finish()
             return
@@ -283,7 +371,7 @@ class SelfCheckActivity : StageActivity() {
         // (first launch after a fresh grant). Falling through here would draw a
         // checklist for a device that is working, which is the exact report
         // this branch was rewritten to stop producing.
-        if (!restored && !checkOpen && svc == null && ScreenBodyService.get() != null && Settings.canDrawOverlays(this)) {
+        if (!restored && !checkOpen && !carrying && svc == null && ScreenBodyService.get() != null && Settings.canDrawOverlays(this)) {
             finish()
             return
         }
@@ -337,6 +425,40 @@ class SelfCheckActivity : StageActivity() {
         ui.show()
         ui.start()
         revealStage()
+
+        // The trip this page was brought up to carry — see [showForErrand].
+        //
+        // After the card is up, so the page the user comes back to has already
+        // drawn itself once, and **only on a fresh creation**: a rebuild with the
+        // user in Settings carries the same Intent, and re-opening the errand
+        // there would drag them back into the screen they are leaving. The extra
+        // is dropped as it is launched rather than merely skipped, so no later
+        // reader of `intent` — this class's own [onNewIntent] included — can
+        // find an errand that has already been run.
+        if (savedInstanceState == null && errand != null) {
+            intent?.removeExtra(EXTRA_ERRAND)
+            openErrand(errand)
+        }
+    }
+
+    /**
+     * Send the user where the row asked, from *this* page's task.
+     *
+     * Deliberately no `FLAG_ACTIVITY_NEW_TASK` — see [showForErrand] for the
+     * whole argument. A failure is a toast rather than a silence, the same rule
+     * every button on this card follows, and the page stays up behind it: the
+     * list is exactly what the user wants in that case, and it is where the row
+     * is that told them to go.
+     */
+    private fun openErrand(errand: Intent) {
+        val ok = runCatching { startActivity(errand) }
+            .onFailure { android.util.Log.w("Body", "self-check errand would not launch", it) }
+            .isSuccess
+        if (!ok) {
+            runCatching {
+                Toast.makeText(this, getString(R.string.check_fix_no_screen), Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     /**
@@ -520,6 +642,16 @@ class SelfCheckActivity : StageActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra(EXTRA_SCREEN_CAPTURE, false)) requestScreenCapture()
+        // An errand can only arrive here if this page was already up, which is
+        // not a path the card can currently reach — it is the *other* door, and
+        // the page covers the assistant it is opened from. Handled anyway, and
+        // for the same reason the capture extra is: this class is `singleTop`,
+        // so the day something else hands it one, the alternative to this branch
+        // is a launch that silently does nothing. See [showForErrand].
+        intent.getParcelableExtra<Intent>(EXTRA_ERRAND)?.let {
+            intent.removeExtra(EXTRA_ERRAND)
+            openErrand(it)
+        }
     }
 
     override fun onResume() {
