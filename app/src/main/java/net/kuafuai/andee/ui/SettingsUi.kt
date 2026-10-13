@@ -640,13 +640,29 @@ class SettingsUi(
 
         // ---- 本机 tab: LLM + 火山 voice rows ----
         val localBlock = block(panel)
-        field(localBlock, "llm_api_key", "DeepSeek Key", hint = "sk-…", secret = true)
-        field(localBlock, "llm_model", lctx.getString(R.string.settings_llm_model), hint = VoiceConfig.DEFAULT_LLM_MODEL)
+        // The hint *is* the value a blank row resolves to, so the hint and the
+        // resolved config come from the same language-aware pair — see
+        // [VoiceConfig.llmModelDefault]. An English card advertises an OpenAI
+        // model / base URL and, if the user never saves one, actually calls it;
+        // a Chinese card stays on DeepSeek.
+        field(
+            localBlock,
+            "llm_api_key",
+            lctx.getString(R.string.settings_llm_api_key),
+            hint = "sk-…",
+            secret = true,
+        )
+        field(
+            localBlock,
+            "llm_model",
+            lctx.getString(R.string.settings_llm_model),
+            hint = VoiceConfig.llmModelDefault(context),
+        )
         field(
             localBlock,
             "llm_base_url",
             lctx.getString(R.string.settings_llm_base_url),
-            hint = VoiceConfig.DEFAULT_LLM_BASE_URL,
+            hint = VoiceConfig.llmBaseUrlDefault(context),
         )
 
         rowLabel(localBlock, lctx.getString(R.string.settings_llm_thinking))

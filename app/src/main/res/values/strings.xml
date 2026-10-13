@@ -60,6 +60,7 @@
     <string name="settings_device_name">设备名</string>
     <string name="settings_device_name_hint">Hub 那边怎么称呼这台设备</string>
     <string name="settings_brain_cloud_note">大脑在你自己搭的 Hub 那边，这台设备只负责动手。</string>
+    <string name="settings_llm_api_key">接口密钥</string>
     <string name="settings_llm_model">模型</string>
     <string name="settings_llm_base_url">接口地址</string>
     <string name="settings_llm_thinking">深度思考</string>

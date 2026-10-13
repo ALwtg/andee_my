@@ -83,6 +83,7 @@
     <string name="settings_device_name">Device name</string>
     <string name="settings_device_name_hint">What the hub should call this device</string>
     <string name="settings_brain_cloud_note">The brain lives on a hub you run yourself; this device only acts.</string>
+    <string name="settings_llm_api_key">API key</string>
     <string name="settings_llm_model">Model</string>
     <string name="settings_llm_base_url">Base URL</string>
     <string name="settings_llm_thinking">Deep thinking</string>

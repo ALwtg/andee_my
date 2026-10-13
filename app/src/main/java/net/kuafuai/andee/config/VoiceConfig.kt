@@ -78,6 +78,34 @@ data class VoiceConfig(
         const val DEFAULT_REASONING_EFFORT = "high"
 
         /**
+         * The same two defaults for an **English** card, pointing at OpenAI.
+         *
+         * The 本机 tab's hint *is* the value a blank row resolves to, so the two
+         * cannot be allowed to disagree: a card that advertises an OpenAI `Model`
+         * / `Base URL` and then, when the user leaves the boxes empty, quietly
+         * calls DeepSeek would be lying in the one place a user reads to decide
+         * what to type. [llmBaseUrlDefault] / [llmModelDefault] pick by
+         * [uiLanguage], and both the hint and the resolved config go through
+         * them — that is the whole point of tying these to the language rather
+         * than to the build.
+         *
+         * **CodeFlying is deliberately not switched by language.** Its model is
+         * whatever the hosted backend serves; an English build inventing
+         * `gpt-4o-mini` at that endpoint would name a model CodeFlying does not
+         * have. See [brainConfig].
+         */
+        const val DEFAULT_LLM_BASE_URL_EN = "https://api.openai.com/v1"
+        const val DEFAULT_LLM_MODEL_EN = "gpt-4o-mini"
+
+        /** [DEFAULT_LLM_BASE_URL] for a Chinese card, [DEFAULT_LLM_BASE_URL_EN] for an English one. */
+        fun llmBaseUrlDefault(context: Context): String =
+            if (uiLanguage(context) == LANG_EN) DEFAULT_LLM_BASE_URL_EN else DEFAULT_LLM_BASE_URL
+
+        /** [DEFAULT_LLM_MODEL] for a Chinese card, [DEFAULT_LLM_MODEL_EN] for an English one. */
+        fun llmModelDefault(context: Context): String =
+            if (uiLanguage(context) == LANG_EN) DEFAULT_LLM_MODEL_EN else DEFAULT_LLM_MODEL
+
+        /**
          * CodeFlying is available iff the build was configured with ENABLED and
          * a non-empty DOMAIN. ENABLED alone with no DOMAIN silently falls back
          * to [BRAIN_LOCAL] — the picker hides the CodeFlying tab and the
@@ -260,6 +288,11 @@ data class VoiceConfig(
                         .orEmpty().trim().ifEmpty { DEFAULT_REASONING_EFFORT },
                 )
             }
+            // Language-dependent defaults: the blank-row fallback must be the
+            // value the 本机 tab's hint advertised, or an English card would
+            // promise OpenAI in the placeholder and then call DeepSeek.
+            val defaultBaseUrl = llmBaseUrlDefault(context)
+            val defaultModel = llmModelDefault(context)
             return BrainConfig(
                 mode = mode,
                 apiKey = p.getString("llm_api_key", "").orEmpty().trim(),
@@ -267,9 +300,9 @@ data class VoiceConfig(
                 // and a trailing slash from the settings field would produce a
                 // double slash, which some gateways 404 on.
                 baseUrl = p.getString("llm_base_url", "")
-                    .orEmpty().trim().trimEnd('/').ifEmpty { DEFAULT_LLM_BASE_URL },
-                model = p.getString("llm_model", DEFAULT_LLM_MODEL)
-                    .orEmpty().trim().ifEmpty { DEFAULT_LLM_MODEL },
+                    .orEmpty().trim().trimEnd('/').ifEmpty { defaultBaseUrl },
+                model = p.getString("llm_model", defaultModel)
+                    .orEmpty().trim().ifEmpty { defaultModel },
                 thinking = p.getString("llm_thinking", defaultThinking())
                     ?.trim()?.lowercase() != "disabled",
                 reasoningEffort = p.getString("llm_reasoning_effort", DEFAULT_REASONING_EFFORT)
@@ -443,16 +476,25 @@ data class VoiceConfig(
                 "device_name" to hc.deviceName,
                 "brain" to bc.mode,
                 "show_hub" to if (showHub(context)) "on" else "off",
-                // llm_api_key / llm_base_url are the 本机 tab's rows — the
-                // user's own DeepSeek credentials. They stay visible no matter
-                // which backend is active, because switching to CodeFlying and
-                // back must not look like the local-tab fields were wiped. The
-                // compiled CodeFlying key never flows through these prefs; it
-                // comes from BuildConfig at [brainConfig] time, so showing the
-                // saved values here cannot leak it.
+                // llm_api_key / llm_base_url / llm_model are the 本机 tab's rows —
+                // the user's own credentials and the endpoint they point at.
+                // They stay visible no matter which backend is active, because
+                // switching to CodeFlying and back must not look like the
+                // local-tab fields were wiped. The compiled CodeFlying key never
+                // flows through these prefs; it comes from BuildConfig at
+                // [brainConfig] time, so showing the saved values here cannot
+                // leak it.
+                //
+                // All three show saved-or-empty, never the resolved value. The
+                // empty box is how the row says "the default is in use", and it
+                // is the only state in which the hint is visible at all —
+                // printing the resolved default into the box would be text, not
+                // a placeholder, and the row's language-aware hint
+                // ([llmModelDefault]: DeepSeek for a Chinese card, OpenAI for an
+                // English one) could never be seen.
                 "llm_api_key" to p.getString("llm_api_key", "").orEmpty(),
                 "llm_base_url" to p.getString("llm_base_url", "").orEmpty(),
-                "llm_model" to bc.model,
+                "llm_model" to p.getString("llm_model", "").orEmpty(),
                 // Round-tripped as the wire words rather than a boolean: this map
                 // feeds SettingsUi's pickers and the picker's value is what comes
                 // back to [save], which only speaks String.
