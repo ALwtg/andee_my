@@ -119,6 +119,24 @@ object Puff {
         return chaikin(pts, 2)
     }
 
+    /**
+     * A heart, point down. The classic parametric curve, scaled to about unit
+     * height and shifted down so the origin sits inside it: it is star-shaped about
+     * a point a little below the cleft and not about the cleft itself, which is the
+     * only reason [build]'s fan can fill it.
+     */
+    fun heart(samples: Int = 64): FloatArray {
+        val out = FloatArray(samples * 2)
+        for (i in 0 until samples) {
+            val t = i.toFloat() / samples * 2f * PI.toFloat()
+            val x = 16f * sin(t).pow(3)
+            val y = 13f * cos(t) - 5f * cos(2f * t) - 2f * cos(3f * t) - cos(4f * t)
+            out[2 * i] = x / 17f
+            out[2 * i + 1] = y / 17f - 0.10f
+        }
+        return out
+    }
+
     /** A teardrop, tip up. Centred a little low so the origin is inside the belly. */
     fun drop(samples: Int = 28): FloatArray {
         val half = ArrayList<Float>()

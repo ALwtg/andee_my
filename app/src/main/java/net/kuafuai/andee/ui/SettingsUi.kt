@@ -360,6 +360,7 @@ class SettingsUi(
         // the credentials it can spend. 大脑 stays first because it is the one
         // setting that changes what the rest of the card means.
         brainSection(form)
+        expressionsSection(form)
         wakeSection(form)
         notebookSection(form)
         notifySection(form)
@@ -689,6 +690,30 @@ class SettingsUi(
             Glass.setVisible(effortBlock, th != "disabled", animate)
         }
         applyThinking(thinking, false)
+    }
+
+    /**
+     * The door to [ExpressionsUi]. Nothing is edited here — the card it opens is
+     * where a look is picked and where every expression can be tried — so the
+     * section is a sentence and one button, like [vaultSection]'s door, and the
+     * look picked inside is saved the moment it is picked rather than on 保存.
+     */
+    private fun expressionsSection(form: LinearLayout) {
+        val panel = group(form, lctx.getString(R.string.settings_section_expr))
+        panel.addView(
+            TextView(context).apply {
+                text = lctx.getString(R.string.settings_expr_note)
+                textSize = Glass.Type.CAPTION
+                setTextColor(Color.parseColor(Glass.LABEL))
+                setLineSpacing(dp(3).toFloat(), 1f)
+            },
+            rowParams(0),
+        )
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+        row.addView(button(lctx.getString(R.string.settings_expr_open), filled = false) {
+            ExpressionsUi(context).show()
+        })
+        panel.addView(row, rowParams(dp(12)))
     }
 
     /**

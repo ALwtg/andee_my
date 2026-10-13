@@ -171,7 +171,6 @@ class EmotionState {
         var s = 0f
         var roll = 0f
         var fist = 0f
-        var point = 0f
         var jig = 0f
         var waveAmt = 0f
     }
@@ -181,6 +180,22 @@ class EmotionState {
 
     /** Pop-in amount of each prop, 0..1; indexed by the `PROP_*` constants. */
     val prop = FloatArray(PROP_COUNT)
+
+    // ---- Jelly horns: see the block after `rotZ` in [tick] ----
+    /** Side-to-side swing, degrees, positive toward the viewer's right. */
+    var hornSway = 0f; private set
+
+    /** In-out lean, degrees on top of the look's own tilt: negative stands up, positive flops. */
+    var hornLean = 0f; private set
+    private var swayV = 0f
+    private var leanV = 0f
+    private var prevRotY = 0f
+    private var prevRotZ = 0f
+    private var prevHop = 0f
+    private var prevVY = 0f
+    private var prevVZ = 0f
+    private var prevVH = 0f
+    private var hornInit = false
 
     // ---- Dust particles ----
     private class Particle(
@@ -399,11 +414,6 @@ class EmotionState {
                     sqx = contact * 0.07f
                     sqy = contact * -0.09f
                 }
-                // The hand and the closing eye are the [Pose] layer's — see the
-                // overrides above. What is left for the body is a small lean, which
-                // is all a look without gestures can do with either.
-                Action.WAVE -> actRotY = sin(p * 4f * PI.toFloat()) * 0.05f
-                Action.WINK -> actRotY = sin(p * PI.toFloat()) * 0.04f
                 Action.NONE -> {}
             }
             if (p >= 1f) action = Action.NONE
@@ -455,20 +465,9 @@ class EmotionState {
         clock = t
         val gestures = LOOK.gestures
         val pose = if (gestures) POSES[mood] ?: Pose.NONE else Pose.NONE
-        var tWink = pose.wink
-        var tHandL = pose.handL
-        var tSparkL = pose.sparkL
-        // The two idle gestures borrow the channels for their length. A hand the
-        // mood already put out is left alone: waving over a fist at the chin
-        // would be two answers at once.
-        if (gestures && action == Action.WAVE) {
-            if (tHandL.s < 0.05f) tHandL = HAND_WAVE
-            tSparkL = 1f
-        }
-        if (gestures && action == Action.WINK) {
-            val ap = actionT / actionDur
-            if (ap > 0.12f && ap < 0.88f) tWink = 1f
-        }
+        val tWink = pose.wink
+        val tHandL = pose.handL
+        val tSparkL = pose.sparkL
         val kg = min(1f, dt * 10f)
         wink += (tWink - wink) * kg
         lookX += (pose.lookX - lookX) * kg
@@ -483,7 +482,7 @@ class EmotionState {
         val away = 1f - cling.coerceIn(0f, 1f)
         prop[PROP_STARS] += (pose.stars * away - prop[PROP_STARS]) * kp
         prop[PROP_SPARK_L] += (tSparkL * away - prop[PROP_SPARK_L]) * kp
-        prop[PROP_SPARK_R] += (pose.sparkR * away - prop[PROP_SPARK_R]) * kp
+        prop[PROP_HEART] += (pose.heart * away - prop[PROP_HEART]) * kp
         prop[PROP_SPARK_TOP] += (pose.sparkTop * away - prop[PROP_SPARK_TOP]) * kp
         prop[PROP_SHIELD] += (pose.shield * away - prop[PROP_SHIELD]) * kp
         prop[PROP_DROP] += (pose.drop * away - prop[PROP_DROP]) * kp
@@ -503,6 +502,49 @@ class EmotionState {
         rotY = sin(t * 0.22f) * 0.12f + jx * 0.012f + gaze * 0.09f + actRotY
         rotX = sin(t * 0.17f) * 0.06f + jy * 0.009f + actRotX + workBob
         rotZ = tilt + th * sin(t * 0.51f) * 0.09f - clingLean
+
+        // ---- Jelly horns ----
+        // Two springs, both driven by how the *body* is accelerating rather than by
+        // where it is: a horn standing still on a still head has nothing to do, and
+        // one that swings when the head turns and rings out afterwards is what makes
+        // it look like it is made of the same stuff as the ball.
+        //
+        //  * `hornSway` is the side-to-side one. A turn about the vertical axis
+        //    throws the horns the way the face is coming *from*, and a roll throws
+        //    them the other way, so the two enter with opposite signs; the roll has
+        //    the longer lever (the horns sit high), hence the 1.5.
+        //  * `hornLean` is the in-out one, and the only one with a resting place:
+        //    the mood's [Pose.hornLean]. A hop's vertical acceleration pushes on it
+        //    too, so they flatten on take-off and flick back up on landing.
+        //
+        // Accelerations are differences of differences and therefore noisy; the
+        // spring is the low-pass that makes them usable, which is also why it is as
+        // soft as it is. Looks without [BallLook.hornWobble] never enter.
+        if (gestures && LOOK.hornWobble > 0f) {
+            val h = dt.coerceIn(0.001f, 1f / 30f)
+            val vY = (rotY - prevRotY) / h
+            val vZ = (rotZ - prevRotZ) / h
+            val vH = (hopY - prevHop) / h
+            var aY = (vY - prevVY) / h
+            var aZ = (vZ - prevVZ) / h
+            var aH = (vH - prevVH) / h
+            if (!hornInit) {
+                // The first frame has no previous one; a difference against zero is
+                // a kick the size of the whole pose.
+                aY = 0f; aZ = 0f; aH = 0f
+                hornInit = true
+            }
+            prevRotY = rotY; prevRotZ = rotZ; prevHop = hopY
+            prevVY = vY; prevVZ = vZ; prevVH = vH
+            val g = LOOK.hornWobble * HORN_DRIVE
+            swayV += (g * (-aY + 1.5f * aZ) - HORN_K * hornSway - HORN_C * swayV) * h
+            hornSway = (hornSway + swayV * h).coerceIn(-HORN_SWAY_MAX, HORN_SWAY_MAX)
+            leanV += (g * aH + HORN_K * (pose.hornLean - hornLean) - HORN_C * leanV) * h
+            hornLean = (hornLean + leanV * h).coerceIn(-HORN_LEAN_MAX, HORN_LEAN_MAX)
+        } else {
+            hornSway = 0f; hornLean = 0f; swayV = 0f; leanV = 0f
+            hornInit = false
+        }
 
         // Rings group tumble. Small on purpose: the belt orientation in [RINGS]
         // is chosen to keep the rings edge-on and off the face, and a large
@@ -621,14 +663,13 @@ class EmotionState {
         val wants = t.s > 0.02f
         if (wants) {
             if (h.s < 0.05f) {
-                h.x = t.x; h.y = t.y; h.roll = t.roll; h.fist = t.fist; h.point = t.point
+                h.x = t.x; h.y = t.y; h.roll = t.roll; h.fist = t.fist
             } else {
                 val k = min(1f, dt * 10f)
                 h.x += (t.x - h.x) * k
                 h.y += (t.y - h.y) * k
                 h.roll += (t.roll - h.roll) * k
                 h.fist += (t.fist - h.fist) * k
-                h.point += (t.point - h.point) * k
             }
             val kj = min(1f, dt * 6f)
             h.jig += (t.jig - h.jig) * kj
@@ -683,6 +724,20 @@ class EmotionState {
     private companion object {
         /** Degrees per radian, for the one place a look's angle meets the mood's. */
         const val DEG = 57.29578f
+
+        /**
+         * The horn springs. K is the stiffness (natural frequency √K ≈ 10 rad/s, so
+         * about a swing and a half a second) and C the damping: 7 against a critical
+         * 21 is a damping ratio of a third, which rings three or four times before it
+         * settles — jelly, where critical damping would be a hinge and none would be
+         * a pendulum. DRIVE is degrees of swing per rad/s² of body acceleration; a
+         * wiggle (≈10 rad/s²) throws them about 11°.
+         */
+        const val HORN_K = 110f
+        const val HORN_C = 7f
+        const val HORN_DRIVE = 120f
+        const val HORN_SWAY_MAX = 26f
+        const val HORN_LEAN_MAX = 36f
 
         /** One sag-and-haul cycle, seconds. */
         const val SLIP_SECONDS = 3.6f

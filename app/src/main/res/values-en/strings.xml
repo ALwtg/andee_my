@@ -522,4 +522,32 @@
     <string name="ball_look_bear">Bear</string>
     <string name="ball_look_imp">Imp</string>
 
+    <!-- The expressions screen: the entry in settings, and the card that shows them all -->
+    <string name="settings_section_expr">Looks &amp; expressions</string>
+    <string name="settings_expr_note">See every character and every expression; tap one to switch.</string>
+    <string name="settings_expr_open">Open</string>
+    <string name="expr_title">Looks &amp; expressions</string>
+    <string name="expr_section_look">Look</string>
+    <string name="expr_section_mood">Expression</string>
+    <string name="expr_caption">%1$s · %2$s</string>
+    <string name="expr_calm">Calm</string>
+    <string name="expr_happy">Happy</string>
+    <string name="expr_curious">Curious</string>
+    <string name="expr_tense">Angry</string>
+    <string name="expr_anxious">Nervous</string>
+    <string name="expr_concerned">Worried</string>
+    <string name="expr_wink">Wink</string>
+    <string name="expr_wave">Wave</string>
+    <string name="expr_protect">Guard</string>
+    <string name="expr_celebrate">Celebrate</string>
+    <string name="expr_rest">Rest</string>
+    <string name="expr_listening">Listening</string>
+    <string name="expr_holding">Waiting</string>
+    <string name="expr_thinking">Thinking</string>
+    <string name="expr_speaking">Speaking</string>
+    <string name="expr_searching">Working</string>
+    <string name="expr_success">Success</string>
+    <string name="expr_failed">Failed</string>
+    <string name="expr_sleeping">Asleep</string>
+
 </resources>

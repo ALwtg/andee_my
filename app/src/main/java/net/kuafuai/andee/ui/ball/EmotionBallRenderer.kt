@@ -160,6 +160,20 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
     private var idleFor = 0f
     private var lastEffective = Mood.CALM
 
+    // ---- Idle life, for a look with gestures; see the block in [resolveMood] ----
+    private var idleFace = Mood.CALM
+    private var lastIdleFace: Mood? = null
+
+    /** How much longer the current idle face is held. */
+    private var idleFaceLeft = 0f
+
+    /** How long until the next one; counts down only while idle. */
+    private var idleFaceIn = IDLE_FACE_FIRST_SECONDS
+
+    /** How long this nap has lasted, and how long it will. */
+    private var napFor = 0f
+    private var napLen = NAP_MIN_SECONDS
+
     // ---- Idle fidgets ----
     /** Countdown to the next fidget; only ticks while calm, awake, unheld. */
     private var fidgetIn = FIDGET_AFTER_SECONDS
@@ -193,6 +207,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
 
     // ---- Shaders ----
     private lateinit var shellShader: Shader
+    private lateinit var hornShader: Shader
     private lateinit var rimShader: Shader
     private lateinit var coreShader: Shader
     private lateinit var flowShader: Shader
@@ -312,6 +327,9 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
     /** One blob, instanced eight times into two paws. See [drawHands]. */
     private lateinit var handMesh: Mesh
 
+    /** A capsule along +Y for fingers: unit radius, straight section of 2·[CAPSULE_HALF] radii. See [fingerPart]. */
+    private lateinit var fingerMesh: Mesh
+
     /** One blob per pupil and per glint — see [drawDot]. */
     private lateinit var dotMesh: Mesh
 
@@ -319,6 +337,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
     private lateinit var starMesh: Mesh
     private lateinit var shieldMesh: Mesh
     private lateinit var dropMesh: Mesh
+    private lateinit var heartMesh: Mesh
 
     /** Scratch: a hand part's model matrix, built on top of the hand's own. */
     private val partM = FloatArray(16)
@@ -414,6 +433,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         GLES20.glEnable(GLES20.GL_BLEND)
 
         shellShader = Shader(SHELL_VS, SHELL_FS)
+        hornShader = Shader(HORN_VS, HORN_FS)
         rimShader = Shader(RIM_VS, RIM_FS)
         coreShader = Shader(CORE_VS, CORE_FS)
         flowShader = Shader(FLOW_VS, FLOW_FS)
@@ -439,6 +459,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         // subdiv 2 is already smooth and subdiv 4 is 16x the triangles for
         // nothing. It gets drawn eight times a frame.
         handMesh = IcoSphere.build(2)
+        fingerMesh = Capsule.build(1f, CAPSULE_HALF * 2f, 6, 14)
         // Pupils and glints. Same unit blob as a paw part, and the same order of
         // cost: four of them a frame, each about 4 dp wide on screen.
         dotMesh = IcoSphere.build(2)
@@ -446,6 +467,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         starMesh = Puff.build(Puff.roundStar(5, 0.54f, 1.3f), 0.55f)
         shieldMesh = Puff.build(Puff.shield(), 0.42f, rings = 5)
         dropMesh = Puff.build(Puff.drop(), 0.60f)
+        heartMesh = Puff.build(Puff.heart(), 0.55f)
 
         heads = PointsBuffer(DUST_COUNT)
         tails = PointsBuffer(DUST_COUNT * TRAIL_COUNT)
@@ -631,7 +653,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
                         r -= w
                         if (r <= 0) { pick = a; break }
                     }
-                } while (pick == lastFidget || (!LOOK.gestures && (pick == Action.WAVE || pick == Action.WINK)))
+                } while (pick == lastFidget)
                 lastFidget = pick
                 state.trigger(pick)
                 fidgetIn = FIDGET_MIN_SECONDS +
@@ -644,8 +666,73 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
             fidgetIn = FIDGET_AFTER_SECONDS
         }
 
+        // ---- A look with gestures lives while it is idle ----
+        // Two things, both off for every other look (their sleep is the sleep they
+        // always had, and their idle face is CALM):
+        //
+        //  * It wakes itself. Sleeping for good was the old rule — a ball that
+        //    dozed off at 150 s stayed asleep until someone touched it, which on a
+        //    tablet on a desk is most of the day. Now it sleeps for [NAP_MIN]..[NAP_MAX]
+        //    seconds, wakes (the HOP below is the stretch), stays up for
+        //    [AWAKE_MIN]..[AWAKE_MAX], and dozes again. Waking is done by moving
+        //    `idleFor` back below the sleep line, which keeps every gate that already
+        //    reads it — the fidgets, the stroll, `dozing` — correct with no second
+        //    flag to forget.
+        //  * It changes face. See [IDLE_FACES] for what may be worn and, more to the
+        //    point, what may not.
+        if (LOOK.gestures && idleFor > SLEEP_AFTER_SECONDS && overlayMood == null) {
+            napFor += dt
+            if (napFor >= napLen) {
+                napFor = 0f
+                napLen = NAP_MIN_SECONDS + fidgetRandom.nextFloat() * (NAP_MAX_SECONDS - NAP_MIN_SECONDS)
+                idleFor = SLEEP_AFTER_SECONDS -
+                    (AWAKE_MIN_SECONDS + fidgetRandom.nextFloat() * (AWAKE_MAX_SECONDS - AWAKE_MIN_SECONDS))
+                // Wake up in a good mood: the first face comes soon rather than a
+                // full gap later.
+                idleFaceIn = IDLE_FACE_FIRST_SECONDS
+            }
+        } else {
+            napFor = 0f
+        }
+
+        var idleBase = holdingBase
+        if (LOOK.gestures && holdingBase == Mood.CALM && overlayMood == null &&
+            idleFor > IDLE_FACE_AFTER_SECONDS && idleFor <= SLEEP_AFTER_SECONDS
+        ) {
+            if (idleFaceLeft > 0f) {
+                idleFaceLeft -= dt
+                idleBase = idleFace
+            } else {
+                idleFaceIn -= dt
+                if (idleFaceIn <= 0f) {
+                    // Weighted pick, never the same face twice running — a repeat
+                    // reads as a stuck loop. Same shape as the fidget pick above.
+                    var pick: IdleFace
+                    do {
+                        var r = fidgetRandom.nextFloat() * IDLE_FACES.sumOf { it.weight.toDouble() }
+                        pick = IDLE_FACES.first()
+                        for (f in IDLE_FACES) {
+                            r -= f.weight
+                            if (r <= 0) { pick = f; break }
+                        }
+                    } while (pick.mood == lastIdleFace)
+                    lastIdleFace = pick.mood
+                    idleFace = pick.mood
+                    idleFaceLeft = pick.holdMin + fidgetRandom.nextFloat() * (pick.holdMax - pick.holdMin)
+                    idleFaceIn = IDLE_FACE_GAP_MIN_SECONDS +
+                        fidgetRandom.nextFloat() * (IDLE_FACE_GAP_MAX_SECONDS - IDLE_FACE_GAP_MIN_SECONDS)
+                    idleBase = idleFace
+                }
+            }
+        } else {
+            // Anything real — speech, a task, a card, sleep — ends the face at once
+            // and sends the next one back to the start of its wait.
+            idleFaceLeft = 0f
+            idleFaceIn = IDLE_FACE_FIRST_SECONDS
+        }
+
         val effective = overlayMood
-            ?: if (idleFor > SLEEP_AFTER_SECONDS) Mood.SLEEPING else holdingBase
+            ?: if (idleFor > SLEEP_AFTER_SECONDS) Mood.SLEEPING else idleBase
         // Waking up is worth a hop. Nothing else in here triggers an action on
         // a mood change — a mood is a resting state, and animating every
         // transition would make the ball twitch its way through a conversation.
@@ -777,21 +864,51 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
      */
     private fun drawHorns() {
         val horn = meshes.horn ?: return
-        if (LOOK.hornShade > 0f) {
+        val color = if (LOOK.hornShade > 0f) {
             for (i in 0..2) hornColor[i] = bodyColor[i] * LOOK.hornShade
-            useShellWith(hornColor)
-        } else {
-            useShellWith(LOOK.hornColor)
-        }
+            hornColor
+        } else LOOK.hornColor
+        // A horn with a tip colour needs the per-vertex shader; every other horn
+        // goes through the shell shader exactly as it always has.
+        val tipped = LOOK.hornTipMix > 0f
+        if (tipped) useHornWith(color) else useShellWith(color)
         for (side in -1..1 step 2) {
+            // The look's tilt, plus where the mood has set the horns to rest and the
+            // spring's swing. Tilt is *outward* for both horns (the left one is the
+            // right one mirrored), so a lean applies to them alike, but a sway is a
+            // direction on the screen and so enters with opposite signs.
+            val tilt = LOOK.hornTilt + state.hornLean + state.hornSway * side
             composeModelFromRoot {
                 if (side < 0) Matrix.scaleM(local, 0, -1f, 1f, 1f)
                 Matrix.translateM(local, 0, LOOK.hornX, LOOK.hornY, LOOK.hornZ)
                 // Negative Z rotation tips +Y toward +X, i.e. outward.
-                Matrix.rotateM(local, 0, -LOOK.hornTilt, 0f, 0f, 1f)
+                Matrix.rotateM(local, 0, -tilt, 0f, 0f, 1f)
             }
-            drawShellPart(horn)
+            if (tipped) drawHornPart(horn) else drawShellPart(horn)
         }
+    }
+
+    /**
+     * [useShellWith], for the horn shader: the same material and a second colour the
+     * horn fades into near its tip. See [BallLook.hornTipMix].
+     */
+    private fun useHornWith(color: FloatArray) {
+        hornShader.use()
+        GLES20.glUniform3fv(hornShader.uniform("uColor"), 1, color, 0)
+        GLES20.glUniform3fv(hornShader.uniform("uTip"), 1, LOOK.hornTipColor, 0)
+        GLES20.glUniform1f(hornShader.uniform("uTipMix"), LOOK.hornTipMix)
+        GLES20.glUniform1f(hornShader.uniform("uGrad"), LOOK.bodyGrad)
+        GLES20.glUniform1f(hornShader.uniform("uAmb"), LOOK.bodyAmb)
+        GLES20.glUniform1f(hornShader.uniform("uDiff"), LOOK.bodyDiff)
+        GLES20.glUniform1f(hornShader.uniform("uGloss"), LOOK.bodyGloss)
+        GLES20.glUniform1f(hornShader.uniform("uAlpha"), 1f)
+    }
+
+    private fun drawHornPart(mesh: Mesh) {
+        GLES20.glUniformMatrix4fv(hornShader.uniform("uMVP"), 1, false, mvp, 0)
+        GLES20.glUniformMatrix4fv(hornShader.uniform("uMV"), 1, false, mv, 0)
+        mesh.bind(hornShader.attrib("aPos"), hornShader.attrib("aNormal"), hornShader.attrib("aUV"))
+        mesh.draw()
     }
 
     /**
@@ -1715,18 +1832,27 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
     }
 
     /**
-     * The gesture hands, for a look with [BallLook.gestures]: two lit, puffy gloves
-     * parented to the body, so they breathe, hop and lean with it — unlike
-     * [drawHands], whose paws hold still on the ledge while the body slips.
+     * The gesture hands, for a look with [BallLook.gestures]: two plump mitts parented
+     * to the body, so they breathe, hop and lean with it — unlike [drawHands], whose
+     * paws hold still on the ledge while the body slips.
      *
-     * Drawn after the face so they sit over the body, and lit with the body's own
-     * material so they read as part of the same plush animal instead of stickers
-     * on it. Each is a palm and five blobs; [EmotionState.HandRender.fist] walks
-     * the fingers from a row along the top (an open mitten) down to a row of
-     * knuckles at the front with the thumb across them (a fist), and
-     * [EmotionState.HandRender.point] stretches the finger on the body side out.
-     * One continuous parameter between two shapes is what lets a hand *close*
-     * rather than swap.
+     * **A hand is a round palm, a thumb, and at most two fingers.** Two, because
+     * five blobs turned into a lumpy knot at eighty dp and a bare ball with a stick
+     * in it read as a candied haw on a skewer; a fat palm with a pair of short
+     * chubby fingers is a V sign, a wave and a point at once, and nobody counts.
+     *
+     * Everything a hand does is a change of arrangement of the same few shapes, by
+     * the numbers in [EmotionState.HandRender]:
+     *  * `fist` 0→1: open, the palm is tall with the thumb out and the two fingers
+     *    spread upward; closed, the palm is a tighter ball with the fingers folded
+     *    down over its front like two knuckles and the thumb across them.
+     *
+     * There is no pointing, peace-sign or thumbs-up pose, and that is a result: each
+     * was built for the wink and each misread at this size — two fingers as a V that
+     * turned into a lump, one finger as the rude one, a thumb as the same finger
+     * again. The wink carries a heart instead ([PROP_HEART]).
+     *
+     * Drawn after the face so they sit over the body, in the body's own material.
      */
     private fun drawGestureHands() {
         if (!LOOK.gestures) return
@@ -1742,9 +1868,8 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         val sc = h.s.coerceAtMost(1.2f) * HAND_SCALE
         val r2 = LOOK.bodyScale * LOOK.bodyScale - h.x * h.x - h.y * h.y
         // On the surface where there is one, and never behind the ball: a hand set
-        // out past the silhouette used to sit at z 0.12, and its inner half — the
-        // half with the pointing finger on it — was hidden by the body it was
-        // reaching across.
+        // out past the silhouette used to sit at z 0.12, and its inner half was
+        // hidden by the body it was reaching across.
         val z = max(sqrt(max(r2, 0f)) + 0.05f, HAND_MIN_Z)
         val swing = h.waveAmt * sin(state.clock * 9f) * 24f
         val bob = h.jig * (1f - h.waveAmt) * sin(state.clock * 7f) * 0.035f
@@ -1756,44 +1881,35 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         }
         System.arraycopy(model, 0, handM, 0, 16)
         val f = h.fist
-        val p = h.point
 
-        // Palm.
-        handPart(0f, 0f, 0f, 0.175f, 0.155f, 0.118f)
+        // Palm: tall and wide when open, a tighter ball when closed.
+        val pw = 0.185f + (0.165f - 0.185f) * f
+        val ph = 0.185f + (0.160f - 0.185f) * f
+        handPart(0f, 0f, 0f, pw, ph, 0.150f)
 
-        // Three fingers: along the top when open, folded down to knuckles when closed.
-        // Open they are long and spaced a full finger-width apart; at the first pass's
-        // 0.088 spacing the three overlapped into one lumpy blob and a waving hand
-        // read as a fist.
-        for (n in -1..1) {
-            val ox = n * 0.104f
-            val oy = 0.175f + (if (n == 0) 0.05f else 0f)
-            val cx = n * 0.075f
-            var x = ox + (cx - ox) * f
-            var y = oy + (0.075f - oy) * f
-            var zf = 0.02f + (0.098f - 0.02f) * f
-            var rx = 0.054f + (0.077f - 0.054f) * f
-            var ry = 0.108f + (0.070f - 0.108f) * f
-            var rz = 0.07f + (0.078f - 0.07f) * f
-            if (n == -1 && p > 0.01f) {
-                // The finger on the body side straightens out and up. Long enough
-                // to clear the fist by more than its own width: at 0.145 it was a
-                // bump on the knuckles and nobody could tell it was pointing.
-                x += (-0.09f - x) * p
-                y += (0.30f - y) * p
-                zf += (0.07f - zf) * p
-                rx += (0.056f - rx) * p
-                ry += (0.185f - ry) * p
-                rz += (0.060f - rz) * p
-            }
-            handPart(x, y, zf, rx, ry, rz)
-        }
-
-        // Thumb: out to the side when open, across the front of the fingers when closed.
+        // Thumb: out to the side when open, across the front when closed.
         handPart(
-            0.165f + (0.02f - 0.165f) * f, -0.01f + (-0.03f - -0.01f) * f, 0.03f + (0.135f - 0.03f) * f,
-            0.055f + (0.085f - 0.055f) * f, 0.082f + (0.05f - 0.082f) * f, 0.06f,
+            0.170f + (0.050f - 0.170f) * f,
+            0.020f + (-0.040f - 0.020f) * f,
+            0.050f + (0.150f - 0.050f) * f,
+            0.080f + (0.090f - 0.080f) * f,
+            0.095f + (0.070f - 0.095f) * f,
+            0.085f,
         )
+
+        // Two fingers, each one capsule. They start at the top of the palm and lean
+        // out by an angle: nearly parallel and short is a wave, folded flat on the
+        // palm is a fist.
+        val fr = 0.056f
+        for (n in 0..1) {
+            val dir = if (n == 0) -1f else 1f
+            val ang = dir * 7f * (1f - f)
+            val ax = dir * 0.065f
+            val ay = 0.120f + (0.030f - 0.120f) * f
+            val az = 0.040f + (0.120f - 0.040f) * f
+            val len = 0.290f - 0.180f * f
+            fingerPart(ax, ay, az, len, fr, ang)
+        }
     }
 
     /** One part of a gesture hand: [handM] with a translate and a scale on it. */
@@ -1804,6 +1920,30 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(mv, 0, view, 0, partM, 0)
         Matrix.multiplyMM(mvp, 0, proj, 0, mv, 0)
         drawShellPart(handMesh)
+    }
+
+    /**
+     * A finger: one capsule, [len] long tip to base and [r] thick, growing up from
+     * ([bx], [by], [bz]) in the hand's own plane and leaning [angle] degrees off
+     * vertical (positive toward +X).
+     *
+     * Placed by its base and an angle, so a V sign is two calls with two angles
+     * instead of a pile of hand-tuned offsets, and drawn as a single mesh so there is
+     * no seam for the eye to read as a row of beads — which is exactly what two
+     * stacked ellipsoids per finger looked like.
+     */
+    private fun fingerPart(bx: Float, by: Float, bz: Float, len: Float, r: Float, angle: Float) {
+        System.arraycopy(handM, 0, partM, 0, 16)
+        Matrix.translateM(partM, 0, bx, by, bz)
+        Matrix.rotateM(partM, 0, -angle, 0f, 0f, 1f)
+        // The capsule is centred on its origin: lift it so its base cap sits on the
+        // anchor, then stretch y so the whole thing is [len] tall.
+        Matrix.translateM(partM, 0, 0f, len / 2f - r, 0f)
+        val sy = len / (r * (2f + 2f * CAPSULE_HALF))
+        Matrix.scaleM(partM, 0, r, r * sy, r)
+        Matrix.multiplyMM(mv, 0, view, 0, partM, 0)
+        Matrix.multiplyMM(mvp, 0, proj, 0, mv, 0)
+        drawShellPart(fingerMesh)
     }
 
     /**
@@ -1835,7 +1975,16 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
             }
         }
         if (pr[PROP_SPARK_L] > 0.03f) strokes(SPARK_L, pop(pr[PROP_SPARK_L]), t)
-        if (pr[PROP_SPARK_R] > 0.03f) strokes(SPARK_R, pop(pr[PROP_SPARK_R]), t + 1.3f)
+        if (pr[PROP_HEART] > 0.03f) {
+            // Floats up and down on its own beat and sways a little, which is most of
+            // what makes a still shape read as being *given* to you.
+            val k = pop(pr[PROP_HEART])
+            val bob = sin(t * 3.1f) * 0.03f
+            propDraw(
+                heartMesh, 1.02f, 0.46f + bob, 0.55f,
+                0.175f * k, 0.175f * k, 0.175f * k, 10f * sin(t * 2.2f), HEART_COLOR,
+            )
+        }
         if (pr[PROP_SPARK_TOP] > 0.03f) strokes(SPARK_TOP, pop(pr[PROP_SPARK_TOP]), t + 2.1f)
         if (pr[PROP_SHIELD] > 0.03f) {
             val k = pop(pr[PROP_SHIELD])
@@ -2047,19 +2196,23 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         /** The gesture hands are a touch lighter than the body: they face the light. */
         private const val HAND_SHADE = 1.05f
 
+        /** Half the straight section of the finger capsule, in radii. */
+        private const val CAPSULE_HALF = 0.9f
+
         /**
          * How big a gesture hand is drawn, as a multiple of the geometry in
          * [drawGestureHand]. Measured off the sketches: a hand is about a quarter of
          * the head's width, and the first pass drew them at about a seventh — they
          * read as mittens on a doll rather than as part of the character.
          */
-        private const val HAND_SCALE = 1.65f
+        private const val HAND_SCALE = 1.35f
 
         /** The shallowest a gesture hand sits: in front of the body's own edge. See [drawGestureHand]. */
         private const val HAND_MIN_Z = 0.46f
 
         private val CORAL = floatArrayOf(1.0f, 0.50f, 0.40f)
         private val CORAL_LIGHT = floatArrayOf(1.0f, 0.68f, 0.56f)
+        private val HEART_COLOR = floatArrayOf(1.0f, 0.40f, 0.52f)
         private val STAR_COLOR = floatArrayOf(1.0f, 0.66f, 0.36f)
         private val DROP_COLOR = floatArrayOf(0.62f, 0.84f, 1.0f)
 
@@ -2069,7 +2222,6 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
 
         /** Motion strokes as `x, y, roll` triples — a fan from the waving hand, a pair off the pointing one, a burst on top. */
         private val SPARK_L = floatArrayOf(-0.78f, 0.50f, 35f, -1.04f, 0.36f, 62f, -1.22f, 0.10f, 88f)
-        private val SPARK_R = floatArrayOf(1.08f, 0.12f, -60f, 0.98f, 0.36f, -32f)
         private val SPARK_TOP = floatArrayOf(0f, 1.15f, 0f, -0.28f, 1.08f, 35f, 0.28f, 1.08f, -35f)
 
         /** Camera distance on +Z, looking at the origin. */
@@ -2260,6 +2412,27 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         private const val FIDGET_MIN_SECONDS = 20f
         private const val FIDGET_MAX_SECONDS = 50f
 
+        // ---- Idle life, for a look with gestures ----
+        //
+        // Faces: nothing for the first IDLE_FACE_AFTER_SECONDS of quiet (the calm
+        // face right after an answer *means* something — it is done), then one face
+        // every GAP_MIN..GAP_MAX seconds, held for the face's own time. Seven to
+        // sixteen seconds is the range where it reads as a ball with moods rather
+        // than one flipping through a deck: shorter and it twitches, longer and
+        // nobody ever catches one.
+        private const val IDLE_FACE_AFTER_SECONDS = 8f
+        private const val IDLE_FACE_FIRST_SECONDS = 4f
+        private const val IDLE_FACE_GAP_MIN_SECONDS = 7f
+        private const val IDLE_FACE_GAP_MAX_SECONDS = 16f
+
+        // Naps: asleep for NAP_MIN..MAX, then up for AWAKE_MIN..MAX before it dozes
+        // again. Long enough asleep that it is plainly a nap, short enough that a
+        // person glancing at the tablet twice in a morning sees both.
+        private const val NAP_MIN_SECONDS = 25f
+        private const val NAP_MAX_SECONDS = 50f
+        private const val AWAKE_MIN_SECONDS = 40f
+        private const val AWAKE_MAX_SECONDS = 90f
+
         // ---- Body: top-lit gradient + one specular dot + an edge lift ----
         private const val SHELL_VS = """
             uniform mat4 uMVP;
@@ -2304,6 +2477,60 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
                 // holds the ball apart from a same-valued background.
                 float edge = pow(1.0 - max(0.0, dot(n, V)), 3.0) * uGloss * 0.26;
                 gl_FragColor = vec4(lit + vec3(spec) + uColor * edge, uAlpha);
+            }
+        """
+
+        // ---- Horn: the shell shader with a colour that fades in toward the tip ----
+        //
+        // Identical lighting; the only addition is `vT`, the horn mesh's own v
+        // coordinate (0 at the base, 1 at the tip), and the mix it drives. Kept as a
+        // second program rather than a branch in the shell shader so the one that
+        // draws the body, the hands and every other look's horns is not touched.
+        private const val HORN_VS = """
+            uniform mat4 uMVP;
+            uniform mat4 uMV;
+            attribute vec3 aPos;
+            attribute vec3 aNormal;
+            attribute vec2 aUV;
+            varying vec3 vN;
+            varying vec3 vP;
+            varying float vT;
+            void main() {
+                vN = normalize(mat3(uMV) * aNormal);
+                vec4 p = uMV * vec4(aPos, 1.0);
+                vP = p.xyz;
+                vT = aUV.y;
+                gl_Position = uMVP * vec4(aPos, 1.0);
+            }
+        """
+        private const val HORN_FS = """
+            precision mediump float;
+            uniform vec3 uColor;
+            uniform vec3 uTip;
+            uniform float uTipMix;
+            uniform float uAlpha;
+            uniform float uGrad;
+            uniform float uAmb;
+            uniform float uDiff;
+            uniform float uGloss;
+            varying vec3 vN;
+            varying vec3 vP;
+            varying float vT;
+            void main() {
+                vec3 n = normalize(vN);
+                vec3 V = normalize(-vP);
+                // The fade starts 40% from the tip and is smooth, so there is no band
+                // where the colour changes.
+                vec3 c = mix(uColor, uTip, smoothstep(0.60, 0.98, vT) * uTipMix);
+                float vert = n.y * 0.5 + 0.5;
+                vec3 base = c * mix(1.0, mix(0.70, 1.14, vert), uGrad);
+                vec3 L = normalize(vec3(-0.48, 0.85, 0.20));
+                float diff = max(0.0, dot(n, L));
+                vec3 lit = base * (uAmb + uDiff * diff);
+                vec3 H = normalize(L + V);
+                float spec = pow(max(0.0, dot(n, H)), 90.0) * uGloss;
+                float edge = pow(1.0 - max(0.0, dot(n, V)), 3.0) * uGloss * 0.26;
+                gl_FragColor = vec4(lit + vec3(spec) + c * edge, uAlpha);
             }
         """
 

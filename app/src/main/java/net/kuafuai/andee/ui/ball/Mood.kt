@@ -211,10 +211,6 @@ val FACE: Map<Mood, Face> = mapOf(
 enum class Action {
     NONE, HOP, NOD, SHAKE, POP, RECOIL,
     STRETCH, LOOK_AROUND, WIGGLE, BOUNCE,
-    // A raised hand, and one eye closing. Both borrow the face's [Pose] channels
-    // for their length, so on a look without gestures they are no-ops that still
-    // use up their idle slot — see [EmotionState.tick].
-    WAVE, WINK,
 }
 
 /**
@@ -234,8 +230,6 @@ val ACTION_SECONDS = floatArrayOf(
     1.9f,    // LOOK_AROUND
     1.1f,    // WIGGLE
     0.9f,    // BOUNCE
-    1.7f,    // WAVE
-    0.9f,    // WINK
 )
 
 /**
@@ -243,6 +237,11 @@ val ACTION_SECONDS = floatArrayOf(
  * here (not from every [Action]) when the idle fidget timer fires. Body-only
  * on purpose: the face stays CALM throughout, so nothing in here can be
  * mistaken for a response, a failure or a speaker being active.
+ *
+ * (A look with [BallLook.gestures] also changes *face* while idle, on its own
+ * clock — see [IDLE_FACES]. The two are independent and may overlap, which is
+ * what makes the ball look like it is in the middle of something rather than
+ * running a playlist.)
  */
 val IDLE_ACTIONS: List<Pair<Action, Float>> = listOf(
     Action.STRETCH to 1.0f,
@@ -250,8 +249,35 @@ val IDLE_ACTIONS: List<Pair<Action, Float>> = listOf(
     Action.WIGGLE to 1.0f,
     Action.BOUNCE to 0.7f,
     Action.HOP to 0.5f,
-    Action.WAVE to 0.8f,
-    Action.WINK to 0.8f,
+)
+
+/**
+ * The faces an idle ball may wear for a few seconds, with weights and how long to
+ * hold each. **The list is deliberately short, and it is defined by what is left
+ * out**: a face that reports a state of the *device* cannot be worn for no reason.
+ *
+ *  - SPEAKING, LISTENING, THINKING, SEARCHING and HOLDING each say what the ball is
+ *    doing (talking, with the mic open, working, waiting on a question) — wearing
+ *    one at idle is a lie the user acts on, by speaking into a mic that is off.
+ *  - ANXIOUS, CONCERNED, TENSE, FAILED and PROTECT read as an alarm or an error.
+ *  - SUCCESS and CELEBRATE read as a task having finished.
+ *  - **REST and SLEEPING look alike** — squashed, eyes shut, hands on the belly; the
+ *    snot bubble is all that tells them apart. REST was in this list and the
+ *    capture showed why it cannot be: it surfaced fifteen seconds after Andee woke
+ *    from a nap and read as the ball going straight back to sleep, which is
+ *    exactly what the naps were changed to stop. Drowsiness belongs to the nap.
+ *
+ * What is left are the faces that report nothing but a mood: pleased, nosey, a
+ * wink, a wave hello. WINK and WAVE are short because a gesture held for four
+ * seconds is a pose, not a gesture.
+ */
+class IdleFace(val mood: Mood, val weight: Float, val holdMin: Float, val holdMax: Float)
+
+val IDLE_FACES: List<IdleFace> = listOf(
+    IdleFace(Mood.HAPPY, 1.3f, 2.6f, 4.0f),
+    IdleFace(Mood.CURIOUS, 1.0f, 2.8f, 4.5f),
+    IdleFace(Mood.WINK, 1.0f, 1.6f, 2.2f),
+    IdleFace(Mood.WAVE, 0.8f, 1.8f, 2.6f),
 )
 
 /**

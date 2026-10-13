@@ -367,6 +367,27 @@ class BallLook(
      */
     val hornShade: Float = 0f,
 
+    /**
+     * A second colour the horn fades into over its last stretch, and how much of it.
+     * 0 = the horn is one colour, which is every look but one.
+     *
+     * Per-vertex rather than a second mesh: the fade is along the horn's own length
+     * (the mesh's v coordinate), so it follows the curl and the sway for free. It is
+     * the cheapest way to make a horn read as *soft* — a one-colour blue horn is a
+     * piece of the body, a horn whose tip blushes is something with blood in it.
+     */
+    val hornTipColor: FloatArray = EMPTY,
+    val hornTipMix: Float = 0f,
+
+    /**
+     * 0 = the horns are rigid. Above that they hang off the body on a spring, like
+     * jelly: a wiggle or a turn of the head sends them swinging the other way and
+     * they ring for a moment before they settle, and the mood sets where they rest
+     * (see [Pose.hornLean] — perked up when curious, flopped when sad). The number
+     * scales how hard the body's motion drives them; 1 is a visible but gentle sway.
+     */
+    val hornWobble: Float = 0f,
+
     // ---- Second catchlight ----
     /**
      * A second, smaller highlight low and to the right of the eye — the one that
@@ -1004,9 +1025,12 @@ val BAJIE = BallLook(
  *
  * * **Eyes** are 173 px across on a 693 px head: [eyeRadius] 0.175, centres
  *   ±161 px from the middle, so [eyeX] 0.338 (the first pass had 0.262 — close-set
- *   eyes are a different face). They sit a hair *below* the middle of the head,
- *   [eyeY] −0.03, which is the baby proportion the picture is made of: a big
- *   forehead and the whole face in the lower half. The eye is round, so
+ *   eyes are a different face). They were first put a hair *below* the middle of the
+ *   head, [eyeY] −0.03, the picture's own baby proportion — but the picture's head
+ *   is oblate and ours is a sphere, so that left a dome of blank forehead, and once
+ *   the horns were raised it read as a face stuck on the bottom of a ball. They are
+ *   now at +0.09 (and [mouthY] at −0.185, same gap), which gives the picture's 1.4
+ *   eye-diameters of forehead instead of 1.7. The eye is round, so
  *   [eyeCyl] is almost nothing.
  * * **Two catchlights.** A big one up and left ([glintR] 0.038, at the offset
  *   [drawEyeContents] already uses for every look) and a small light-blue one low
@@ -1062,12 +1086,17 @@ val ANDEE = BallLook(
     bodyScale = 0.870f,
     faceZ = 0.876f,
     eyeX = 0.338f,
-    eyeY = -0.030f,
+    // Raised 0.12 from the picture's own −0.03, after the horns were raised twice:
+    // with horns that tall the sphere read as a forehead dome with a face stuck on
+    // the bottom of it — 1.7 eye-diameters of blank above the eyes against the
+    // picture's 1.4. Eyes, mouth, cheeks and the sleep bubble all moved together so
+    // the face is the same face, one notch higher.
+    eyeY = 0.090f,
     eyeRadius = 0.175f,
     eyeCyl = 0.012f,
     mouthR = 0.136f,
     mouthTube = 0.024f,
-    mouthY = -0.305f,
+    mouthY = -0.185f,
     mouthThick = 0.140f,
     eyeColor = floatArrayOf(0.030f, 0.065f, 0.230f),
     pupilR = 0f,
@@ -1075,7 +1104,9 @@ val ANDEE = BallLook(
     glint2R = 0.034f,
     glint2Color = floatArrayOf(0.45f, 0.70f, 1.00f),
     gestures = true,
-    clingLift = 0.17f,
+    // 0.09 now, from 0.17: the eyes already sit 0.12 higher, so the same lift would
+    // put them well clear of the ledge and leave the peeking ball with no forehead.
+    clingLift = 0.09f,
     smileRoll = 0f,
     mouthInk = floatArrayOf(0.025f, 0.045f, 0.140f),
     arcScale = 1.5f,
@@ -1084,7 +1115,7 @@ val ANDEE = BallLook(
     rimTintMix = 0.55f,
     // Light droplet on a mid-dark body, the same side of the split as [BEAR].
     bubbleX = 0.085f,
-    bubbleY = -0.030f,
+    bubbleY = 0.090f,
     bubbleR = 0.085f,
     bubbleColor = floatArrayOf(0.88f, 0.93f, 1.00f),
     bubblePow = 3.0f,
@@ -1097,7 +1128,7 @@ val ANDEE = BallLook(
     blushBlendNormal = true,
     blushSize = 0.40f,
     blushX = 0.440f,
-    blushY = -0.110f,
+    blushY = 0.010f,
     // A light rim, like the imp's and bear's: a dark outline on a mid-dark body
     // is a smudge.
     rimDark = false,
@@ -1105,18 +1136,30 @@ val ANDEE = BallLook(
     rimPow = 4.4f,
     labelRes = R.string.ball_look_andee,
 
-    // See the class note: fitted to the picture's horn (base at 0.407), then lifted
-    // 0.07 on request so the horns stand clear of the head.
-    // Base buried at (0.413, 0.477) so only the curl shows.
-    hornH = 0.452f,
-    hornR = 0.255f,
-    hornX = 0.413f,
-    hornY = 0.477f,
+    // See the class note: fitted to the picture's horn, then raised twice on request
+    // — the second time (0.477 → 0.53, tilt 50 → 38, bend −80 → −62, a longer horn)
+    // makes them stand more upright as well as higher: the tip goes from y 0.89 to
+    // about 1.02 and the sweep sideways shrinks. Base buried at (0.40, 0.53) so only
+    // the curl shows.
+    // The tip blushes toward the coral of the rim and the props. Blue and peach
+    // mixed half and half is a dull lilac, so it goes nearly all the way (0.9) over
+    // the last ~40% of the horn: the very end is peach, and only the short stretch
+    // between is the in-between colour.
+    hornH = 0.520f,
+    hornR = 0.290f,
+    hornX = 0.400f,
+    hornY = 0.530f,
     hornZ = 0.450f,
-    hornTilt = 50f,
-    hornBend = -80f,
+    hornTilt = 38f,
+    hornBend = -62f,
     hornTaper = 0.9f,
     hornShade = 1.00f,
+    hornTipColor = floatArrayOf(1.00f, 0.70f, 0.58f),
+    hornTipMix = 0.90f,
+    // 1.5 rather than 1: measured on the device, a wiggle at 1 moves the horns about
+    // 10 px against the eyes on a 420 dp ball, which is about 3° and at the real
+    // 168 dp size is a pixel and a half — present, and not visible.
+    hornWobble = 1.5f,
 )
 
 /**

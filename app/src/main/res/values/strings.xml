@@ -602,4 +602,32 @@
     <string name="ball_look_bear">憨憨熊</string>
     <string name="ball_look_imp">小恶魔</string>
 
+    <!-- 表情页：设置里"表情"一节的入口，以及那张看所有表情的卡片 -->
+    <string name="settings_section_expr">形象与表情</string>
+    <string name="settings_expr_note">看看每个形象和每个表情，点一下就换。</string>
+    <string name="settings_expr_open">打开</string>
+    <string name="expr_title">形象与表情</string>
+    <string name="expr_section_look">形象</string>
+    <string name="expr_section_mood">表情</string>
+    <string name="expr_caption">%1$s · %2$s</string>
+    <string name="expr_calm">平静</string>
+    <string name="expr_happy">开心</string>
+    <string name="expr_curious">好奇</string>
+    <string name="expr_tense">生气</string>
+    <string name="expr_anxious">紧张</string>
+    <string name="expr_concerned">担心</string>
+    <string name="expr_wink">眨眼</string>
+    <string name="expr_wave">挥手</string>
+    <string name="expr_protect">守护</string>
+    <string name="expr_celebrate">庆祝</string>
+    <string name="expr_rest">休息</string>
+    <string name="expr_listening">在听</string>
+    <string name="expr_holding">等你选</string>
+    <string name="expr_thinking">思考</string>
+    <string name="expr_speaking">说话</string>
+    <string name="expr_searching">干活</string>
+    <string name="expr_success">成功</string>
+    <string name="expr_failed">失败</string>
+    <string name="expr_sleeping">睡着</string>
+
 </resources>

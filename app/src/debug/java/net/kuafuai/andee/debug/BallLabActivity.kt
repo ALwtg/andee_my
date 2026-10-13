@@ -36,6 +36,8 @@ class BallLabActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Long captures (the idle life takes minutes) must not end on a dark screen.
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         root = FrameLayout(this)
         label = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
