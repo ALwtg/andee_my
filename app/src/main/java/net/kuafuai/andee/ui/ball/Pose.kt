@@ -4,9 +4,9 @@ package net.kuafuai.andee.ui.ball
  * Everything a mood adds on top of [Face], and the reason the two are separate
  * classes: [Face] is a row of numbers every look interprets, and each number is
  * a *continuous* dial. These are the discrete things — a wink, a star, a shield —
- * that only the looks with [BallLook.gestures] draw. A look without it ignores
- * the whole table, so adding a mood here can never change what the other five
- * characters look like.
+ * that only the looks with [BallLook.gestures] draw, which is every look there is;
+ * the flag is kept because a look without it ignores the whole table rather than
+ * part of it, so adding a mood here cannot reach a look that has opted out.
  *
  * Each value is a target, not a state. [EmotionState] tweens toward it, which is
  * what makes a star pop in instead of appearing.

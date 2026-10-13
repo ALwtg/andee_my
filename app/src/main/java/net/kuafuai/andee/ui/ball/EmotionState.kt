@@ -446,8 +446,9 @@ class EmotionState {
 
         // ---- The [Pose] layer ----
         // Targets come from the mood's row, and a look without gestures reads
-        // [Pose.NONE] — which is what makes every field below sit at zero for the
-        // other five characters, with no branch anywhere else.
+        // [Pose.NONE] — which is what makes every field below sit at zero for it,
+        // with no branch anywhere else. Every look ships with gestures on; the
+        // opt-out is what the branch is for, not a look that exists yet.
         clock = t
         val gestures = LOOK.gestures
         val pose = if (gestures) POSES[mood] ?: Pose.NONE else Pose.NONE

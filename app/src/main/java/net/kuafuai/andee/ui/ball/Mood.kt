@@ -20,8 +20,8 @@ enum class Mood {
     CALM, HAPPY, CURIOUS, TENSE, ANXIOUS, CONCERNED,
     // Gestures the model can ask for by name. They share the first group's
     // standing — a face the model picks — but they are drawn with props, which
-    // only a look with [BallLook.gestures] has; on the others each one falls back
-    // to the plain face on its [FACE] row.
+    // needs [BallLook.gestures]; without it each one falls back to the plain face
+    // on its [FACE] row.
     WINK, WAVE, PROTECT, CELEBRATE, REST,
     LISTENING, HOLDING, THINKING, SPEAKING,
     SEARCHING, SUCCESS, FAILED, SLEEPING,

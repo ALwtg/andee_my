@@ -369,7 +369,8 @@ class BallLook(
 
     /**
      * A second colour the horn fades into over its last stretch, and how much of it.
-     * 0 = the horn is one colour, which is every look but one.
+     * 0 = the horn is one colour, which is four of the six looks — only the two with
+     * horns have a tip colour at all, and the other four have ears instead.
      *
      * Per-vertex rather than a second mesh: the fade is along the horn's own length
      * (the mesh's v coordinate), so it follows the curl and the sway for free. It is
@@ -401,14 +402,21 @@ class BallLook(
     // ---- Gestures ----
     /**
      * Draw props and honour the per-mood [Pose]: a wink, eyes that look up, a lid
-     * that comes down, an open mouth with a tongue in it, a body that squashes. Off
-     * for every look but one, and **off means the whole pose table is ignored**
-     * rather than partly applied — the other five characters were tuned without any
-     * of it, and a star over a pig's head was never part of the brief.
+     * that comes down, an open mouth with a tongue in it, a body that squashes. It
+     * is also the gate on [hornWobble] (see [EmotionState.tick]) and the switch for
+     * the idle life — a look with this on wears its own expressions and naps while
+     * nothing is happening.
      *
-     * It used to also gate the raised-hand poses. Those are gone (see [Pose]), so
-     * what this flag still buys is the props, the sliced-lid eye and the idle life
-     * of the one look that has it.
+     * **On for every look.** It was one look's for a while, on the argument that the
+     * others had been tuned without any of it and a star over a pig's head was never
+     * part of the brief. That is overruled: the brief now covers the pig too, and a
+     * look that is not alive standing next to one that is reads as the broken one.
+     *
+     * Kept as a flag rather than deleted for two reasons: "off means the whole pose
+     * table is ignored, not partly applied" is still the honest description of what a
+     * look without it does, and a seventh look may well want the plain face back.
+     *
+     * It used to also gate the raised-hand poses. Those are gone — see [Pose].
      */
     val gestures: Boolean = false,
 
@@ -934,6 +942,11 @@ val BAJIE = BallLook(
     eyeY = 0.235f,
     eyeRadius = 0.092f,
     eyeCyl = 0.034f,
+    // The `^ ^` closed eye is one fixed-size mesh, drawn for eyes of radius ~0.12,
+    // so a look with *smaller* eyes closes them into an arch bigger than the eye it
+    // belongs to. This one is 0.092 — three quarters — hence 0.77. [ANDEE] carries
+    // 1.5 at 0.175 for the same reason, in the other direction.
+    arcScale = 0.77f,
     // A grin stretched to the corners of the face: 大大咧咧 is a mouth shape
     // before it is anything else. Still under the muzzle, so the snout keeps
     // the middle of the face.
@@ -944,6 +957,17 @@ val BAJIE = BallLook(
     eyeColor = floatArrayOf(0.11f, 0.08f, 0.07f),
     pupilR = 0f,
     glintR = 0.028f,
+    // The second, smaller catchlight low and right of the eye — the one that reads
+    // as glass rather than paint. Only drawable on a look with no pupil (see
+    // [glint2R]), and worth having here because the eye is dark: on a dark eye the
+    // second light is most of the difference. Sized against [glintR] by the same
+    // 0.89 [ANDEE] uses.
+    glint2R = 0.025f,
+    glint2Color = floatArrayOf(0.45f, 0.70f, 1.00f),
+    // The prop-and-pose layer, which every look now has — see [BallLook.gestures].
+    // It is what puts stars, a heart, a shield and a sweat bead on this face, and
+    // what lets it wear its own expressions and nap while nothing is happening.
+    gestures = true,
     // Hangs off the muzzle's lower edge in the sleeping mood, where it is the
     // whole joke. It has to clear the snout's footprint — the snout is drawn
     // in the opaque pass in front of the face plane, so a bubble behind it is
@@ -1196,6 +1220,12 @@ val CREAM = BallLook(
     eyeColor = floatArrayOf(0.105f, 0.135f, 0.205f),
     pupilR = 0.0f,
     glintR = 0.040f,
+    // Second catchlight — see [glint2R]. Dark eye, no pupil, so this one is both
+    // possible and worth it; 0.89 of [glintR], as [ANDEE] has it.
+    glint2R = 0.035f,
+    glint2Color = floatArrayOf(0.45f, 0.70f, 1.00f),
+    // The prop-and-pose layer, which every look now has — see [BallLook.gestures].
+    gestures = true,
     bubbleX = 0.085f,
     bubbleY = -0.030f,
     bubbleR = 0.085f,
@@ -1406,6 +1436,11 @@ val IMP = BallLook(
     // has no room to lose a wedge and still be an eye.
     eyeRadius = 0.148f,
     eyeCyl = 0.055f,
+    // The `^ ^` closed eye is one fixed-size mesh, drawn for eyes of radius ~0.12,
+    // so a look with bigger eyes closes them into two ticks unless it says
+    // otherwise. This one is 0.148 — a quarter bigger — hence 1.25. [ANDEE] carries
+    // 1.5 for the same reason at 0.175.
+    arcScale = 1.25f,
     // A wide, thin-lipped grin: the teeth are the mouth here, and a fat tube
     // would be a lip drawn over the top of them.
     //
@@ -1432,6 +1467,15 @@ val IMP = BallLook(
     bubblePow = 3.0f,
     bubbleShine = 26f,
     bubbleInner = 0.10f,
+    // The prop-and-pose layer, and the same one [ANDEE] has: stars, a heart, a
+    // shield, a sweat bead, the sliced-lid eye, and the idle life that lets a look
+    // wear its own faces and nap between things. It is also the gate on
+    // [hornWobble] below — see [EmotionState.tick], where the spring only runs for
+    // a look that has this on.
+    //
+    // ⚠️ The lid it brings needs one thing fixed before it is safe here, and
+    // nothing about this line says so: see [LookMeshes.eyeCut] in the renderer.
+    gestures = true,
     // The lip line is a deep shade of the mood rather than the mood itself:
     // full strength, it is a bright curve competing with the teeth for the one
     // thing the mouth is supposed to say.
@@ -1480,6 +1524,23 @@ val IMP = BallLook(
     hornTilt = 20f,
     hornBend = 28f,
     hornColor = floatArrayOf(0.960f, 0.945f, 0.910f),
+    // The tip blushes toward the cheeks' own pink — the trick [ANDEE]'s peach tip
+    // uses, and for the reason written up on [hornTipColor]: a horn in one flat
+    // colour is a piece of the body on a stick, and a horn whose tip blushes is
+    // something with blood in it.
+    //
+    // Warm and *brighter* than the bone, never darker. A dark tip is the obvious
+    // instinct on a demon and it is wrong here: an ink body beside a near-black horn
+    // tip is a horn nobody can see, which is why [hornColor] is bone in the first
+    // place.
+    hornTipColor = floatArrayOf(1.00f, 0.30f, 0.52f),
+    hornTipMix = 0.85f,
+    // The spring, and the reason it is not [ANDEE]'s 1.5: the number scales an
+    // *angle*, and these horns are 0.30 tall against ANDEE's 0.52, so the same
+    // swing would move the tip barely half as far and read as nothing. 1.8 puts a
+    // wiggle at about 20° — the tip travels most of what ANDEE's does, and it stays
+    // under the 26° clamp [EmotionState.HORN_SWAY_MAX] with room left for a hop.
+    hornWobble = 1.8f,
 
     // Leaves the body inside the silhouette (r = 0.79 against a 0.868 body), so
     // the first blob is buried and the chain appears to grow out of the ball.
@@ -1760,6 +1821,10 @@ val RABBIT = BallLook(
     eyeY = 0.195f,
     eyeRadius = 0.168f,
     eyeCyl = 0.052f,
+    // The `^ ^` closed eye is one fixed-size mesh, drawn for eyes of radius ~0.12;
+    // at 0.168 this look's eyes are 40% bigger and the arch would close into two
+    // ticks. [ANDEE] carries 1.5 at 0.175 for the same reason.
+    arcScale = 1.4f,
     // Wider than the first pass and much thicker, both for the teeth: they have
     // to interrupt the lip to read as teeth, and a hairline lip has nothing to
     // interrupt. [mouthThick] 0.105 against CREAM's 0.05 is the whole of it —
@@ -1779,6 +1844,10 @@ val RABBIT = BallLook(
     sleepEyeColor = floatArrayOf(0.17f, 0.13f, 0.20f),
     pupilR = 0.092f,
     glintR = 0.030f,
+    // The prop-and-pose layer, which every look now has — see [BallLook.gestures].
+    // No second catchlight here: [glint2R] needs a look with no pupil, and this eye
+    // has one for the glint to be anchored to.
+    gestures = true,
     bubbleX = 0.085f,
     bubbleY = -0.030f,
     // Pale body, so the droplet's edge reads as refraction — dark, the same
@@ -2061,6 +2130,9 @@ val BEAR = BallLook(
     eyeCyl = 0.040f,
     pupilR = 0.062f,
     glintR = 0.028f,
+    // The prop-and-pose layer, which every look now has — see [BallLook.gestures].
+    // No second catchlight: [glint2R] is for a look with no pupil.
+    gestures = true,
     // White with a real pupil rather than BAJIE's solid bead: this body is dark,
     // and the eye rules in this file say a dark ball reads its features light on
     // dark. A bead eye here would be a hole.

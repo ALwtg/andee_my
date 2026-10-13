@@ -263,12 +263,23 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
 
         /**
          * The eye with its top sliced flat, for a look with [BallLook.gestures] —
-         * swapped in while a mood asks for a lowered lid. Fixed at 0.38: the roll
-         * that sells it is [EmotionState.lidCut]'s, and a cut deeper than this
-         * swallows the glint, which sits at 0.4 of the eye's radius above centre.
+         * swapped in while a mood asks for a lowered lid.
+         *
+         * **Never a shallower cut than the look's own [BallLook.eyeCut].** The lid
+         * is only allowed to *add* narrowing. [IMP] ships a resting eye already cut
+         * at 0.48, deeper than this constant, so handing it a fixed 0.38 would swap
+         * in an eye that opens *wider* than its neutral one — an angry imp letting
+         * its guard down, silently, in two moods. Every other gesture look has
+         * `eyeCut = 0` and gets the 0.38 it always did.
+         *
+         * 0.38 is the value for those: the roll that sells the lid is
+         * [EmotionState.lidCut]'s, and a cut deeper than this swallows the glint,
+         * which sits at 0.4 of the eye's radius above centre.
          */
         val eyeCut: Mesh? =
-            if (look.gestures) Eye.build(look.eyeRadius, look.eyeCyl, GESTURE_LID_CUT, 4, 12) else null
+            if (look.gestures)
+                Eye.build(look.eyeRadius, look.eyeCyl, max(GESTURE_LID_CUT, look.eyeCut), 4, 12)
+            else null
         val horn: Mesh? =
             if (look.hornH > 0f)
                 Horn.build(
