@@ -60,15 +60,15 @@ ACCENT = "#2F6BEA"
 EN = {
     "eyebrow": "ANDROID · AI AGENT",
     "title": "Andee",
-    "tagline": ["Turn any Android phone", "into an AI phone."],
-    "foot": ["An individual that lives on your phone.", "No root. One APK."],
+    "tagline": ["It becomes the soul", "of the device."],
+    "foot": ["Nineteen moods. Its own notebook.", "It reviews itself when nobody watches."],
     "font": "'SF Pro Display','Helvetica Neue',Helvetica,Arial,sans-serif",
 }
 ZH = {
     "eyebrow": "安卓 · AI 智能体",
     "title": "Andee",
-    "tagline": ["把任何一部安卓手机，", "变成 AI 手机。"],
-    "foot": ["它不是跑在手机上的工具，而是住在手机里的个体。", "免 root，一个 APK。"],
+    "tagline": ["他会成为这台设备的", "主人。"],
+    "foot": ["十九种情绪、一本只有他自己能读的笔记本。", "没人看着的时候，他会自己复盘。"],
     "font": "'PingFang SC','Hiragino Sans GB','Heiti SC',sans-serif",
 }
 
