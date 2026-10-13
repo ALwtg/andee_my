@@ -1,45 +1,15 @@
 package net.kuafuai.andee.ui.ball
 
 /**
- * Where one hand wants to be, in the ball's own space (body radius 0.87, +X to the
- * viewer's right, +Y up). The hand sits on the body's surface at that x/y, so
- * only two numbers are needed; its depth is worked out at draw time.
- *
- * Hands are the part of the face the old moods had no word for. A closed fist
- * under the chin says *thinking*, two raised fists say *we did it*, a hand over
- * the belly says *resting* — none of which a round eye and a curved mouth can
- * say, and all of which survive being drawn a thumb wide because they are
- * shapes, not colours.
- */
-class HandPose(
-    val x: Float,
-    val y: Float,
-    /** 0 = tucked away. The hand grows from nothing at its own spot, it does not fly in. */
-    val s: Float,
-    /**
-     * Degrees counter-clockwise on screen, for *this* hand as drawn. The geometry
-     * is mirrored for the left hand but the angle is not: a raised left fist
-     * leaning outward is a positive roll, a raised right one a negative.
-     */
-    val roll: Float = 0f,
-    /** 0 = open mitten, 1 = fist. */
-    val fist: Float = 0f,
-    /** Idle motion: a swing of the wrist if [wave], otherwise a small vertical bob. */
-    val jig: Float = 0f,
-    val wave: Boolean = false,
-)
-
-/**
  * Everything a mood adds on top of [Face], and the reason the two are separate
  * classes: [Face] is a row of numbers every look interprets, and each number is
- * a *continuous* dial. These are the discrete things — a wink, a hand, a star —
+ * a *continuous* dial. These are the discrete things — a wink, a star, a shield —
  * that only the looks with [BallLook.gestures] draw. A look without it ignores
  * the whole table, so adding a mood here can never change what the other five
  * characters look like.
  *
  * Each value is a target, not a state. [EmotionState] tweens toward it, which is
- * what makes a hand slide to the chin instead of blinking onto it, and a star
- * pop in instead of appearing.
+ * what makes a star pop in instead of appearing.
  */
 class Pose(
     /** The viewer's-right eye closes into an arc and the other stays open. */
@@ -65,9 +35,12 @@ class Pose(
      * the one part of the head that can show a mood while the face is looking away.
      */
     val hornLean: Float = 0f,
-    val handL: HandPose = HAND_OFF_L,
-    val handR: HandPose = HAND_OFF_R,
     val stars: Float = 0f,
+    /**
+     * The fan of motion strokes beside the ball. It used to be drawn around a hand
+     * raised at the side; the hand is gone and the strokes are not, deliberately —
+     * see the [POSES] row for [Mood.WAVE].
+     */
     val sparkL: Float = 0f,
     /** A small heart floating beside the face. */
     val heart: Float = 0f,
@@ -90,24 +63,23 @@ const val PROP_SHIELD = 4
 const val PROP_DROP = 5
 const val PROP_COUNT = 6
 
-val HAND_OFF_L = HandPose(-0.62f, -0.15f, 0f)
-val HAND_OFF_R = HandPose(0.62f, -0.15f, 0f)
-
-/** The wave [Mood.WAVE] raises: a left hand up at the side, swinging. */
-val HAND_WAVE = HandPose(-0.96f, 0.05f, 1f, roll = -10f, jig = 1f, wave = true)
-
 /**
  * The poses. The numbers were read off the reference sketches (wink, wave, think,
  * rest, protect, celebrate) the same way the look's own were off the picture:
  * measured on the sketch, divided by the head's width, times the body's 1.74
  * diameter. Where there was no sketch — the work moods, the worried ones — they
  * are the nearest gesture a person would make.
+ *
+ * Most of these used to raise a hand and no longer do — the ball only grows paws
+ * now, and only to hang off the screen edge ([EmotionBallRenderer.drawHands]).
+ * A row that lost its whole pose is not a broken row: a mood is read through its
+ * own [Face] row and its body motion first, and those never came from here.
+ * [Mood.HOLDING] is the one left with nothing else at all, on purpose.
  */
 val POSES: Map<Mood, Pose> = mapOf(
     Mood.CALM to Pose(),
 
-    // A pleased face with a little burst above the head. No hands: a happy face is
-    // the one that most needs its face visible.
+    // A pleased face with a little burst above the head.
     Mood.HAPPY to Pose(sparkTop = 1f, hornLean = -8f),
 
     // Eyes up and to one side, as if something is on the shelf above you, and the
@@ -117,20 +89,11 @@ val POSES: Map<Mood, Pose> = mapOf(
     // Annoyed rather than hurt: the lids come down, the horns lie back a little.
     Mood.TENSE to Pose(lidCut = 0.8f, hornLean = 10f),
 
-    // Fists drawn in at the chest, a bead of sweat, and the shiver the Face row
-    // already supplies.
-    Mood.ANXIOUS to Pose(
-        drop = 1f, lookY = 0.1f, lidCut = -1f, hornLean = 14f,
-        handL = HandPose(-0.24f, -0.46f, 0.8f, roll = 25f, fist = 1f, jig = 0.12f),
-        handR = HandPose(0.24f, -0.46f, 0.8f, roll = -25f, fist = 1f, jig = 0.12f),
-    ),
+    // A bead of sweat, and the shiver the Face row already supplies.
+    Mood.ANXIOUS to Pose(drop = 1f, lookY = 0.1f, lidCut = -1f, hornLean = 14f),
 
-    // Hands folded low, eyes cast a little down: sorry, and about to say so.
-    Mood.CONCERNED to Pose(
-        lookY = -0.2f, lidCut = -1f, hornLean = 18f,
-        handL = HandPose(-0.17f, -0.64f, 0.85f, roll = 30f, fist = 0.4f),
-        handR = HandPose(0.17f, -0.64f, 0.85f, roll = -30f, fist = 0.4f),
-    ),
+    // Eyes cast a little down: sorry, and about to say so.
+    Mood.CONCERNED to Pose(lookY = -0.2f, lidCut = -1f, hornLean = 18f),
 
     // wink.webp — a closed eye and a heart floating beside the cheek. The reference
     // has a pointing hand; four hands were tried here (a V, a pointing finger, a
@@ -138,72 +101,52 @@ val POSES: Map<Mood, Pose> = mapOf(
     // rude finger — so the wink carries a heart, which cannot be misread.
     Mood.WINK to Pose(wink = 1f, heart = 1f, hornLean = -6f),
 
-    // wave.webp — a hand up at the side, swinging, with its motion lines.
-    Mood.WAVE to Pose(sparkL = 1f, handL = HAND_WAVE, hornLean = -10f),
+    // wave.webp — the fan of motion strokes that used to come off a hand raised at
+    // the side. **The hand is gone and the strokes are kept on purpose**: three marks
+    // beside a ball that is leaning and breathing still read as an event happening
+    // to it, which is all this gesture ever said at eighty dp. One field to delete
+    // here if they read as stray marks instead.
+    Mood.WAVE to Pose(sparkL = 1f, hornLean = -10f),
 
-    // protect.webp — brows set, a fist at the ready and a shield held out.
-    Mood.PROTECT to Pose(
-        lidCut = 1f, shield = 1f, hornLean = -8f,
-        handL = HandPose(-0.84f, -0.50f, 1f, roll = 20f, fist = 1f),
-    ),
+    // protect.webp — brows set, a shield held out.
+    Mood.PROTECT to Pose(lidCut = 1f, shield = 1f, hornLean = -8f),
 
-    // celebrate.webp — both fists in the air, stars, a grin; the horns spring.
-    Mood.CELEBRATE to Pose(
-        stars = 1f, sparkTop = 1f, hornLean = -16f,
-        handL = HandPose(-1.12f, 0.0f, 1f, roll = 18f, fist = 1f, jig = 1f),
-        handR = HandPose(1.12f, 0.0f, 1f, roll = -18f, fist = 1f, jig = 1f),
-    ),
+    // celebrate.webp — stars, a grin; the horns spring.
+    Mood.CELEBRATE to Pose(stars = 1f, sparkTop = 1f, hornLean = -16f),
 
-    // rest.webp — squashed down, eyes shut, both hands on the belly, horns slack.
-    Mood.REST to Pose(
-        sqx = 0.08f, sqy = -0.13f, arcFlip = true, hornLean = 24f,
-        handL = HandPose(-0.47f, -0.50f, 0.9f, roll = 20f, fist = 0.2f),
-        handR = HandPose(0.55f, -0.46f, 0.9f, roll = -20f, fist = 0.2f),
-    ),
+    // rest.webp — squashed down, eyes shut, horns slack.
+    Mood.REST to Pose(sqx = 0.08f, sqy = -0.13f, arcFlip = true, hornLean = 24f),
 
-    // A hand cupped behind the ear: the mic is open, and the horns are up too.
-    Mood.LISTENING to Pose(
-        hornLean = -16f,
-        handL = HandPose(-0.98f, 0.10f, 0.95f, roll = -25f, fist = 0f),
-    ),
+    // The mic is open. What says "listening" is the horns standing up and the head
+    // cocking, both of which are the Face row's — plus its open mouth [Face.gape],
+    // which is the shape change that survives being drawn a thumb wide.
+    Mood.LISTENING to Pose(hornLean = -16f),
 
-    // Holding the signboard up: both fists raised on either side.
-    Mood.HOLDING to Pose(
-        handL = HandPose(-0.96f, 0.40f, 0.85f, roll = 15f, fist = 1f, jig = 0.25f),
-        handR = HandPose(0.96f, 0.40f, 0.85f, roll = -15f, fist = 1f, jig = 0.25f),
-    ),
+    // The signboard is up, and it is a real card in the ball's own window
+    // ([FloatingWindowUi.showSignboard]), not a prop. This row is empty on purpose:
+    // the mood exists to give the ball a waiting face while it holds the card, and
+    // the yellow [Face] row is where that lives. It used to raise both fists, which
+    // said "holding" to nobody at this size.
+    Mood.HOLDING to Pose(),
 
-    // think.webp — eyes up and to the side, a fist under the chin.
-    Mood.THINKING to Pose(
-        lookX = 0.5f, lookY = 0.9f, hornLean = -8f,
-        handL = HandPose(-0.04f, -0.66f, 1f, roll = 25f, fist = 1f),
-    ),
+    // think.webp — eyes up and to the side, and the gaze drift the rim and scan light
+    // ride on.
+    Mood.THINKING to Pose(lookX = 0.5f, lookY = 0.9f, hornLean = -8f),
 
     // The mouth is the talk envelope's, which opens the thin smile rather than
-    // swapping it for another shape. No hands, so the face is clear while it is
+    // swapping it for another shape. No pose, so the face is clear while it is
     // being listened to.
     Mood.SPEAKING to Pose(),
 
-    // Driving an app: a fist at the glass, tapping. It was one finger out, and a
-    // single finger standing up beside the face read as the rude one — two fingers
-    // leaned 35° overlap into a lone vertical bar. A fist has no such reading.
-    Mood.SEARCHING to Pose(
-        lookY = -0.15f, hornLean = -4f,
-        handR = HandPose(0.80f, -0.40f, 0.9f, roll = 15f, fist = 1f, jig = 0.9f),
-    ),
+    // Driving an app: eyes down and to the side with the head cocked, which reads as
+    // "looking at something that isn't you" and is exactly true. The speed is carried
+    // by the rim, core and scan light off `busy`, not from here.
+    Mood.SEARCHING to Pose(lookY = -0.15f, hornLean = -4f),
 
-    Mood.SUCCESS to Pose(
-        stars = 1f, sparkTop = 1f, hornLean = -16f,
-        handL = HandPose(-1.0f, 0.0f, 1f, roll = 18f, fist = 1f, jig = 1f),
-        handR = HandPose(1.0f, 0.0f, 1f, roll = -18f, fist = 1f, jig = 1f),
-    ),
+    Mood.SUCCESS to Pose(stars = 1f, sparkTop = 1f, hornLean = -16f),
 
     // Eyes down, a bead of sweat, slumped, horns flopped.
     Mood.FAILED to Pose(lookY = -0.5f, lidCut = -1.2f, drop = 1f, sqy = -0.05f, hornLean = 24f),
 
-    Mood.SLEEPING to Pose(
-        sqx = 0.08f, sqy = -0.13f, arcFlip = true, hornLean = 24f,
-        handL = HandPose(-0.47f, -0.50f, 0.9f, roll = 20f, fist = 0.2f),
-        handR = HandPose(0.55f, -0.46f, 0.9f, roll = -20f, fist = 0.2f),
-    ),
+    Mood.SLEEPING to Pose(sqx = 0.08f, sqy = -0.13f, arcFlip = true, hornLean = 24f),
 )

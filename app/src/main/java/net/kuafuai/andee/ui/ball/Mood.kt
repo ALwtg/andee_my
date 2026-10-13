@@ -19,9 +19,9 @@ package net.kuafuai.andee.ui.ball
 enum class Mood {
     CALM, HAPPY, CURIOUS, TENSE, ANXIOUS, CONCERNED,
     // Gestures the model can ask for by name. They share the first group's
-    // standing — a face the model picks — but they are drawn with hands and
-    // props, which only a look with [BallLook.gestures] has; on the others each
-    // one falls back to the plain face on its [FACE] row.
+    // standing — a face the model picks — but they are drawn with props, which
+    // only a look with [BallLook.gestures] has; on the others each one falls back
+    // to the plain face on its [FACE] row.
     WINK, WAVE, PROTECT, CELEBRATE, REST,
     LISTENING, HOLDING, THINKING, SPEAKING,
     SEARCHING, SUCCESS, FAILED, SLEEPING,
@@ -261,7 +261,7 @@ val IDLE_ACTIONS: List<Pair<Action, Float>> = listOf(
  *    one at idle is a lie the user acts on, by speaking into a mic that is off.
  *  - ANXIOUS, CONCERNED, TENSE, FAILED and PROTECT read as an alarm or an error.
  *  - SUCCESS and CELEBRATE read as a task having finished.
- *  - **REST and SLEEPING look alike** — squashed, eyes shut, hands on the belly; the
+ *  - **REST and SLEEPING look alike** — squashed, eyes shut, horns slack; the
  *    snot bubble is all that tells them apart. REST was in this list and the
  *    capture showed why it cannot be: it surfaced fifteen seconds after Andee woke
  *    from a nap and read as the ball going straight back to sleep, which is

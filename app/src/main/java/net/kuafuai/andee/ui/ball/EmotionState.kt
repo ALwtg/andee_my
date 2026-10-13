@@ -161,22 +161,8 @@ class EmotionState {
     /** `⌣` instead of `⌢` for closed eyes. A flip, not a tween. */
     var arcFlip = false; private set
 
-    /** Seconds since start, for the idle motion of hands and props. */
+    /** Seconds since start, for the idle motion of props. */
     var clock = 0f; private set
-
-    /** One hand as the renderer reads it: a [HandPose] that has been tweened. */
-    class HandRender {
-        var x = 0f
-        var y = 0f
-        var s = 0f
-        var roll = 0f
-        var fist = 0f
-        var jig = 0f
-        var waveAmt = 0f
-    }
-
-    val handL = HandRender()
-    val handR = HandRender()
 
     /** Pop-in amount of each prop, 0..1; indexed by the `PROP_*` constants. */
     val prop = FloatArray(PROP_COUNT)
@@ -466,7 +452,6 @@ class EmotionState {
         val gestures = LOOK.gestures
         val pose = if (gestures) POSES[mood] ?: Pose.NONE else Pose.NONE
         val tWink = pose.wink
-        val tHandL = pose.handL
         val tSparkL = pose.sparkL
         val kg = min(1f, dt * 10f)
         wink += (tWink - wink) * kg
@@ -476,8 +461,6 @@ class EmotionState {
         poseSqx += (pose.sqx - poseSqx) * kg
         poseSqy += (pose.sqy - poseSqy) * kg
         arcFlip = pose.arcFlip
-        tweenHand(handL, tHandL, dt)
-        tweenHand(handR, pose.handR, dt)
         val kp = min(1f, dt * 9f)
         val away = 1f - cling.coerceIn(0f, 1f)
         prop[PROP_STARS] += (pose.stars * away - prop[PROP_STARS]) * kp
@@ -649,34 +632,6 @@ class EmotionState {
         // [BallLook.mouthTilt], where the argument for it lives. The look's is
         // in degrees, hence the /DEG; the other two are already radians.
         mouthRotZ = PI.toFloat() + smile * LOOK.smileRoll + skew * 2.2f + LOOK.mouthTilt / DEG
-    }
-
-    /**
-     * Ease one hand toward its target pose.
-     *
-     * A hand that is not showing is *placed* at its new spot before it grows, and
-     * only slides once it is visible. Sliding from wherever it last was would
-     * drag a half-grown hand across the face on its way to the chin; growing in
-     * place reads as the hand arriving, which is the point.
-     */
-    private fun tweenHand(h: HandRender, t: HandPose, dt: Float) {
-        val wants = t.s > 0.02f
-        if (wants) {
-            if (h.s < 0.05f) {
-                h.x = t.x; h.y = t.y; h.roll = t.roll; h.fist = t.fist
-            } else {
-                val k = min(1f, dt * 10f)
-                h.x += (t.x - h.x) * k
-                h.y += (t.y - h.y) * k
-                h.roll += (t.roll - h.roll) * k
-                h.fist += (t.fist - h.fist) * k
-            }
-            val kj = min(1f, dt * 6f)
-            h.jig += (t.jig - h.jig) * kj
-            h.waveAmt += ((if (t.wave) 1f else 0f) - h.waveAmt) * kj
-        }
-        val away = 1f - cling.coerceIn(0f, 1f)
-        h.s += ((if (wants) t.s else 0f) * away - h.s) * min(1f, dt * 8f)
     }
 
     fun writeHeads(buf: FloatArray) {

@@ -327,9 +327,6 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
     /** One blob, instanced eight times into two paws. See [drawHands]. */
     private lateinit var handMesh: Mesh
 
-    /** A capsule along +Y for fingers: unit radius, straight section of 2·[CAPSULE_HALF] radii. See [fingerPart]. */
-    private lateinit var fingerMesh: Mesh
-
     /** One blob per pupil and per glint — see [drawDot]. */
     private lateinit var dotMesh: Mesh
 
@@ -339,13 +336,6 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
     private lateinit var dropMesh: Mesh
     private lateinit var heartMesh: Mesh
 
-    /** Scratch: a hand part's model matrix, built on top of the hand's own. */
-    private val partM = FloatArray(16)
-
-    /** The hand's own model matrix, kept while its parts are drawn. */
-    private val handM = FloatArray(16)
-
-    private val handColor = FloatArray(3)
     private val propColor = FloatArray(3)
     private val rimColor = FloatArray(3)
 
@@ -459,7 +449,6 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         // subdiv 2 is already smooth and subdiv 4 is 16x the triangles for
         // nothing. It gets drawn eight times a frame.
         handMesh = IcoSphere.build(2)
-        fingerMesh = Capsule.build(1f, CAPSULE_HALF * 2f, 6, 14)
         // Pupils and glints. Same unit blob as a paw part, and the same order of
         // cost: four of them a frame, each about 4 dp wide on screen.
         dotMesh = IcoSphere.build(2)
@@ -531,7 +520,6 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         drawSnout()
         drawFace()
         drawHands()
-        drawGestureHands()
         drawProps()
         drawBlush()
         drawRim()
@@ -1832,125 +1820,10 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
     }
 
     /**
-     * The gesture hands, for a look with [BallLook.gestures]: two plump mitts parented
-     * to the body, so they breathe, hop and lean with it — unlike [drawHands], whose
-     * paws hold still on the ledge while the body slips.
-     *
-     * **A hand is a round palm, a thumb, and at most two fingers.** Two, because
-     * five blobs turned into a lumpy knot at eighty dp and a bare ball with a stick
-     * in it read as a candied haw on a skewer; a fat palm with a pair of short
-     * chubby fingers is a V sign, a wave and a point at once, and nobody counts.
-     *
-     * Everything a hand does is a change of arrangement of the same few shapes, by
-     * the numbers in [EmotionState.HandRender]:
-     *  * `fist` 0→1: open, the palm is tall with the thumb out and the two fingers
-     *    spread upward; closed, the palm is a tighter ball with the fingers folded
-     *    down over its front like two knuckles and the thumb across them.
-     *
-     * There is no pointing, peace-sign or thumbs-up pose, and that is a result: each
-     * was built for the wink and each misread at this size — two fingers as a V that
-     * turned into a lump, one finger as the rude one, a thumb as the same finger
-     * again. The wink carries a heart instead ([PROP_HEART]).
-     *
-     * Drawn after the face so they sit over the body, in the body's own material.
-     */
-    private fun drawGestureHands() {
-        if (!LOOK.gestures) return
-        if (state.handL.s < 0.03f && state.handR.s < 0.03f) return
-        for (i in 0..2) handColor[i] = bodyColor[i] * HAND_SHADE
-        useShellWith(handColor)
-        drawGestureHand(state.handL, -1)
-        drawGestureHand(state.handR, 1)
-    }
-
-    private fun drawGestureHand(h: EmotionState.HandRender, side: Int) {
-        if (h.s < 0.03f) return
-        val sc = h.s.coerceAtMost(1.2f) * HAND_SCALE
-        val r2 = LOOK.bodyScale * LOOK.bodyScale - h.x * h.x - h.y * h.y
-        // On the surface where there is one, and never behind the ball: a hand set
-        // out past the silhouette used to sit at z 0.12, and its inner half was
-        // hidden by the body it was reaching across.
-        val z = max(sqrt(max(r2, 0f)) + 0.05f, HAND_MIN_Z)
-        val swing = h.waveAmt * sin(state.clock * 9f) * 24f
-        val bob = h.jig * (1f - h.waveAmt) * sin(state.clock * 7f) * 0.035f
-        composeModelFromRoot {
-            Matrix.translateM(local, 0, h.x, h.y + bob, z)
-            Matrix.rotateM(local, 0, h.roll + swing, 0f, 0f, 1f)
-            if (side < 0) Matrix.scaleM(local, 0, -1f, 1f, 1f)
-            Matrix.scaleM(local, 0, sc, sc, sc)
-        }
-        System.arraycopy(model, 0, handM, 0, 16)
-        val f = h.fist
-
-        // Palm: tall and wide when open, a tighter ball when closed.
-        val pw = 0.185f + (0.165f - 0.185f) * f
-        val ph = 0.185f + (0.160f - 0.185f) * f
-        handPart(0f, 0f, 0f, pw, ph, 0.150f)
-
-        // Thumb: out to the side when open, across the front when closed.
-        handPart(
-            0.170f + (0.050f - 0.170f) * f,
-            0.020f + (-0.040f - 0.020f) * f,
-            0.050f + (0.150f - 0.050f) * f,
-            0.080f + (0.090f - 0.080f) * f,
-            0.095f + (0.070f - 0.095f) * f,
-            0.085f,
-        )
-
-        // Two fingers, each one capsule. They start at the top of the palm and lean
-        // out by an angle: nearly parallel and short is a wave, folded flat on the
-        // palm is a fist.
-        val fr = 0.056f
-        for (n in 0..1) {
-            val dir = if (n == 0) -1f else 1f
-            val ang = dir * 7f * (1f - f)
-            val ax = dir * 0.065f
-            val ay = 0.120f + (0.030f - 0.120f) * f
-            val az = 0.040f + (0.120f - 0.040f) * f
-            val len = 0.290f - 0.180f * f
-            fingerPart(ax, ay, az, len, fr, ang)
-        }
-    }
-
-    /** One part of a gesture hand: [handM] with a translate and a scale on it. */
-    private fun handPart(x: Float, y: Float, z: Float, rx: Float, ry: Float, rz: Float) {
-        System.arraycopy(handM, 0, partM, 0, 16)
-        Matrix.translateM(partM, 0, x, y, z)
-        Matrix.scaleM(partM, 0, rx, ry, rz)
-        Matrix.multiplyMM(mv, 0, view, 0, partM, 0)
-        Matrix.multiplyMM(mvp, 0, proj, 0, mv, 0)
-        drawShellPart(handMesh)
-    }
-
-    /**
-     * A finger: one capsule, [len] long tip to base and [r] thick, growing up from
-     * ([bx], [by], [bz]) in the hand's own plane and leaning [angle] degrees off
-     * vertical (positive toward +X).
-     *
-     * Placed by its base and an angle, so a V sign is two calls with two angles
-     * instead of a pile of hand-tuned offsets, and drawn as a single mesh so there is
-     * no seam for the eye to read as a row of beads — which is exactly what two
-     * stacked ellipsoids per finger looked like.
-     */
-    private fun fingerPart(bx: Float, by: Float, bz: Float, len: Float, r: Float, angle: Float) {
-        System.arraycopy(handM, 0, partM, 0, 16)
-        Matrix.translateM(partM, 0, bx, by, bz)
-        Matrix.rotateM(partM, 0, -angle, 0f, 0f, 1f)
-        // The capsule is centred on its origin: lift it so its base cap sits on the
-        // anchor, then stretch y so the whole thing is [len] tall.
-        Matrix.translateM(partM, 0, 0f, len / 2f - r, 0f)
-        val sy = len / (r * (2f + 2f * CAPSULE_HALF))
-        Matrix.scaleM(partM, 0, r, r * sy, r)
-        Matrix.multiplyMM(mv, 0, view, 0, partM, 0)
-        Matrix.multiplyMM(mvp, 0, proj, 0, mv, 0)
-        drawShellPart(fingerMesh)
-    }
-
-    /**
      * Stars, motion strokes, the shield and the sweat bead — everything a pose
      * puts *around* the ball rather than on it.
      *
-     * Lit with the shell shader like the hands, which is what makes them puffy
+     * Lit with the shell shader like the body, which is what makes them puffy
      * stickers instead of flat clip-art, and parented to the body so they bob
      * with it. Each pops in by [EmotionState.prop], with a small overshoot: a prop
      * that eases to full size reads as appearing, one that overshoots reads as
@@ -2192,24 +2065,6 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         /** How much of the eye's height a lowered lid slices off; see [LookMeshes.eyeCut]. */
         private const val GESTURE_LID_CUT = 0.38f
 
-
-        /** The gesture hands are a touch lighter than the body: they face the light. */
-        private const val HAND_SHADE = 1.05f
-
-        /** Half the straight section of the finger capsule, in radii. */
-        private const val CAPSULE_HALF = 0.9f
-
-        /**
-         * How big a gesture hand is drawn, as a multiple of the geometry in
-         * [drawGestureHand]. Measured off the sketches: a hand is about a quarter of
-         * the head's width, and the first pass drew them at about a seventh — they
-         * read as mittens on a doll rather than as part of the character.
-         */
-        private const val HAND_SCALE = 1.35f
-
-        /** The shallowest a gesture hand sits: in front of the body's own edge. See [drawGestureHand]. */
-        private const val HAND_MIN_Z = 0.46f
-
         private val CORAL = floatArrayOf(1.0f, 0.50f, 0.40f)
         private val CORAL_LIGHT = floatArrayOf(1.0f, 0.68f, 0.56f)
         private val HEART_COLOR = floatArrayOf(1.0f, 0.40f, 0.52f)
@@ -2220,7 +2075,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         private val STAR_POS = floatArrayOf(-0.98f, 0.72f, 0.05f, 1.18f, 1.02f, 0.80f)
         private val STAR_SIZE = floatArrayOf(0.20f, 0.15f, 0.19f)
 
-        /** Motion strokes as `x, y, roll` triples — a fan from the waving hand, a pair off the pointing one, a burst on top. */
+        /** Motion strokes as `x, y, roll` triples — a fan at the side, and a burst over the head. */
         private val SPARK_L = floatArrayOf(-0.78f, 0.50f, 35f, -1.04f, 0.36f, 62f, -1.22f, 0.10f, 88f)
         private val SPARK_TOP = floatArrayOf(0f, 1.15f, 0f, -0.28f, 1.08f, 35f, 0.28f, 1.08f, -35f)
 
@@ -2485,7 +2340,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         // Identical lighting; the only addition is `vT`, the horn mesh's own v
         // coordinate (0 at the base, 1 at the tip), and the mix it drives. Kept as a
         // second program rather than a branch in the shell shader so the one that
-        // draws the body, the hands and every other look's horns is not touched.
+        // draws the body and every other look's horns is not touched.
         private const val HORN_VS = """
             uniform mat4 uMVP;
             uniform mat4 uMV;

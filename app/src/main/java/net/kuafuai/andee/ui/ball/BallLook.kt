@@ -400,11 +400,15 @@ class BallLook(
 
     // ---- Gestures ----
     /**
-     * Draw hands and props, and honour the per-mood [Pose]: a wink, eyes that look
-     * up, a lid that comes down, an open mouth with a tongue in it, a body that
-     * squashes. Off for every look but one, and **off means the whole pose table is
-     * ignored** rather than partly applied — the other five characters were tuned
-     * without any of it, and a fist under a pig's chin was never part of the brief.
+     * Draw props and honour the per-mood [Pose]: a wink, eyes that look up, a lid
+     * that comes down, an open mouth with a tongue in it, a body that squashes. Off
+     * for every look but one, and **off means the whole pose table is ignored**
+     * rather than partly applied — the other five characters were tuned without any
+     * of it, and a star over a pig's head was never part of the brief.
+     *
+     * It used to also gate the raised-hand poses. Those are gone (see [Pose]), so
+     * what this flag still buys is the props, the sliced-lid eye and the idle life
+     * of the one look that has it.
      */
     val gestures: Boolean = false,
 
