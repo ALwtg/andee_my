@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`4` / `"0.3.0"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`5` / `"0.3.1"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -15,8 +15,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 frozen. The tool-schema contract a hub brain speaks has been rewritten repeatedly
 (`net/ToolSchemas.kt` has been rewritten in every release so far), the `local.properties`
 build flags that decide the first-install language, the thinking default and whether CodeFlying is
-compiled in have all been added since, and a saved scene is a shape that only appeared in this
-release. Each of those is something a user or a second implementation would have to rebuild against,
+compiled in have all been added since, and a saved scene is a shape that only appeared in `0.2.0`. Each of those is something a user or a second implementation would have to rebuild against,
 so `0.x` is being honest that MINOR may break. The release that moves off `0` should be the one where
 the wire contract is written down well enough that a second implementation could be built from it.
 
@@ -27,6 +26,136 @@ anything not built at a tag, identify it by the short commit hash it was built f
 hash into `versionName` at build time would close this hole; it is not implemented yet.)
 
 ## [Unreleased]
+
+## [0.3.1] - 2026-10-13
+
+**A patch release by decision, against this file's own definition.** The delta carries six `feat`
+commits and the versioning policy above says a new capability is MINOR; the maintainer chose PATCH
+deliberately. It is written down here rather than left for someone to reconstruct from the history,
+because a version number that disagrees with the policy is exactly the kind of thing that reads as an
+oversight later.
+
+### Added
+
+- **A day palette, alongside the night one.** The card had been one look — a translucent pane over a
+  blurred photograph, a bright hairline, pale type — and half the requests on top of it wanted the
+  opposite of those values. What blocked every one of them was that `Glass`'s colours were `const
+  val`s: inlined into their readers at compile time, and so unable to vary at runtime at all. They are
+  getters over a day and a night `Palette` now, **every name unchanged**, which is what let forty call
+  sites stay where they are. Night is what the app shipped with and is the default; day is the
+  inversion of it, with three values deliberately left alone because they name a position rather than
+  a colour — the well stays recessed, the thumb stays raised, and the sheen flips end for end, because
+  its job is a lit edge and the light does not come from below on either palette. A theme is a
+  process-global with one listener, shaped after `AppLocale` for the same reason: almost no UI here
+  lives in an Activity, so no system mechanism could reach a Service's overlays. The backdrop is the
+  same photograph, blurred once and veiled in whichever direction the palette needs — black down to
+  0.22 at night (the original composite to the digit) and **white** up to 0.62 by day. One image, two
+  veils, no asset change. Four faults presented as a single element looking wrong and are the reason
+  this is one commit: `CardUi`'s colours lived in a companion object and were evaluated once at class
+  load, so the card kept whichever palette the process saw first *for the life of the process*; the
+  window's own chrome is built once and never hears about a change, which is what `applyPaletteToChrome`
+  is for; the row tints were cached; and the light card's dim greys could not survive being asked to
+  sit on a photograph.
+- **A "Looks & expressions" card in Settings**, showing every look and every expression on a ball of
+  its own. A look chip is saved on tap; an expression chip only previews.
+- **A generated page picks its own look.** Every page came back the same dark slate, and the reason
+  was not taste — it was a HOUSE STYLE block in the `show_html` description, ending in "use these
+  exact values, no others". Asking for a light page worked only because the block left itself a way
+  out, and that is a lever the user had to pull every single time. It could not have been fixed by
+  wiring the block to the theme: a tool description is a string and cannot branch on `Theme.night`, so
+  on a device switched to day the cards, the ball and the backdrop all went light and the one surface
+  the model composes stayed in the night palette. That fix was on the table and was turned down on
+  purpose — a page's look is the model's business, not ours. Two things stay, and neither is a matter
+  of taste: the `<meta viewport>`, because `HtmlActivity` sets `useWideViewPort` and a page without
+  one is laid out at desktop width and scaled down, and the ~110×44 px the ✕完成 pill occupies in the
+  top-right corner, because that pill is ours. **The cost is on the record**: for the small models this
+  runs against, that description was the only lever on page quality, and nothing enforces any more
+  that a generated page reads as part of Andee.
+- **The local LLM endpoint and model follow the UI language.** The 本机 tab's two LLM rows already had
+  a hint that doubled as the value a blank row resolves to, and both were hardcoded to DeepSeek —
+  self-consistent for a Chinese card and wrong for an English one. The cheapest possible fix, changing
+  only the hint text, is the worst version of it: the box would advertise `https://api.openai.com/v1`
+  and then, on a blank row, call `https://api.deepseek.com`. The hint is read exactly when a user is
+  deciding what to type, so a hint that lies about the fallback lies in the one place it will be
+  believed. Hint and fallback now come from one pair of resolvers keyed off `uiLanguage`: an English
+  card advertises and calls `https://api.openai.com/v1` + `gpt-4o-mini`, a Chinese card stays on
+  `https://api.deepseek.com` + `deepseek-flash`. CodeFlying is deliberately *not* switched by language,
+  because its model belongs to the hosted backend and an English build inventing `gpt-4o-mini` there
+  would name a model CodeFlying does not serve.
+- **Errand trips from the check card are handed to the page instead of made by it**, so the list
+  survives the trip. On the check *page* tapping a row's 处理 sent the user to Settings and coming back
+  landed on the list; from the check *card* the same three taps ended on the desktop with a ball in the
+  corner, because the card was closed and the assistant folded before the destination launched — which
+  does clear the screen, since an overlay outranks every Activity, but throws the list away: a window
+  gets no `onResume`, and the destination went out with `FLAG_ACTIVITY_NEW_TASK` into a task of its
+  own, so back from Settings had nowhere of ours to return to. `SelfCheckUi.onErrand` (was
+  `onYieldScreen`) now hands the host the Intent and lets the host say whether it can carry it.
+  `Fix.Grant` goes through the same door, so 允许 on 麦克风 / 弹出通知 stops ending on the launcher too.
+- **The prop-and-pose layer is on every look now**, not just Andee — stars, a heart, a shield, a sweat
+  bead, the sliced lid, and the idle life that lets a look wear its own expressions and nap while
+  nothing is happening. The argument for keeping it to one look was that the others had been tuned
+  without it; that is overruled, because a look that is not alive standing next to one that is reads as
+  the broken one. Switching it on for Imp needed a fix nothing at the call site would have hinted at:
+  the lid's eye mesh was cut at a fixed 0.38 and Imp ships a resting eye already cut at 0.48, so an
+  angry imp would have *opened* its eyes, in two moods, silently.
+- **Andee's horns stand higher**, fade to a peach tip and hang on two springs, so a wiggle or a turn
+  swings them and they ring out; the mood sets where they rest. While idle it now wears a short run of
+  safe faces and naps for under a minute instead of sleeping until touched — faces that report what the
+  device is doing, or that read as an alarm, are left out on purpose. Hands are a round palm, a thumb
+  and two capsule fingers, and the wink carries a floating heart instead of a hand, because a V, a
+  pointing finger and a thumbs-up were each tried and each misread at this size.
+
+### Changed
+
+- **Both READMEs lead with what it is.** They opened by showing what the thing *does* under a headline
+  that framed it as a phone upgrade. The H3, the hero and the lead now say what it *is* and what it can
+  *do* second, and the "why it is not the assistant already in your phone" section moved above the
+  examples, which are now explicitly what its hands look like. Two earlier drafts were self-defeating
+  and both were caught by reading them: one claimed "not a tool, not a companion" and then proved it
+  with a capability list, the other denied being an assistant that operates your phone while the whole
+  section below was exactly that. Neither is fixable with an adjective; the negations are now scoped to
+  a category, and the section opens with the axis that separates the two — its own schedule, notebook,
+  judgement about when to speak, and limits, all of which happen in the time you did **not** ask for
+  anything.
+- **The English README no longer contains a single Chinese character** (`\p{Han}` returns nothing): the
+  language badge, five look names, a dozen `([中文](…))` links, the `(中文)` markers on the CodeFlying
+  sites and a button quoted in Chinese. The Chinese README keeps its own language.
+
+### Fixed
+
+- **`POST_NOTIFICATIONS` was declared in the manifest since the beginning and never requested** — never
+  checked, never asked for, so on Android 13+ everything this app posts was dropped in silence: the
+  persistent notification that is the way back to it, and every reminder `Scheduler` fires. The
+  codebase half knew: `Scheduler` carries a comment blaming this permission for its own failure to
+  notify, and nothing anywhere tested the claim. The row that looked like it covered this does not —
+  通知使用权 is the notification *listener*, which can be granted and green while every notification
+  the app sends disappears. Two things this needed beyond a catalog entry: `Perm.api`, because on
+  API 32 and below the permission does not exist and `checkSelfPermission` answers **denied** for
+  anything it does not know, so an ungated row would report a missing permission on every Android 12
+  device with no button and no way to fix it; and `SOLO_IDS`, because that set is a whitelist and a
+  permission added by someone who never read it routes to handoff.
+- **Three documents still described things the code had stopped doing.** The data-flow table in both
+  `DISCLAIMER`s and both `permissions` documents named `api.deepseek.com` as the default destination
+  for the conversation, with no mention of the language dependency added in this release — so an
+  English reader was told their data goes somewhere it does not. `CLAUDE.md` still called the
+  `show_html` house style "the one deliberate exception" to the single-palette rule, two paragraphs
+  after the same file recorded that the house style had been removed; there is no exception now. And
+  the `POST_NOTIFICATIONS` row in the permission table said only that a reminder would not arrive,
+  which undersold it: refusing also kills the notification that is the route back to screen control.
+
+### Removed
+
+- **The raised mitts are gone.** Andee's expressions were built around a pair of mitts raised at the
+  side — a fist under the chin for thinking, two fists up for celebrating, a hand on the belly for
+  resting — and every one of them read as a lump at the eighty dp the ball is actually drawn at, with
+  the parts sharing the body's own colour and material. Dropping them is the honest version of "this
+  does not work at this size": the ball keeps the paws it hangs off the screen edge with. No expression
+  collapses into CALM for it, because a mood is read through its own `Face` row and its body motion,
+  neither of which ever came from the pose table. Two leftovers are deliberate and both say so where
+  they live: WAVE keeps its fan of motion strokes with no hand to fan off them, and HOLDING keeps an
+  empty row, because the signboard it waits behind is a real card in the ball's own window.
+- **The `show_html` house style**, along with the `LocalPrompt` §7 sentence that pointed at it and then
+  asserted "that style is what you look like". Both were describing the prescribed look being removed.
 
 ## [0.3.0] - 2026-10-12
 

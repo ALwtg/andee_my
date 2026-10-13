@@ -51,7 +51,7 @@ The "What you get" column is the copy the app actually shows (`dev_perm_feature_
 | Write calendar<br>`WRITE_CALENDAR` | Write calendar (add events) | `add_calendar_event` | Cannot record events |
 | Camera<br>`CAMERA` | Sight (identify objects / scan codes) | `camera_turn` / `scan_code` | Those two stop working |
 | Installed apps<br>`QUERY_ALL_PACKAGES` | Know which apps are installed | `list_installed_apps` / `launch_app` | Cannot open a named app |
-| Notifications<br>`POST_NOTIFICATIONS` | Remind you on time | Due-task reminders | No reminder at the due time, **but the task is not lost** |
+| Notifications<br>`POST_NOTIFICATIONS` | Remind you on time, **and the persistent notification** | Due-task reminders, and the way back to the assistant when accessibility is revoked | **Nothing the app posts appears at all** — no reminder at the due time, and no persistent notification, which is also the route back to screen control. The task is not lost |
 | Boot<br>`RECEIVE_BOOT_COMPLETED` | Tasks survive a reboot | Rebuilding the `AlarmManager` alarms | After a reboot, due tasks stop reminding |
 | Battery optimisation exemption<br>`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Reminders arrive on time | Task scheduling | With the screen off, reminders arrive late |
 | Write secure settings<br>`WRITE_SECURE_SETTINGS` | Switch the input method, for the spare typing route | Prerequisite for the ADBKeyboard fallback | Nothing on Android 13 and above — typing goes through the accessibility input method. On Android 12 and below, **`type_text` fails outright**, and tells you exactly why. It will not pretend to succeed |
@@ -103,7 +103,7 @@ Andee has a vault (`config/Vault.kt`) for the account passwords you enter yourse
 | What | Where it goes | Default |
 |---|---|---|
 | Speech recognition (what you say), speech synthesis (what he says) | **Volcengine (ByteDance) cloud** | `openspeech.bytedance.com` |
-| Conversation content, **and every tool result** | The "brain" **you** configured | `brain=local` (the out-of-box default) → `api.deepseek.com`; in hub mode, your own `hub_url` |
+| Conversation content, **and every tool result** | The "brain" **you** configured | `brain=local` (the out-of-box default) → `api.deepseek.com` on a Chinese UI and `api.openai.com` on an English one; in hub mode, your own `hub_url` |
 | Private notebook (`config/Notebook.kt`: what he remembers about you, what he promised) | **On-device only** | It is `localOnly` and never enters the hub payload |
 | **Version check**: your version number, phone model / brand / OS version, UI language, one random install ID | **A server the maintainers run** (not a third party) | Once on first launch, and once per tap on **Check again**; capped at 10 per IP per day |
 

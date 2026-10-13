@@ -408,7 +408,7 @@ Nothing here animates for decoration — each one answers a question the user wo
 - `expand` / `collapse` say the rows that just vanished were folded away, not deleted. The brain section flips both halves *simultaneously* rather than in sequence, so the card's total height barely moves while one block shrinks and the other grows.
 - The language swap cross-fades (`fadeOut` → rebuild → `fadeIn`) — same run-once backstop, same reason.
 
-**Everything else the user sees takes the same palette**, so there is one place to change a colour: the unfolded card and its scrollback (`FloatingWindowUi`, `HistoryListView`), the assistant's own dialogs (`CardUi`), the camera and page chrome (`CameraChrome`, `HtmlActivity`) and `Theme.Body.Fullscreen`'s window background. The one deliberate exception is the `show_html` house style in `ToolSchemas` — that is prose handed to the brain about the page *it* composes, not our chrome.
+**Everything else the user sees takes the same palette**, so there is one place to change a colour: the unfolded card and its scrollback (`FloatingWindowUi`, `HistoryListView`), the assistant's own dialogs (`CardUi`), the camera and page chrome (`CameraChrome`, `HtmlActivity`) and `Theme.Body.Fullscreen`'s window background. There used to be exactly one deliberate exception — the `show_html` house style in `ToolSchemas` — and it is gone: that description now prescribes nothing about how a page looks, so the palette is the only place a colour is decided anywhere in this app.
 
 Four things about that spread are not cosmetic:
 

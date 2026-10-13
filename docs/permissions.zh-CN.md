@@ -51,7 +51,7 @@
 | 写日历<br>`WRITE_CALENDAR` | 写日历(记日程) | `add_calendar_event` | 记不了日程 |
 | 摄像头<br>`CAMERA` | 看（拍照识物 / 扫码） | `camera_turn` / `scan_code` | 这两条用不了 |
 | 应用列表<br>`QUERY_ALL_PACKAGES` | 知道装了哪些应用 | `list_installed_apps` / `launch_app` | 打不开指定应用 |
-| 通知栏<br>`POST_NOTIFICATIONS` | 到点提醒你 | 待办到期的提醒 | 到点不提醒，**但待办不会丢** |
+| 通知栏<br>`POST_NOTIFICATIONS` | 到点提醒你，**以及那条常驻通知** | 待办到期的提醒，以及无障碍被撤销后回来的路 | **应用发出的通知一条都不会出现** —— 到点不提醒，也没有那条常驻通知，而它同时是接回屏幕操作的入口。待办不会丢 |
 | 开机自启<br>`RECEIVE_BOOT_COMPLETED` | 重启后待办还在 | 重建 `AlarmManager` 闹钟 | 重启后待办不再提醒 |
 | 电池优化豁免<br>`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | 到点提醒准时 | 待办定时 | 息屏状态下提醒会迟到 |
 | 改系统设置<br>`WRITE_SECURE_SETTINGS` | 换输入法（备用打字通道用） | ADBKeyboard 兜底通道的前置步骤 | Android 13 及以上没影响 —— 打字走的是无障碍输入法。Android 12 及以下则 **`type_text` 直接失败**，并明确告诉你失败原因，不会假装成功 |
@@ -103,7 +103,7 @@ Andee 有一个保险箱（`config/Vault.kt`），用来存你自己填进去的
 | 什么数据 | 去哪 | 默认值 |
 |---|---|---|
 | 语音识别（你说的话）、语音合成（他说的） | **火山引擎（字节跳动）云端** | `openspeech.bytedance.com` |
-| 对话内容，**以及全部工具返回结果** | 你配置的"大脑" | `brain=local`（开箱默认）→ `api.deepseek.com`；hub 模式下走你自己的 `hub_url` |
+| 对话内容，**以及全部工具返回结果** | 你配置的"大脑" | `brain=local`（开箱默认）→ 中文界面走 `api.deepseek.com`、英文界面走 `api.openai.com`；hub 模式下走你自己的 `hub_url` |
 | 私人笔记本（`config/Notebook.kt`：记住的你、答应过的事） | **只在本机** | 是 `localOnly`，不进 hub 载荷 |
 | **版本自检**：当前版本号、手机型号 / 品牌 / 系统版本、界面语言、一个随机安装 ID | **维护者自己的一台服务器**（不是第三方） | 首次启动一次，以及在自检页点「重新检查」时一次；同一 IP 每天最多 10 次 |
 
