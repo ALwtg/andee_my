@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.annotation.StringRes
 import net.kuafuai.andee.R
@@ -39,6 +40,16 @@ class PermissionsController(private val context: Context) {
         val permission: String?,
         val special: String?,      // "notification" | "overlay" | null
         @StringRes val featureRes: Int,
+        /**
+         * First API where this permission means anything, or 0 for always.
+         *
+         * Not decoration: on an older device the permission does not exist, and
+         * `checkSelfPermission` answers **denied** for anything it does not know —
+         * so a row without this would report POST_NOTIFICATIONS missing on every
+         * Android 12 device, for ever, with no way to fix it. Skipping the entry
+         * entirely is the honest answer: on that device there is nothing to grant.
+         */
+        val api: Int = 0,
     )
 
     private val catalog = listOf(
@@ -51,6 +62,17 @@ class PermissionsController(private val context: Context) {
         Perm("sms_send", "android.permission.SEND_SMS", null, R.string.dev_perm_feature_sms_send),
         Perm("calendar", "android.permission.READ_CALENDAR", null, R.string.dev_perm_feature_calendar),
         Perm("calendar_write", "android.permission.WRITE_CALENDAR", null, R.string.dev_perm_feature_calendar_write),
+        // 发通知 — a *different* thing from 通知使用权 below, which is the listener
+        // that lets the ball read other apps' notifications. This one is whether
+        // anything this app posts is seen at all, and on Android 13+ it is a runtime
+        // permission nothing was ever asking for: declared in the manifest and never
+        // requested, so the persistent "way back" notification and every reminder
+        // from [net.kuafuai.andee.config.Scheduler] were dropped in silence. The
+        // comment there already blamed POST_NOTIFICATIONS; nothing checked it.
+        Perm(
+            "notify_post", "android.permission.POST_NOTIFICATIONS", null,
+            R.string.dev_perm_feature_notify_post, api = Build.VERSION_CODES.TIRAMISU,
+        ),
         Perm("notifications", null, "notification", R.string.dev_perm_feature_notifications),
         Perm("overlay", null, "overlay", R.string.dev_perm_feature_overlay),
     )
@@ -59,6 +81,9 @@ class PermissionsController(private val context: Context) {
         val granted = JSONArray()
         val missing = JSONArray()
         for (p in catalog) {
+            // A permission that does not exist on this device is neither granted nor
+            // missing, so it is not reported either way — see [Perm.api].
+            if (p.api > 0 && Build.VERSION.SDK_INT < p.api) continue
             val ok = when {
                 p.permission != null ->
                     context.checkSelfPermission(p.permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -250,7 +275,14 @@ class PermissionsController(private val context: Context) {
          * was asked once more than necessary" rather than "the ball agreed to
          * something on their behalf".
          */
-        private val SOLO_IDS = setOf("location", "steps", "calendar", "calendar_write")
+        private val SOLO_IDS = setOf(
+            "location", "steps", "calendar", "calendar_write",
+            // Same kind of thing as the four above — a runtime permission whose sheet
+            // waits for a finger, and not an invasive one — so it belongs here rather
+            // than in handoff. Named explicitly because this list is a whitelist and
+            // anything unnamed falls to handoff by design; see the note above.
+            "notify_post",
+        )
 
         /** Ids with no dialog at all — only a switch inside Settings. */
         private val SETTINGS_IDS = setOf("notifications", "overlay")

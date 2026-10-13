@@ -257,6 +257,7 @@
     <string name="dev_perm_feature_sms_send">Send SMS</string>
     <string name="dev_perm_feature_calendar">Calendar (reminders)</string>
     <string name="dev_perm_feature_calendar_write">Write calendar (add events)</string>
+    <string name="dev_perm_feature_notify_post">Post notifications (reminders, and the way back to me)</string>
     <string name="dev_perm_feature_notifications">Notification access (know when you get messages)</string>
     <string name="dev_perm_feature_overlay">Overlay (my face)</string>
     <string name="dev_perm_say_prefix">Turn on: %1$s.</string>
@@ -420,6 +421,9 @@
     <string name="check_title_model">Model</string>
     <string name="check_title_version">Version</string>
     <string name="check_title_microphone">Microphone</string>
+    <string name="check_title_notify_post">Post notifications</string>
+    <string name="check_detail_notify_post_on">Reminders, and the way back to me, can both come through.</string>
+    <string name="check_detail_notify_post_off">I can post notifications, but the system is not letting them through — reminders, and the way back to me, are both dropped. Allow it with the button below.</string>
     <string name="check_title_notifications">Notification access</string>
     <string name="check_title_typing_channel">Typing channel</string>
     <string name="check_title_adb_keyboard">ADB keyboard</string>

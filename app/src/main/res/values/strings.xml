@@ -239,6 +239,7 @@
     <string name="dev_perm_feature_sms_send">发短信</string>
     <string name="dev_perm_feature_calendar">日历(日程提醒)</string>
     <string name="dev_perm_feature_calendar_write">写日历(记日程)</string>
+    <string name="dev_perm_feature_notify_post">弹出通知(提醒,和"回到我"的那条)</string>
     <string name="dev_perm_feature_notifications">通知感知(微信来消息我知道)</string>
     <string name="dev_perm_feature_overlay">悬浮窗(我的脸)</string>
     <string name="dev_perm_say_prefix">需要开启: %1$s。</string>
@@ -503,6 +504,9 @@
     <string name="check_title_model">模型连通</string>
     <string name="check_title_version">版本</string>
     <string name="check_title_microphone">麦克风</string>
+    <string name="check_title_notify_post">弹出通知</string>
+    <string name="check_detail_notify_post_on">提醒,和"回到我"的那条通知,都能弹出来。</string>
+    <string name="check_detail_notify_post_off">我是能发通知的,但系统现在没放行——提醒,和"回到我"的那条,都会被丢掉。点下面的按钮允许。</string>
     <string name="check_title_notifications">通知使用权</string>
     <string name="check_title_typing_channel">打字通道</string>
     <string name="check_title_adb_keyboard">ADB 键盘</string>

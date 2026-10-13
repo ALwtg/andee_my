@@ -219,7 +219,9 @@ object SelfCheck {
     fun run(context: Context, probe: Boolean = true): List<Finding> {
         val online = isOnline(context)
         val a11yIme = imeChannelOpen()
-        return listOf(
+        // listOfNotNull rather than listOf: one row only exists on API 33+ — see
+        // [postNotifications], which is where the reasoning lives.
+        return listOfNotNull(
             // Overlay first, ahead of the service itself. Both are hard gates,
             // but they fail in opposite directions: no accessibility service and
             // the app is visibly inert (nothing to run), no overlay grant and
@@ -234,6 +236,9 @@ object SelfCheck {
             backend(context, probe, online),
             version(context, probe, online),
             microphone(context),
+            // The ball being heard, right above the ball hearing: the two are easy to
+            // confuse and only one of them was ever checked. See [postNotifications].
+            postNotifications(context),
             notificationAccess(context),
             typingChannel(context),
             adbKeyboard(context, a11yIme),
@@ -601,6 +606,41 @@ object SelfCheck {
      * user has to do it in Settings. That makes [listenerSettings] load-bearing
      * rather than cosmetic: it has to open a screen that exists.
      */
+    /**
+     * Whether anything this app posts is *seen* at all — which is a different question
+     * from [notificationAccess], and having only that one was the hole.
+     *
+     * That row is the listener: the ball **reading** other apps' notifications. This one
+     * is the ball being **heard**. On Android 13+ the second is a runtime permission,
+     * and it was declared in the manifest and never requested — so the persistent
+     * notification that is the way back to this app, and every reminder
+     * [net.kuafuai.andee.config.Scheduler] posts, were dropped in silence, while the row
+     * above showed a green tick because notification *access* really was granted.
+     * `Scheduler` already had a comment blaming POST_NOTIFICATIONS; nothing checked it.
+     *
+     * Nothing on API < 33: the permission does not exist there, `checkSelfPermission`
+     * answers *denied* for anything it does not know, and a red row with no fix would be
+     * permanent. See [PermissionsController.Perm.api], which skips it for the same reason.
+     */
+    private fun postNotifications(context: Context): Finding? {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+            return null
+        }
+        val p = Manifest.permission.POST_NOTIFICATIONS
+        val on = context.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+        return Finding(
+            id = "notify_post",
+            title = R.string.check_title_notify_post,
+            level = if (on) Level.OK else Level.WARN,
+            detail = if (on) {
+                R.string.check_detail_notify_post_on
+            } else {
+                R.string.check_detail_notify_post_off
+            },
+            fix = if (on) Fix.Nothing else Fix.Grant(listOf(p)),
+        )
+    }
+
     private fun notificationAccess(context: Context): Finding {
         val st = NotificationRelayService.status(context)
         val enabled = st.optBoolean("listener_enabled")

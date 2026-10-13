@@ -27,6 +27,9 @@ class PermissionsRouteTest {
     @Test
     fun `a grant with no dialog is a settings errand whatever else it is asked with`() {
         assertEquals("settings", PermissionsController.routeOf(listOf("notifications")))
+        // 弹出通知 is a runtime permission, the same kind as location and steps, so its
+        // sheet is expected to go up and wait rather than to be handed to ask_user.
+        assertEquals("solo", PermissionsController.routeOf(listOf("notify_post")))
         assertEquals("settings", PermissionsController.routeOf(listOf("overlay")))
         // Not a severity ranking: a Settings page is the one route nothing
         // here can tap at all, so it outranks both of the others.
