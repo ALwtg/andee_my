@@ -6,6 +6,7 @@ import android.animation.ArgbEvaluator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Resources
 import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -350,25 +351,91 @@ object Glass {
      * error the eye notices without being able to name. Six steps, each far
      * enough from its neighbours to mean something. A new size is a new rung
      * here, not a literal at the call site.
+     *
+     * **Two columns of six.** The larger column is the tablet's, and it was
+     * drawn on a 711dp-wide screen where a card is 500dp with air around it. A
+     * phone is 392dp wide and the same card fills it edge to edge — so the same
+     * 26sp title that reads as a heading on the tablet reads as a shout on the
+     * phone. **Nothing about the phone's type is actually bigger; what changed is
+     * what holds it.** Padding, corner radii and line spacing here are all in dp
+     * and do not follow a smaller screen down, so a glyph that keeps its size
+     * against a box that lost a third of its width looks wrong, and reads as
+     * clumsy rather than as large. Hence a second column, about three quarters
+     * of the first, chosen once by [phone].
+     *
+     * **The tablet column is the original design and stays untouched.** A phone
+     * value is derived from it, never the other way round — if a rung has to
+     * move, move both columns.
+     *
+     * Careful with the arithmetic: these are sp, so a device whose *system* font
+     * scale is not 1.0 multiplies them again at draw time, and only the type
+     * moves — the dp spacers around it do not. The phone column is set low
+     * enough that it still lands under the tablet's on a phone whose owner has
+     * turned system text up; see the note on [phone].
      */
     object Type {
+
+        /**
+         * Above this many dp on the device's *short* side, a screen is a tablet.
+         *
+         * 600 is Android's own line — the `sw600dp` resource qualifier — and
+         * there is no reason to invent a second one. Neither device is anywhere
+         * near it: the tablet is 711dp, the phone 392dp.
+         */
+        private const val TABLET_MIN_WIDTH_DP = 600f
+
+        /**
+         * Which column this device gets, decided once.
+         *
+         * **Why `Resources.getSystem()` and not a Context.** These are read at
+         * roughly a hundred construction sites, most of them several frames away
+         * from anything holding a Context — the same predicament [Theme] lays out
+         * for its palette, and answered the same way. It helps that the answer is
+         * a property of the *device*: how wide the screen physically is, not which
+         * card happens to be drawing.
+         *
+         * **Why `displayMetrics` arithmetic and not `configuration.smallestScreenWidthDp`.**
+         * The Configuration reached this way is not guaranteed to have been filled
+         * in — a zero there would silently read as "not a tablet" and leave the phone
+         * unchanged — while `displayMetrics` always carries the display's real pixels
+         * and density. The smaller of the two sides, so rotation and fold state cannot
+         * flip the answer.
+         *
+         * **This deliberately does not read the system font scale.** A phone with
+         * text turned up to 1.15 still renders these at 1.15×, and the phone column
+         * is set with that in mind: it lands a little under the tablet's own sizes,
+         * not far under. Turning the system scale back down therefore makes the
+         * phone's type *smaller* than it looks here — which is the honest behaviour
+         * (the user asked for smaller text) rather than a bug to chase.
+         */
+        private val phone: Boolean by lazy {
+            val dm = Resources.getSystem().displayMetrics
+            minOf(dm.widthPixels, dm.heightPixels) / dm.density < TABLET_MIN_WIDTH_DP
+        }
+
         /** A card's own title. */
-        const val DISPLAY = 26f
+        val DISPLAY: Float get() = if (phone) 20f else 26f
 
         /** The title of a card stacked on another card, or of a step. */
-        const val HEADLINE = 20f
+        val HEADLINE: Float get() = if (phone) 15.5f else 20f
 
         /** A dialog's title, a row that is the point of its panel. */
-        const val TITLE = 17f
+        val TITLE: Float get() = if (phone) 13.5f else 17f
 
         /** What the user reads: rows, fields, buttons, answers. */
-        const val BODY = 15f
+        val BODY: Float get() = if (phone) 12f else 15f
 
         /** What explains the body: subtitles, notes, section heads, hints. */
-        const val CAPTION = 13f
+        val CAPTION: Float get() = if (phone) 10.5f else 13f
 
-        /** Timestamps, badges, the pinned gesture tips. */
-        const val MICRO = 11f
+        /**
+         * Timestamps, badges, the pinned gesture tips.
+         *
+         * The one rung the phone column barely touches, and on purpose: this is
+         * already the floor of what can be read, and a floor that moves with the
+         * screen is not a floor. It stays at the tablet's value on both.
+         */
+        val MICRO: Float get() = if (phone) 9.5f else 11f
     }
 
     // ---- Motion ----
