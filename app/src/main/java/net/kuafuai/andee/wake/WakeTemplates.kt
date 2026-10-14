@@ -30,9 +30,12 @@ object WakeTemplates {
     const val ENROLL_COUNT = 3
 
     /**
-     * Slack over the user's own worst pair. Below ~1.1 the phrase has to be
-     * said more consistently than anyone says anything; above ~1.4 the door is
-     * open wide enough for unrelated speech to walk in.
+     * Slack over the user's own *closest* pair. See [thresholdFor] for why it is
+     * the closest and not the worst, and for the measurements that decided it.
+     *
+     * Below ~1.1 the phrase has to be said more consistently than anyone says
+     * anything; above ~1.4 the door is open wide enough for unrelated speech to
+     * walk in.
      */
     private const val SLACK = 1.25f
 
@@ -49,14 +52,21 @@ object WakeTemplates {
      * opens the microphone and ships audio to 火山 without anyone asking, which
      * is both a surprise and a cost. So when in doubt, be deaf.
      *
-     * These numbers are a starting point, not a measurement — a second take of
-     * the same phrase lands well under 1.0 on synthetic audio, but real voices
-     * spread wider and no real recording has been through this yet. The
+     * **The upper bound is no longer a guess.** It was 2.8, which was picked as
+     * "the widest thing that could still be called a threshold" and never
+     * measured — and the first sixty judgements this device ever logged put
+     * every non-wake utterance it heard at **2.21–2.59**, i.e. entirely *below*
+     * it. 2.8 was not a bound at all, it was a door left open. 1.8 comes from
+     * the same sixty: the widest value that would still have rejected all
+     * fifty-seven of them while accepting all three real attempts (1.16–1.46).
+     *
+     * One voice, one room, one phrase — thin evidence, and the honest reading of
+     * it is "better founded than the number it replaces", not "correct". The
      * `no wake: d=… > …` line in [WakeWord] is what a near miss looks like in
-     * logcat, and is the evidence to move them on.
+     * logcat, and is still the evidence to move these on.
      */
     private const val MIN_THRESHOLD = 1.0f
-    private const val MAX_THRESHOLD = 2.8f
+    private const val MAX_THRESHOLD = 1.8f
 
     class Store(val threshold: Float, val templates: List<Array<FloatArray>>)
 
@@ -131,23 +141,61 @@ object WakeTemplates {
         loaded = false
     }
 
-    /** Worst distance between any two takes, plus [SLACK], clamped. */
+    /**
+     * The distance between the two most alike takes, times [SLACK], clamped.
+     *
+     * **The closest pair, not the worst** — a correction the device paid for.
+     * The worst pair was the obvious choice: it is the honest answer to "how
+     * much does this user vary?". It is also the wrong question, because it is
+     * not what matching does. [bestDistance] returns the *nearest* template, so
+     * an utterance is accepted when it lands close to some take. The width the
+     * door needs is therefore "how far can a real attempt be from the nearest
+     * take", and the only evidence in the file for that is the takes that did
+     * land close.
+     *
+     * Two enrolments measured on the tablet — same voice, same room, twenty
+     * minutes apart, and the same logs:
+     *
+     * ```
+     * worst pair  1.82 / 1.69   →  thresholds 2.28 / 2.11   (what shipped)
+     * best  pair  1.40 / 1.30   →  thresholds 1.75 / 1.62   (what this computes)
+     * ```
+     *
+     * The same voice's *actual* attempts, from logcat, landed at **1.16, 1.38,
+     * 1.46** — nearer even than the tightest enrolment pair. A wake attempt is
+     * made deliberately; an enrolment take is made while reading a card and
+     * reaching for a button. Anchoring on the worst take was anchoring on the
+     * one sample nobody wants to recognise.
+     *
+     * Where the impostors were is the other half: **2.21–2.59**, every one of
+     * the fifty-seven. So 2.28 was not a threshold standing between two
+     * distributions, it was a line through the middle of one of them — sixteen
+     * of the sixty judgements sat within 0.06 of it.
+     *
+     * The residual risk is the documented one, and it is why the enrolment card
+     * tells the user to say the phrase the way they will actually say it: three
+     * takes that come out *unusually* alike give a tight door and a phrase that
+     * has to be repeated carefully forever. [MIN_THRESHOLD] bounds that; the
+     * alternative it replaces — a door so wide the room walks in — costs the
+     * user an upload to 火山 they never asked for, which is the worse side of
+     * the asymmetry the bounds are built on.
+     */
     private fun thresholdFor(templates: List<Array<FloatArray>>): Float {
-        var worst = 0f
+        var best = Float.MAX_VALUE
         var pairs = 0
         for (i in templates.indices) {
             for (j in i + 1 until templates.size) {
                 val d = Dtw.distance(templates[i], templates[j])
                 if (d == Dtw.NO_MATCH) continue
                 pairs++
-                if (d > worst) worst = d
+                if (d < best) best = d
             }
         }
         // No comparable pair at all — the takes differed so much in length that
         // DTW refused them. Nothing was learned, so fall back to the middle of
         // the useful range rather than to a number computed from nothing.
         if (pairs == 0) return (MIN_THRESHOLD + MAX_THRESHOLD) / 2f
-        return (worst * SLACK).coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
+        return (best * SLACK).coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
     }
 
     /**

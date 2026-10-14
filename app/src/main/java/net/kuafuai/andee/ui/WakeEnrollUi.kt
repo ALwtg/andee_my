@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -188,7 +189,11 @@ class WakeEnrollUi(
         if (busy) return
         busy = true
         recordBtn.text = lctx.getString(R.string.wake_listening)
-        status.text = lctx.getString(R.string.wake_speak_now)
+        // Deliberately *not* 现在说吧 here. Saying it on the tapper's thread, before
+        // a recorder exists, is what made "tap and talk" fail: the user was
+        // invited to speak during the 100–300 ms the microphone spends opening,
+        // and the onset went into a device that was not yet listening. The
+        // prompt moves to [captureOne], after `startRecording` has returned.
         exec.execute {
             // The listener has to let go first: it owns a recorder whenever the
             // gate allows, and two captures in one app is not a thing to rely on.
@@ -206,10 +211,41 @@ class WakeEnrollUi(
             if (got.compareAndSet(null, pcm)) done.countDown()
         }
         val mic = WakeMic { buf, n -> seg.feed(buf, n) }
-        if (!mic.start()) return null
-        runCatching { done.await(LISTEN_SECONDS, TimeUnit.SECONDS) }
+        if (!mic.start()) {
+            Log.w(TAG, "enroll take: the device refused the microphone")
+            return null
+        }
+        // The recorder is up, so *now* the user is invited to speak. Waiting for
+        // this rather than for the tap is the honest half of the trade: the card
+        // reads 正在听… for the 100–300 ms the microphone takes to come up, and
+        // 现在说吧 only once something is listening. Nothing is taken from the
+        // user to pay for it — the window is unchanged and the 300 ms pre-roll
+        // still catches an onset that beats the prompt.
+        ui.post {
+            if (root != null) status.text = lctx.getString(R.string.wake_speak_now)
+        }
+        val inTime = runCatching { done.await(LISTEN_SECONDS, TimeUnit.SECONDS) }
+            .getOrDefault(false)
         mic.stop()
-        return got.get()
+        val pcm = got.get()
+        // One line per attempt, whether or not it worked.
+        //
+        // Four different things answer "nothing" here — a segment dropped for
+        // being too short, one dropped for being too long, a capture thread that
+        // gave up on a bad read, and a noise floor that sat above the speaker
+        // for the entire window — and until this line, not one of them left a
+        // trace anywhere. A user who had to say the phrase twice therefore
+        // looked exactly like a user who was never heard at all, from every log
+        // we had. [VoiceSegmenter.stats] says which of the four it was, and
+        // this is the only place it is read.
+        Log.i(
+            TAG,
+            "enroll take: " +
+                (if (pcm == null) "no segment" else "${pcm.size * 1000 / Mfcc.SAMPLE_RATE} ms") +
+                (if (inTime) "" else " after waiting out the full window") +
+                " — ${seg.stats()}",
+        )
+        return pcm
     }
 
     @SuppressLint("SetTextI18n")
@@ -254,5 +290,11 @@ class WakeEnrollUi(
     private companion object {
         /** Long enough to fumble the first attempt, short enough not to feel hung. */
         const val LISTEN_SECONDS = 8L
+
+        /**
+         * The wake pipeline's tag, not this card's own name, so the whole thing
+         * answers to one filter: `adb logcat -s Wake:V`. See [captureOne].
+         */
+        const val TAG = "Wake"
     }
 }

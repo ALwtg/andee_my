@@ -64,7 +64,18 @@ class WakeMic(private val onPcm: (ShortArray, Int) -> Unit) {
                 try {
                     while (running.get()) {
                         val n = rec.read(buf, 0, buf.size)
-                        if (n <= 0) break
+                        if (n <= 0) {
+                            // Used to be a bare `break`, which made this the
+                            // quietest way for a capture to fail: the caller's
+                            // latch simply never counts down, so a microphone
+                            // that gave up after one bad read looks exactly
+                            // like a user who never spoke. `ERROR_DEAD_OBJECT`
+                            // (-6) here is the mic being taken away by someone
+                            // else; `ERROR_INVALID_OPERATION` (-3) is reading a
+                            // record that never really started.
+                            Log.w(TAG, "read returned $n — capture ending early")
+                            break
+                        }
                         onPcm(buf, n)
                     }
                 } catch (t: Throwable) {
