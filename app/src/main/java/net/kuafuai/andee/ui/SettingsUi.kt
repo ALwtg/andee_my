@@ -813,6 +813,37 @@ class SettingsUi(
             state.text = summary()
         })
         panel.addView(row, rowParams(dp(12)))
+
+        // The screen-off half of the wake word, as one button that carries its
+        // own state. Two buttons in a picker would read as a choice to make;
+        // this is a thing that is on or off, and tapping it says which.
+        //
+        // Written straight through rather than on 保存, like the language and
+        // the ball's look: the gate that reads it reconsiders ten times a
+        // second, so the new answer is live before the finger is off the
+        // button, and there is nothing left here for a 保存 to confirm.
+        val lockedBtn = button("", filled = false) {}
+        fun paintLocked() {
+            val on = VoiceConfig.wakeWhileLocked(context)
+            lockedBtn.text = lctx.getString(
+                if (on) R.string.settings_wake_locked_on else R.string.settings_wake_locked_off,
+            )
+            // Same pair [button] picks with, so the on state reads as the
+            // filled chip it would have been had it been born on.
+            lockedBtn.setTextColor(Color.parseColor(if (on) Glass.TITLE else Glass.LABEL))
+            lockedBtn.background =
+                if (on) Glass.tinted(context, dp(24)) else Glass.panel(context, dp(24))
+        }
+        lockedBtn.setOnClickListener {
+            VoiceConfig.setWakeWhileLocked(context, !VoiceConfig.wakeWhileLocked(context))
+            paintLocked()
+        }
+        paintLocked()
+        panel.addView(lockedBtn, rowParams(dp(12)))
+        // The cost, said out loud next to the switch rather than buried in a
+        // README: with the screen off this holds the microphone open, and the
+        // platform says so on the status bar whether we mention it or not.
+        note(panel, lctx.getString(R.string.settings_wake_locked_note))
     }
 
     /**

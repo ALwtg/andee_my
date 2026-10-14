@@ -204,6 +204,24 @@ class CommandDispatcher(
     private fun requireScreen(): ScreenController =
         screenOrNull() ?: throw IllegalStateException(SCREEN_UNAVAILABLE)
 
+    /**
+     * Whether the keyguard is up right now.
+     *
+     * A call rather than a field because the answer changes without anything
+     * here being told about it: the user can lock the phone between two tool
+     * calls of the same turn, and the guard in [dispatch] has to be reading the
+     * device, not a memory of it.
+     *
+     * Defaults to *not* locked when the service cannot be reached. A `false`
+     * here only means the screen gets the benefit of the doubt — the alternative
+     * would be an unrelated platform hiccup taking every device-operating tool
+     * away, which is a worse failure than the one this guard exists to stop.
+     */
+    private fun keyguardLocked(): Boolean = runCatching {
+        (appContext.getSystemService(android.content.Context.KEYGUARD_SERVICE)
+            as android.app.KeyguardManager).isKeyguardLocked
+    }.getOrDefault(false)
+
     /** Written on the main thread, read by worker threads: card already folded. */
     @Volatile
     private var compacted = false
@@ -274,6 +292,36 @@ class CommandDispatcher(
                 "This turn started from a notification somebody else sent, so scenes cannot be " +
                     "created, entered or deleted from it: $method. If it seems worth doing, ask the " +
                     "user next time they talk to you.",
+            )
+        }
+        // The lock screen is a wall around the screen, and unlike every other
+        // wall in this file it is one that fails *silently*. A gesture aimed at
+        // a locked device is dropped by the input pipeline — `dispatchGesture`
+        // reports nothing, and the lock screen's own `FLAG_SECURE` means there
+        // were never any logs to search. `screen.ui_tree` returns the empty
+        // placeholder the keyguard presents as, which is indistinguishable from
+        // the blank-tree case documented in the README. A launch lands behind
+        // the lock screen where nobody sees it. Every one of those would come
+        // back to the brain as a "completed" it then repeats to the user as
+        // something that happened — the single outcome this class exists to
+        // prevent, spelled out at [requireScreen].
+        //
+        // Read live rather than mirrored into a flag someone has to keep in
+        // step. The caller that matters here is the wake word, and it can fire
+        // at any moment of a turn: the user locking the phone mid-answer is a
+        // normal thing to do, not a state transition to be tracked. One binder
+        // call per tool is nothing beside what the tool itself is about to cost.
+        //
+        // `screen.` by prefix so a new tool in that namespace inherits the
+        // guard without a second edit here, then the handful of names outside it
+        // that are the same act by another road: launching something, opening a
+        // URL, pointing a camera, or drawing a surface the lock screen would
+        // cover anyway.
+        if (keyguardLocked() && (method.startsWith("screen.") || method in LOCKED_BLOCKED)) {
+            throw IllegalStateException(
+                "The phone is locked, so nothing behind the lock screen can be read or " +
+                    "touched: $method. Say so, in the user's language and without inventing " +
+                    "a result, and do it in the next turn once they have unlocked it.",
             )
         }
         // Every command below reaches into the real device, and every one of
@@ -1719,6 +1767,37 @@ class CommandDispatcher(
 
         /** How long to let the main thread take to apply the fold. */
         const val COMPACT_SETTLE_MS = 200L
+
+        /**
+         * What a locked phone refuses, beyond the whole `screen.` namespace —
+         * see the guard at the top of [dispatch], which tests this with a
+         * prefix for `screen.` and by name for these.
+         *
+         * Each one is the same act by another road. The first group reaches the
+         * screen without going near [ScreenController]: `device.launch` and
+         * `device.open_url` start an Activity that would open behind the
+         * keyguard, `device.scan` and `device.look` want a camera the platform
+         * will not hand to a locked device, and `device.permissions.request`
+         * needs an Activity to show a dialog in. The second group —
+         * `ui.ask`, `ui.alert`, `ui.show_html` — draws a surface. A card or a
+         * page under a lock screen is a claim the user cannot check, which is
+         * the same lie as a gesture that never landed.
+         *
+         * Not a prefix anywhere, and that is deliberate: `device.battery`,
+         * `device.volume`, `tts.speak` and the whole `note.` namespace all work
+         * perfectly well with the screen locked, and `tts.speak` is how the
+         * answer gets out at all. Only the names that would fail are here.
+         */
+        val LOCKED_BLOCKED = setOf(
+            "device.launch",
+            "device.open_url",
+            "device.scan",
+            "device.look",
+            "device.permissions.request",
+            "ui.ask",
+            "ui.alert",
+            "ui.show_html",
+        )
 
         /**
          * And how long to then let the *system* take to notice it — see

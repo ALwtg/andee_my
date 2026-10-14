@@ -604,6 +604,39 @@ data class VoiceConfig(
                 .getString("ball", "").orEmpty().trim()
 
         /**
+         * Whether the wake phrase is still listened for with the screen off.
+         *
+         * **On unless the user turns it off.** That default is the whole point
+         * of the switch: the screen being off is the normal state of a phone in
+         * a pocket, so the older rule — hold the microphone only while the
+         * screen was on — meant the assistant could not be called from exactly
+         * the place a person keeps their phone. The gate in
+         * [net.kuafuai.andee.wake.WakeWord] used to spell that rule out
+         * unconditionally; this is the user's override of it.
+         *
+         * What it costs, and why the settings row that flips it says so out
+         * loud: with the screen off the microphone is held continuously, so the
+         * platform's recording indicator stays lit and the segmenter runs for as
+         * long as the device is awake. Nothing recoverable as speech leaves the
+         * phone either way — see [net.kuafuai.andee.wake.WakeWord] — but
+         * "listening all the time" is a claim the user is entitled to see stated
+         * before they agree to it rather than discover on a status bar.
+         *
+         * Read from the wake supervisor's gate, which reconsiders ten times a
+         * second. Cheap (SharedPreferences answers from an already-loaded map)
+         * and deliberately not cached anywhere: the settings card writes it and
+         * the very next poll has to see it.
+         */
+        fun wakeWhileLocked(context: Context): Boolean =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean("wake_locked", true)
+
+        fun setWakeWhileLocked(context: Context, on: Boolean) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean("wake_locked", on).apply()
+        }
+
+        /**
          * The scene the assistant is in, by [Notebook.Scene.name], or null.
          *
          * Persisted for the same reason as [ballLook]: a service restart is not

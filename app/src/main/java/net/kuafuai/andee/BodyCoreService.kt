@@ -1284,8 +1284,9 @@ class BodyCoreService : Service() {
      * only while every one of these is true, and lets go within ~100 ms of any
      * of them turning false.
      *
-     * - **Screen on.** The user's choice, and it keeps a dark tablet on a
-     *   bedside table from listening all night.
+     * - **Listening is allowed.** Screen on, or the user left 锁屏时也听 on —
+     *   see [wakeListeningAllowed]. This term used to be the screen alone, and
+     *   that is the whole reason a phone in a pocket answered nothing.
      * - **ASR idle.** The turn's own recorder must never lose a race to the one
      *   listening for a wake word.
      * - **TTS quiet.** Otherwise Andee can hear itself say something close to
@@ -1310,7 +1311,7 @@ class BodyCoreService : Service() {
         net.kuafuai.andee.wake.WakeWord.init(
             this,
             gate = {
-                screenOn && !asr.isActive() && !tts.isSpeaking() &&
+                wakeListeningAllowed() && !asr.isActive() && !tts.isSpeaking() &&
                         !meeting.isActive() && !net.kuafuai.andee.device.CallState.isActive &&
                         !net.kuafuai.andee.audio.Earcon.isSounding()
             },
@@ -1321,6 +1322,24 @@ class BodyCoreService : Service() {
 
     @Volatile
     private var screenOn = true
+
+    /**
+     * Whether the wake listener may hold the microphone right now.
+     *
+     * Screen on is the old rule, and it is still the cheap one: the user is
+     * looking at the device, so listening costs nothing extra and cannot be a
+     * surprise. Screen off is the user's own call — see
+     * [net.kuafuai.andee.config.VoiceConfig.wakeWhileLocked], on unless they
+     * turn it off.
+     *
+     * The reason the second half exists at all: the screen being off is the
+     * normal state of a phone in a pocket, and an assistant that can only be
+     * called while you are already holding it is not one you can call. The cost
+     * — a microphone held continuously and the platform's recording indicator
+     * with it — is stated on the settings row rather than hidden here.
+     */
+    private fun wakeListeningAllowed(): Boolean =
+        screenOn || net.kuafuai.andee.config.VoiceConfig.wakeWhileLocked(this)
 
     private val screenReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(c: android.content.Context?, i: android.content.Intent?) {
