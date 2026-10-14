@@ -26,8 +26,8 @@ import java.util.concurrent.Executors
  *                      ├── error     → subtitle ERROR, IDLE
  *                      └── toggle()  → IDLE (user cancelled before final)
  *
- * All 火山 WS callbacks arrive on the client's IO thread; we marshal them to
- * the UI thread via FloatingWindowUi's own Handler.
+ * Every engine's callbacks arrive on its own thread, never the main one; we
+ * marshal them to the UI thread via FloatingWindowUi's own Handler.
  */
 class AsrController(
     private val context: Context,
@@ -49,7 +49,7 @@ class AsrController(
     },
 ) {
     @Volatile
-    private var asr: HuoshanAsr? = null
+    private var asr: AsrEngine? = null
     private val executor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "AsrController").apply { isDaemon = true }
     }
@@ -75,17 +75,44 @@ class AsrController(
     private val silence = Handler(Looper.getMainLooper())
     private val silenceWatchdog = Runnable { checkSilence() }
 
-    /** When the recognizer last reported *new* words. Written from the 火山 IO thread. */
+    /** When the recognizer last reported *new* words. Written from the engine's own thread. */
     @Volatile
     private var lastSpeechAt = 0L
 
     /**
-     * Last partial text we counted. Written from the 火山 IO thread. Guards
+     * Last partial text we counted. Written from the engine's own thread. Guards
      * against a recognizer that re-sends the same hypothesis while the user is
      * silent — without it the watchdog would never fire.
      */
     @Volatile
     private var lastPartial = ""
+
+    /** When this turn began, for the [MAX_TURN_MS] ceiling. */
+    private var turnStartedAt = 0L
+
+    /**
+     * Set by [AsrEngine.Listener.onReady]; false until the engine can hear.
+     * See [checkSilence] for why the clock waits on it.
+     */
+    @Volatile
+    private var engineReady = false
+
+    /**
+     * Has the recogniser reported anything at all this turn. A plain flag
+     * rather than a timestamp comparison, which is what it used to be: the two
+     * timestamps involved are set by different code paths now, so comparing
+     * them for equality would have been true only by luck.
+     */
+    @Volatile
+    private var heardAnything = false
+
+    /**
+     * How long a silence ends this turn, as answered by the engine in play —
+     * see [AsrEngine.silenceMs]. Seeded with 火山's value so that the watchdog
+     * has something sane to use in the window before an engine is built.
+     */
+    @Volatile
+    private var turnSilenceMs = 3000L
 
     fun isActive(): Boolean = audio.isStreaming()
 
@@ -103,8 +130,14 @@ class AsrController(
         }
     }
 
-    fun stop() {
-        executor.execute { runCatching { stopImpl() } }
+    /**
+     * [bySilence] is true only from [checkSilence] — the caller's own silence
+     * rule is the reason, which an engine uses to decide how long its last
+     * results can possibly still be worth waiting for. See
+     * [AsrEngine.endOfTurn].
+     */
+    fun stop(bySilence: Boolean = false) {
+        executor.execute { runCatching { stopImpl(bySilence) } }
     }
 
     fun shutdown() {
@@ -114,15 +147,32 @@ class AsrController(
 
     private fun startImpl() {
         val cfg = VoiceConfig.load(context)
+        // Set here, not in [armSilenceWatchdog], because 火山 reports
+        // [AsrEngine.Listener.onReady] from *inside* its own connect — before
+        // the capture starts and before that method runs. Measuring the
+        // connection from a timestamp this turn had not set yet produced
+        // "engine ready after 206230301ms": the process's uptime, reported as
+        // if it were a handshake.
+        turnStartedAt = SystemClock.uptimeMillis()
+        heardAnything = false
         // First thing, so the media app has the whole 火山 handshake to actually
         // stop in — asking and then opening the mic in the same breath would
         // still catch the tail of whatever was playing. A phone call takes the
         // floor back: end the turn rather than transcribe one side of a call.
         focus.acquire { stop() }
 
-        val listener = object : HuoshanAsr.Listener {
+        val listener = object : AsrEngine.Listener {
+            override fun onReady() {
+                // The session can hear. Start the silence clock here, not at the
+                // microphone — see [checkSilence].
+                Log.i(TAG, "engine ready after ${SystemClock.uptimeMillis() - turnStartedAt}ms")
+                lastSpeechAt = SystemClock.uptimeMillis()
+                engineReady = true
+            }
+
             override fun onPartial(text: String) {
                 if (text.isEmpty()) return
+                heardAnything = true
                 window.setSubtitle(text, FloatingWindowUi.SubtitleKind.PARTIAL)
                 if (text != lastPartial) {
                     lastPartial = text
@@ -160,8 +210,35 @@ class AsrController(
             override fun onClosed() {}
         }
 
-        val client = HuoshanAsr(cfg, listener)
-        client.start(sampleRate = 16_000, channels = 1)
+        // Which service hears. The pick is a string and the failure direction
+        // is 火山 — see [VoiceConfig.voiceProvider] — so an unrecognised value
+        // can only ever mean "keep doing what this device already did".
+        val client: AsrEngine = when (cfg.voiceProvider) {
+            VoiceConfig.VOICE_GOOGLE -> GoogleAsr(cfg, listener)
+            else -> HuoshanAsr(cfg, listener)
+        }
+        turnSilenceMs = client.silenceMs
+        Log.i(
+            TAG,
+            "engine: silence=${client.silenceMs}ms finalWait=${client.finalWaitMs}ms",
+        )
+        // **Cleared here, before the engine exists, and not in [armSilenceWatchdog].**
+        // 火山 reports [AsrEngine.Listener.onReady] from inside its own connect —
+        // its `start` blocks on the handshake and calls it before returning — so
+        // clearing this anywhere after that would erase the readiness the engine
+        // had just declared, and the silence rule would never fire: the
+        // microphone would sit open until [MAX_TURN_MS].
+        engineReady = false
+
+        // **The microphone and the tap's acknowledgement come first; the
+        // handshake follows them.** 火山's `start` blocks on its own connect —
+        // 1.7–2.2 s measured, and it is the CodeFlying path as much as the
+        // direct one, since the gateway speaks the same protocol — so under the
+        // old order the ball sat unchanged for two seconds after the tap and
+        // the microphone did not open until it was over. The first words of the
+        // sentence were never captured at all. Google's engine never had this,
+        // because its `start` returns at once and its `sendAudio` holds what
+        // arrives early; [HuoshanAsr] now does the same, so the two agree.
         asr = client
         window.setState(FloatingWindowUi.State.RECORDING)
         window.setSubtitle(
@@ -177,6 +254,14 @@ class AsrController(
             runCatching { asr?.sendAudio(chunk, isLast = false) }
                 .onFailure { Log.w(TAG, "sendAudio failed", it) }
         }
+
+        client.start(sampleRate = 16_000, channels = 1)
+
+        // **Armed after the capture starts, and that ordering is load-bearing
+        // too.** [checkSilence] opens by giving up when there is no stream — the
+        // normal case being a turn that has already ended — so arming this
+        // before [audio.startStreaming] means the very first tick, 250 ms in,
+        // finds no stream and stops the watchdog permanently.
         armSilenceWatchdog()
     }
 
@@ -196,48 +281,116 @@ class AsrController(
     }
 
     /**
-     * Main thread only. Nothing new out of the recognizer for [SILENCE_MS] and
-     * we close the mic ourselves — [stop] sends `isLast`, waits for 火山's final
-     * line, and that final line is what reaches the brain and starts the task.
-     * Indistinguishable from the user tapping again, which is the point.
+     * Main thread only. Nothing new out of the recogniser for the engine's own
+     * [AsrEngine.silenceMs] and we close the mic ourselves — [stop] says the
+     * turn is over, waits for the engine's final line, and that final line is
+     * what reaches the brain and starts the task. Indistinguishable from the
+     * user tapping again, which is the point.
+     *
+     * **The clock is fed by the recogniser's own output and by nothing else,
+     * and that is a simplification made after three attempts to do better.**
+     * A local energy gate was added, tuned, re-tuned, extended to the gateway
+     * path, and finally deleted: every version of it was a threshold that
+     * separated the user from their room, and every room is different. The
+     * device has a better answer available — the recogniser is already telling
+     * us what it hears, at 火山's few-hundred-millisecond cadence and at
+     * roughly one result a second from Gemini — so the only thing the window
+     * has to exceed is that cadence, not any property of the room.
+     *
+     * Two rules hold the edges, and neither needs calibrating:
+     *
+     *  * **Nothing counts until the engine can hear** — [AsrEngine.Listener.onReady].
+     *    The microphone opens 1.4–1.9 s before the session comes up on this
+     *    device, and a window measured from the former used to expire on top of
+     *    the handshake.
+     *  * **A turn that has heard nothing at all gets [SILENT_START_GRACE_MS]
+     *    before the silence rule applies.** Otherwise a tap followed by silence
+     *    would end [MAX_TURN_MS] later, and a recogniser whose first result is
+     *    slow would be cut off before it ever spoke.
      */
     private fun checkSilence() {
         if (!audio.isStreaming()) return  // finished already
-        val quiet = SystemClock.uptimeMillis() - lastSpeechAt
-        if (quiet < SILENCE_MS) {
+        val now = SystemClock.uptimeMillis()
+        if (now - turnStartedAt >= MAX_TURN_MS) {
+            Log.i(TAG, "turn hit ${MAX_TURN_MS}ms ceiling — auto-stop")
+            runCatching { stop() }
+            return
+        }
+        if (!engineReady) {
             silence.postDelayed(silenceWatchdog, SILENCE_CHECK_MS)
             return
         }
-        Log.i(TAG, "silence ${quiet}ms — auto-stop")
-        runCatching { stop() }
+
+        // Nothing heard yet: no partial has ever arrived, so there is nothing
+        // to have been silent *after*. Bounded, or a tap on the ball followed
+        // by nothing would hold the microphone to [MAX_TURN_MS].
+        if (!heardAnything && now - turnStartedAt < SILENT_START_GRACE_MS) {
+            silence.postDelayed(silenceWatchdog, SILENCE_CHECK_MS)
+            return
+        }
+
+        val quiet = now - lastSpeechAt
+        if (quiet < turnSilenceMs) {
+            silence.postDelayed(silenceWatchdog, SILENCE_CHECK_MS)
+            return
+        }
+        Log.i(TAG, "silence ${quiet}ms (limit=$turnSilenceMs) — auto-stop")
+        runCatching { stop(bySilence = true) }
     }
 
-    private fun stopImpl() {
+    private fun stopImpl(bySilence: Boolean = false) {
         silence.removeCallbacks(silenceWatchdog)
         val client = asr
         if (audio.isStreaming()) {
             audio.stopStreaming()
+            runCatching { client?.endOfTurn(bySilence) }
             runCatching { client?.sendAudio(ByteArray(0), isLast = true) }
                 .onFailure { Log.w(TAG, "isLast failed", it) }
         }
-        // Wait for 火山 to send the isLast response before closing — otherwise
-        // the final transcript never arrives (server sends it ~500ms after our
-        // isLast, but a 200ms fixed sleep isn't enough).
-        runCatching { client?.waitFinished(3000) }
+        // Wait for the final before closing, or it never arrives. The deadline
+        // is the engine's own — the two need very different ones and neither
+        // is the caller's business; see [AsrEngine.finalWaitMs].
+        runCatching { client?.waitFinished(client.finalWaitMs) }
         runCatching { client?.close() }
         asr = null
-        // Only now, so the media app doesn't resume into 火山's final transcript
-        // — that arrives ~500 ms after our isLast and the user is still waiting
-        // on it.
+        // Only now, so the media app doesn't resume into the final transcript
+        // — that arrives some time after we said the turn was over, and the
+        // user is still waiting on it.
         focus.release()
+        // The band comes down here as well as in `onFinal`, because the paths
+        // that never reach it still leave the microphone's own line on screen.
+        // The tap's acknowledgement is now drawn *before* the connect rather
+        // than after it, so a handshake that fails would otherwise strand
+        // 「听着…」 on the card for good — the turn is over and there is no
+        // engine left to report anything.
+        window.clearSubtitle()
         window.setState(FloatingWindowUi.State.IDLE)
     }
 
     companion object {
         private const val TAG = "Asr"
 
-        /** Quiet this long after the last word and the turn is over. */
-        private const val SILENCE_MS = 3000L
+        /**
+         * The longest a single turn may run, whatever the recogniser says.
+         *
+         * A backstop rather than a design. Sixty seconds is far beyond any
+         * question this device is asked and short enough that a failure stays
+         * diagnosable rather than looking like a hang — which is exactly what
+         * it was for twice tonight, when a microphone that would not close read
+         * to the user as a device that would not answer.
+         */
+        private const val MAX_TURN_MS = 60_000L
+
+        /**
+         * How long a turn may run having heard nothing at all before the
+         * silence rule is allowed to end it. See [checkSilence].
+         *
+         * Four seconds, against a measured connection time of 1.4–1.9 s: long
+         * enough to survive a slow handshake and a slow first result, short
+         * enough that a tap followed by silence still ends on its own rather
+         * than waiting out [MAX_TURN_MS].
+         */
+        private const val SILENT_START_GRACE_MS = 4000L
 
         /** How often the watchdog looks; only affects how promptly it stops. */
         private const val SILENCE_CHECK_MS = 250L

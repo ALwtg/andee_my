@@ -30,19 +30,49 @@ import javax.net.ssl.SSLContext
  */
 class HuoshanAsr(
     private val config: VoiceConfig,
-    private val listener: Listener,
-) {
-    interface Listener {
-        fun onPartial(text: String)
-        fun onFinal(text: String)
-        fun onError(msg: String)
-        fun onClosed()
-    }
+    private val listener: AsrEngine.Listener,
+) : AsrEngine {
+
+    /**
+     * How long the server is given to answer our final chunk.
+     *
+     * **3000 is thin, and the three measured turns that say so belong next to
+     * it.** The gap from the silence rule firing to the transcript reaching the
+     * brain was 198 ms, 2676 ms and 2660 ms — a 13× spread whose slow end sits
+     * at 89 % of this budget. Past it the turn does not degrade, it *fails*:
+     * the socket closes with the last frame still in flight, `onFinal` never
+     * fires, and a sentence the user definitely said reaches nothing at all.
+     * That is the failure with no cause visible from the outside, so a turn
+     * that does absolutely nothing starts by looking here.
+     *
+     * 5000 was tried and reverted: this is a ceiling rather than a sleep, so it
+     * buys nothing on a server that answers in 200 ms — which is most of them —
+     * and only lengthens the dead case.
+     */
+    override val finalWaitMs: Long = 3000L
+
+    /**
+     * **火山 never says a turn is over — this is the only thing that ends
+     * one.** Its value is therefore the user-facing pause tolerance, and it is
+     * unchanged from what this device has always used.
+     */
+    override val silenceMs: Long = 3000L
 
     private var client: WebSocketClient? = null
 
     // Full client request uses seq=1; audio chunks start at 2 (火山 protocol).
     private val seq = AtomicInteger(2)
+
+    /** Guards [pending] — the capture thread appends, the connect drains. */
+    private val lock = Any()
+
+    /** Audio that arrived before the handshake landed. See [sendAudio]. */
+    private val pending = ArrayList<ByteArray>()
+    private var pendingBytes = 0
+
+    /** Whether the socket may be written to. Set inside [flushPending]. */
+    @Volatile
+    private var ready = false
 
     @Volatile
     private var lastPartial: String = ""
@@ -77,7 +107,7 @@ class HuoshanAsr(
     @Volatile
     private var connected = false
 
-    fun start(sampleRate: Int = 16_000, channels: Int = 1) {
+    override fun start(sampleRate: Int, channels: Int) {
         val requestId = UUID.randomUUID().toString()
         val connectId = UUID.randomUUID().toString()
         val headers = mapOf(
@@ -169,25 +199,97 @@ class HuoshanAsr(
                 },
             )
         }
+        // Connected and configured, so the session can hear from here. The
+        // caller's silence clock starts on this rather than on the microphone
+        // opening — see [AsrEngine.Listener.onReady].
+        //
+        // The flush comes first, so that "ready" means the session has
+        // everything said so far — not merely that it could start listening.
+        flushPending()
+        listener.onReady()
     }
 
-    fun sendAudio(pcm: ByteArray, isLast: Boolean) {
-        val c = client ?: return
+    /**
+     * Send one block, or hold it until the handshake lands.
+     *
+     * **Held rather than dropped, and that is new.** The microphone now opens
+     * before the connect begins — see the note in `AsrController.startImpl` —
+     * so roughly two seconds of speech arrives while the socket is still
+     * connecting. [client] is non-null by then but the connection is not open,
+     * so a send at that point throws `WebsocketNotConnectedException` twenty
+     * times a second and the audio goes with it. Those two seconds are the
+     * beginning of the user's sentence, and losing them shows up as a
+     * connection that works perfectly and transcribes half a question.
+     *
+     * The same shape as [GoogleAsr]'s buffer, and for the same reason: its
+     * engine has always opened the microphone first, because its `start`
+     * returns at once instead of blocking on a connect.
+     */
+    override fun sendAudio(pcm: ByteArray, isLast: Boolean) {
+        val c = client
+        // The decision and the drain happen under one lock, so "held this" and
+        // "the buffer has been emptied" cannot both be true. Deciding outside
+        // it leaves a window where a block is appended just after the drain
+        // took its copy — stuck in the list forever, and audible in the
+        // transcript as a dropped word.
+        synchronized(lock) {
+            if (ready && c != null) {
+                sendNow(c, pcm, isLast)
+            } else if (!isLast && pendingBytes + pcm.size <= MAX_PENDING_BYTES) {
+                // A last frame is never held: it only arrives while the turn is
+                // being torn down, and a session that never came up has nothing
+                // left to finalise.
+                pending.add(pcm)
+                pendingBytes += pcm.size
+            }
+        }
+    }
+
+    /** [lock] held. Assigns the sequence number at *send* time, so order survives buffering. */
+    private fun sendNow(c: WebSocketClient, pcm: ByteArray, isLast: Boolean) {
         val current = seq.getAndIncrement()
-        val frame = buildAudioRequest(current, pcm, isLast)
-        c.send(frame)
+        c.send(buildAudioRequest(current, pcm, isLast))
         val n = chunksSent.incrementAndGet()
         if (isLast || n <= 3 || n % 20 == 0) {
             Log.d(TAG, "sendAudio seq=$current bytes=${pcm.size} isLast=$isLast totalChunks=$n")
         }
     }
 
-    fun close() {
+    /**
+     * Become ready and hand over everything held, as one indivisible step.
+     *
+     * [ready] is set *inside* the lock rather than before it, for the reason
+     * [GoogleAsr.flushPending] gives: a sender that sees `ready == true` has
+     * then necessarily also seen the drain's effect.
+     */
+    private fun flushPending() {
+        synchronized(lock) {
+            ready = true
+            val c = client
+            if (c != null && pending.isNotEmpty()) {
+                Log.i(TAG, "flushing ${pending.size} buffered blocks")
+                for (pcm in pending) sendNow(c, pcm, isLast = false)
+                pending.clear()
+                pendingBytes = 0
+            }
+        }
+    }
+
+    override fun close() {
         try {
             client?.close()
         } catch (_: Throwable) {
         }
         client = null
+        // Nothing is left holding audio for a socket that is gone. The capture
+        // has already stopped by the time this runs — [AsrController.stopImpl]
+        // stops it before it closes the engine — so this is a clear, not a
+        // race being won.
+        synchronized(lock) {
+            ready = false
+            pending.clear()
+            pendingBytes = 0
+        }
     }
 
     // ---- Response handling ----
@@ -297,7 +399,7 @@ class HuoshanAsr(
      * error / socket close). Call this after sending the isLast audio chunk,
      * before [close], so the final transcript has a chance to arrive.
      */
-    fun waitFinished(timeoutMs: Long = 3000): Boolean =
+    override fun waitFinished(timeoutMs: Long): Boolean =
         finishedLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
 
     // ---- Frame builders ----
@@ -358,5 +460,13 @@ class HuoshanAsr(
         private const val FLAG_NEG_WITH_SEQUENCE = 0b0011
         private const val SERIALIZATION_JSON = 0b0001
         private const val COMPRESSION_GZIP = 0b0001
+
+        /**
+         * The hold's ceiling while the handshake is in flight — 16 kHz × 2
+         * bytes × 20 s, the same number [GoogleAsr] uses. Two seconds of
+         * speech is 64 KB; this is the backstop for a microphone that somehow
+         * outruns a connect that never lands.
+         */
+        private const val MAX_PENDING_BYTES = 600 * 1024
     }
 }

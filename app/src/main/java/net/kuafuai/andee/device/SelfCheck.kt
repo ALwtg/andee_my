@@ -244,7 +244,7 @@ object SelfCheck {
             adbKeyboard(context, a11yIme),
             secureSettings(context, a11yIme),
             voiceKey(context),
-            voiceReach(probe, online),
+            voiceReach(context, probe, online),
             wakePhrase(context),
             background(context),
             storage(context),
@@ -862,22 +862,35 @@ object SelfCheck {
     }
 
     /**
-     * Is there a 火山 key at all.
+     * Is there a key for the voice service that is actually selected.
      *
      * Free, offline, and it sits *before* [voiceReach] because it answers the
      * cheaper half of the same question. Without a key ASR and TTS fail during
-     * the WebSocket handshake, which surfaces as a connect error — the device
-     * looks like it has a network problem when what it has is an empty field.
+     * their handshake, which surfaces as a connect error — the device looks
+     * like it has a network problem when what it has is an empty field.
      * [VoiceConfig.API_KEY] ships empty in the public source (see its doc), so
      * this is the state every fresh checkout starts in, and it has to be said
      * out loud rather than discovered.
+     *
+     * **Which key is asked for follows the provider, and the row names
+     * neither.** The checklist is about "can this device hear and speak"; a
+     * green tick earned by the 火山 key while the device is talking to Google
+     * is the exact lie that having one checklist instead of two exists to
+     * prevent. Not naming the provider in the sentence is what keeps [Finding]
+     * language-free — see the note on `detailArgs` — and the settings card
+     * that the fix button opens is showing which one is picked anyway.
      *
      * WARN, not FAIL: the brain, the screen tools and the notebook all work
      * mute. What is dead is hearing and speaking, which is a degraded device
      * rather than a dead one.
      */
     private fun voiceKey(context: Context): Finding {
-        val has = VoiceConfig.load(context).apiKey.isNotBlank()
+        val cfg = VoiceConfig.load(context)
+        val has = if (cfg.voiceProvider == VoiceConfig.VOICE_GOOGLE) {
+            cfg.googleApiKey.isNotBlank()
+        } else {
+            cfg.apiKey.isNotBlank()
+        }
         return Finding(
             id = "voice_key",
             title = R.string.check_title_voice_key,
@@ -889,18 +902,28 @@ object SelfCheck {
     }
 
     /**
-     * Can we reach 火山 at all.
+     * Can we reach the selected service's host at all.
      *
-     * A TCP connect, **not** a credential check: the ASR/TTS handshake carries
-     * the key in headers, and reproducing it here would mean a second copy of
-     * that protocol living next to `HuoshanAsr`. What this catches is the
-     * failure this device actually had — `ASR ws connect timeout` — where the
-     * network is up and the voice host still is not reachable from it. A green
-     * row here beside a failing ASR therefore means the key, and says so by
+     * A TCP connect, **not** a credential check: both handshakes carry the key
+     * in headers, and reproducing either here would mean a second copy of that
+     * protocol living next to its client. What this catches is the failure
+     * this device actually had — `ASR ws connect timeout` — where the network
+     * is up and the voice host still is not reachable from it. A green row
+     * here beside a failing ASR therefore means the key, and says so by
      * elimination — a deduction that is only usable because [voiceKey] has
      * already ruled out the empty field.
+     *
+     * The host moves with the provider, because the deduction above only holds
+     * if the row is probing the service in use. The Google endpoint is the
+     * inference host both halves go through — recognition opens a socket to
+     * it, synthesis posts to it.
      */
-    private fun voiceReach(probe: Boolean, online: Boolean): Finding {
+    private fun voiceReach(context: Context, probe: Boolean, online: Boolean): Finding {
+        val host = if (VoiceConfig.voiceProvider(context) == VoiceConfig.VOICE_GOOGLE) {
+            VOICE_HOST_GOOGLE
+        } else {
+            VOICE_HOST
+        }
         if (!probe || !online) {
             return Finding(
                 id = "voice_host",
@@ -910,14 +933,14 @@ object SelfCheck {
                 else R.string.check_detail_skipped_offline,
             )
         }
-        val err = tcpProbe(VOICE_HOST, VOICE_PORT)
+        val err = tcpProbe(host, VOICE_PORT)
         return Finding(
             id = "voice_host",
             title = R.string.check_title_voice_host,
             level = if (err == null) Level.OK else Level.WARN,
             detail = if (err == null) R.string.check_detail_voice_host_ok
             else R.string.check_detail_voice_host_bad,
-            detailArgs = if (err == null) listOf(VOICE_HOST) else listOf(VOICE_HOST, err),
+            detailArgs = if (err == null) listOf(host) else listOf(host, err),
         )
     }
 
@@ -1297,6 +1320,16 @@ object SelfCheck {
         "https://github.com/senzhk/ADBKeyBoard/releases/download/v2.5-dev/keyboardservice-debug.apk"
 
     private const val VOICE_HOST = "openspeech.bytedance.com"
+
+    /**
+     * Vertex's inference host — where both halves of the Google path go.
+     *
+     * Not the `wss://…/ws/…BidiGenerateContent` path and not a per-region
+     * host: the probe is a TCP connect, so the name that matters is the one
+     * that has to resolve and accept a connection.
+     */
+    private const val VOICE_HOST_GOOGLE = "aiplatform.googleapis.com"
+
     private const val VOICE_PORT = 443
     private const val PROBE_CONNECT_S = 6L
     private const val PROBE_CONNECT_MS = 6000

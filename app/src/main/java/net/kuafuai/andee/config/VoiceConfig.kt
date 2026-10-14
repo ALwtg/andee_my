@@ -14,6 +14,40 @@ data class VoiceConfig(
     val ttsResourceId: String,
     val ttsSpeaker: String,
     val ttsSampleRate: Int,
+    /**
+     * [VOICE_HUOSHAN] or [VOICE_GOOGLE] — which service hears and speaks.
+     *
+     * Read here rather than at the call site so that the two engines, the
+     * meeting recorder and the start-up log cannot disagree about it, the same
+     * reason [ttsSpeaker] lives in this object.
+     */
+    val voiceProvider: String,
+    /** Vertex Express key. Empty means the Google path cannot run. */
+    val googleApiKey: String,
+    val googleBaseUrl: String,
+    /**
+     * GCP project **number**, and the region the Live API session is opened
+     * in. Both are only used by the listening half.
+     *
+     * The model has to be named by its full resource path —
+     * `projects/{n}/locations/{r}/publishers/google/models/{m}` — because the
+     * Live API reads a bare name as a project id and answers
+     * `1008 Permission denied on resource project …`. The reference gateway
+     * found that out the hard way; these two rows are what that costs.
+     */
+    val googleProject: String,
+    val googleLocation: String,
+    val googleAsrModel: String,
+    val googleTtsModel: String,
+    /**
+     * A hint for both directions, or blank for "let Google decide".
+     *
+     * Blank rather than a fixed `zh-CN`, following the reference gateway: a
+     * Chinese user says "hello 帮我查一下" and an English one says
+     * "帮我查杭州天气", so naming one language does not restrict the other, it
+     * only makes it less accurate.
+     */
+    val googleLanguage: String,
 ) {
     companion object {
         /**
@@ -49,7 +83,14 @@ data class VoiceConfig(
          * Keys whose blank value means "go back to the compiled default"
          * rather than "the user didn't touch this row". See [save].
          */
-        internal val OVERRIDE_KEYS = setOf("api_key", "asr_endpoint", "tts_endpoint")
+        internal val OVERRIDE_KEYS = setOf(
+            "api_key", "asr_endpoint", "tts_endpoint",
+            // The Google rows all have a real value to fall back to — the
+            // build's, or the constant — so an empty box means "use that",
+            // which is the only way back to a baked-in key.
+            "google_api_key", "google_project", "google_base_url", "google_location",
+            "google_asr_model", "google_tts_model", "google_language",
+        )
 
         const val DEFAULT_ASR_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
         const val DEFAULT_ASR_RESOURCE = "volc.bigasr.sauc.duration"
@@ -57,6 +98,104 @@ data class VoiceConfig(
         const val DEFAULT_TTS_RESOURCE = "seed-tts-2.0"
         const val DEFAULT_TTS_SAMPLE_RATE = 24_000
         private const val PREFS = "voice_prefs"
+
+        /**
+         * Which service hears and speaks. See [voiceProvider].
+         *
+         * Two values and not a boolean because the list will not stay at two:
+         * the picker, the self-check rows and the engines all branch on the
+         * string, so a third provider is a value rather than a second flag.
+         */
+        const val VOICE_HUOSHAN = "huoshan"
+        const val VOICE_GOOGLE = "google"
+
+        /**
+         * The Vertex endpoint, its Express-keyed surface.
+         *
+         * Not a region-scoped host: Express mode takes an API key and no
+         * project or location, which is what makes the Google path a single
+         * settings row instead of the five the reference gateway needs.
+         */
+        const val DEFAULT_GOOGLE_BASE_URL = "https://aiplatform.googleapis.com/v1"
+
+        /**
+         * The region the Live API session is opened in.
+         *
+         * The reference gateway measured both this and `global` handshaking
+         * successfully; a real region is the default because it is the one that
+         * cannot silently route a device somewhere it has no business being.
+         */
+        const val DEFAULT_GOOGLE_LOCATION = "asia-northeast1"
+
+        /**
+         * The transcription model, and **the `-live` in its name is the whole
+         * reason the Google listening path is a WebSocket**.
+         *
+         * Google's dedicated transcription models are served only by the Live
+         * API; the same id on `generateContent` is a 400 "is not supported in
+         * the generateContent API". So "no WebSocket" and "a real transcription
+         * model" are not both available, and this build takes the model — a
+         * general Gemini would have to be *told* to transcribe verbatim and
+         * could decide otherwise, on a transcript the meeting recorder writes
+         * to disk as the record of what was said.
+         *
+         * The `-preview` suffix is not optional either: without it the name is
+         * a 404. Both facts are the reference gateway's, measured.
+         */
+        const val DEFAULT_GOOGLE_ASR_MODEL = "gemini-3.5-transcribe-live-preview"
+
+        /**
+         * The speaking model.
+         *
+         * The reference gateway records why this exact id and not the newer
+         * one: `3.8-flash-tts` exists on Gemini's own developer API but not on
+         * Vertex, where the speech models are 3.1 Flash TTS and below, and
+         * asking for 3.8 is a plain "model not found".
+         */
+        const val DEFAULT_GOOGLE_TTS_MODEL = "gemini-3.1-flash-tts-preview"
+
+        /**
+         * What the Google rows resolve to on a device where the user has typed
+         * nothing: **the build's value if it carries one, otherwise the
+         * constant above**.
+         *
+         * This is [llmModelDefault]'s shape for [llmModelDefault]'s reason. The
+         * hint under each row *is* the value a blank resolves to, so the hint
+         * and the resolved config have to come from the same call — a card that
+         * advertises one model and silently calls another is lying in the one
+         * place a user reads to decide what to type.
+         *
+         * The values come from `local.properties` through `BuildConfig` and
+         * never from this file. A key committed to a repository is a key in a
+         * search index, and a bare Vertex key is not a shape secret scanning
+         * recognises — which is exactly why [API_KEY] ships empty and why this
+         * one does too. Whoever builds an APK for Google puts the key in their
+         * own `local.properties`, which `.gitignore` excludes; whoever clones
+         * the repository gets empty strings here and the constants below.
+         *
+         * A build with [googleApiKeyDefault] non-empty is also what makes 谷歌
+         * the default provider — see [voiceProvider].
+         */
+        fun googleApiKeyDefault(): String = BuildConfig.GOOGLE_VOICE_KEY.trim()
+
+        /** See [googleApiKeyDefault]. Empty means "no project baked in". */
+        fun googleProjectDefault(): String = BuildConfig.GOOGLE_VOICE_PROJECT.trim()
+
+        /** See [googleApiKeyDefault]. */
+        fun googleLocationDefault(): String =
+            BuildConfig.GOOGLE_VOICE_LOCATION.trim().ifEmpty { DEFAULT_GOOGLE_LOCATION }
+
+        /** See [googleApiKeyDefault]. */
+        fun googleBaseUrlDefault(): String =
+            BuildConfig.GOOGLE_VOICE_BASE_URL.trim().trimEnd('/').ifEmpty { DEFAULT_GOOGLE_BASE_URL }
+
+        /** See [googleApiKeyDefault]. */
+        fun googleAsrModelDefault(): String =
+            BuildConfig.GOOGLE_VOICE_ASR_MODEL.trim().ifEmpty { DEFAULT_GOOGLE_ASR_MODEL }
+
+        /** See [googleApiKeyDefault]. */
+        fun googleTtsModelDefault(): String =
+            BuildConfig.GOOGLE_VOICE_TTS_MODEL.trim().ifEmpty { DEFAULT_GOOGLE_TTS_MODEL }
 
         /**
          * Where the agent loop runs. Deliberately an explicit setting rather
@@ -258,7 +397,26 @@ data class VoiceConfig(
          */
         fun brainMode(context: Context): String {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val saved = p.getString("brain", "")?.trim()?.lowercase().orEmpty()
+            return resolveBrainMode(p.getString("brain", ""))
+        }
+
+        /**
+         * [raw] — a saved value, or one the user has just picked and **not yet
+         * saved** — put through the rule above.
+         *
+         * Split out because the settings card has to ask about the second
+         * kind. The brain picker does not write on tap, so when the user
+         * selects 本机 out of CodeFlying the card is holding a value no pref
+         * reflects yet, and asking [brainMode] there answers about the mode
+         * being left — which is how the voice block came to stay hidden until
+         * 保存 rebuilt the card.
+         *
+         * **One rule, one place.** A second copy of "is CodeFlying really in
+         * play" is how a build that does not enable it ends up hiding the very
+         * voice settings it is reading from.
+         */
+        fun resolveBrainMode(raw: String?): String {
+            val saved = raw?.trim()?.lowercase().orEmpty()
             return when (saved) {
                 BRAIN_HUB -> BRAIN_HUB
                 BRAIN_LOCAL -> BRAIN_LOCAL
@@ -385,6 +543,47 @@ data class VoiceConfig(
         }
 
         /**
+         * Which service hears and speaks: [VOICE_HUOSHAN] or [VOICE_GOOGLE].
+         *
+         * **Anything that is not exactly `google` reads as 火山**, which is the
+         * same fail-closed direction [groundingEnabled] and [notifyScope] take,
+         * and here it is also the backward-compatible one: every device that
+         * predates this setting has no value at all, and 火山 is what they have
+         * been running. A device that upgrades must not change voice because a
+         * key it never had is now missing.
+         *
+         * **CodeFlying is pinned to 火山, and that is the point of it.**
+         * CodeFlying is the one-tap mode: the APK is packaged by an operator and
+         * handed to someone who configures nothing, so [load] takes every
+         * endpoint *and* credential from the build and the whole errand is the
+         * gateway's. Which means the gateway is also where the choice of
+         * upstream lives — its 火山 support and its Google support are two
+         * handlers behind one URL, and a client that second-guessed that by
+         * dialling Google itself with a key baked into the APK would be
+         * choosing a different vendor and a different bill than the operator
+         * did. So the saved value is ignored here, not merely outranked.
+         *
+         * On any other backend the picker is the user's: their key, their
+         * choice, and a saved value outranks the build's default.
+         */
+        fun voiceProvider(context: Context): String {
+            if (brainMode(context) == BRAIN_CODEFLYING) return VOICE_HUOSHAN
+            val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("voice_provider", "").orEmpty().trim().lowercase()
+            return when (saved) {
+                VOICE_GOOGLE -> VOICE_GOOGLE
+                VOICE_HUOSHAN -> VOICE_HUOSHAN
+                // Never chosen. A build packaged with a Google key is a build
+                // packaged *for* Google, so that is what it reads as; a build
+                // without one reads as 火山, which is what every build did
+                // before this setting existed. Either way the picker is one tap
+                // away, and a user's own choice always outranks this.
+                "" -> if (googleApiKeyDefault().isNotEmpty()) VOICE_GOOGLE else VOICE_HUOSHAN
+                else -> VOICE_HUOSHAN
+            }
+        }
+
+        /**
          * Is the 火山 account the one saved in settings, or the factory one?
          *
          * Only needed so the answer is *visible*: a setting whose effect cannot
@@ -422,9 +621,35 @@ data class VoiceConfig(
                     ?: DEFAULT_TTS_ENDPOINT,
                 ttsResourceId = p.getString("tts_resource_id", DEFAULT_TTS_RESOURCE)!!,
                 // The voice follows the ball's look; [TTS_SPEAKER] is the
-                // fallback for looks that don't name one.
+                // fallback for looks that don't name one. The same speaker
+                // string is what the Google path maps to a Gemini voice, so
+                // this stays the one place a voice is decided.
                 ttsSpeaker = lookSpeaker(p),
                 ttsSampleRate = p.getInt("tts_sample_rate", DEFAULT_TTS_SAMPLE_RATE),
+                voiceProvider = voiceProvider(context),
+                // Every one of these is saved-value-else-build-default, and the
+                // card's hint under each row is the same call — see
+                // [googleApiKeyDefault]. On a build with nothing baked in that
+                // reduces to exactly what it was before: the constants.
+                googleApiKey = p.getString("google_api_key", "").orEmpty().trim()
+                    .ifEmpty { googleApiKeyDefault() },
+                googleBaseUrl = p.getString("google_base_url", "").orEmpty().trim()
+                    .trimEnd('/').ifEmpty { googleBaseUrlDefault() },
+                // The project number has no constant to fall back to — there is
+                // no sensible one to invent, and the failure a missing one
+                // produces is a 1008 naming the resource, which says what is
+                // wrong better than an invented value could.
+                googleProject = p.getString("google_project", "").orEmpty().trim()
+                    .ifEmpty { googleProjectDefault() },
+                googleLocation = p.getString("google_location", "").orEmpty().trim()
+                    .ifEmpty { googleLocationDefault() },
+                googleAsrModel = p.getString("google_asr_model", "").orEmpty().trim()
+                    .ifEmpty { googleAsrModelDefault() },
+                googleTtsModel = p.getString("google_tts_model", "").orEmpty().trim()
+                    .ifEmpty { googleTtsModelDefault() },
+                // Blank is a real value here, not a missing one — see the
+                // field's own note. It must not fall through to a default.
+                googleLanguage = p.getString("google_language", "").orEmpty().trim(),
             )
         }
 
@@ -471,6 +696,19 @@ data class VoiceConfig(
                 "tts_endpoint" to p.getString("tts_endpoint", "").orEmpty(),
                 "tts_resource_id" to p.getString("tts_resource_id", DEFAULT_TTS_RESOURCE)!!,
                 "tts_sample_rate" to p.getInt("tts_sample_rate", DEFAULT_TTS_SAMPLE_RATE).toString(),
+                // Which service hears and speaks, plus its rows. The Google
+                // endpoint/model rows show saved-or-empty for the same reason
+                // the 火山 ones do: an empty box is the only state in which
+                // the hint — which is the value a blank resolves to — can be
+                // seen at all.
+                "voice_provider" to voiceProvider(context),
+                "google_api_key" to p.getString("google_api_key", "").orEmpty(),
+                "google_base_url" to p.getString("google_base_url", "").orEmpty(),
+                "google_project" to p.getString("google_project", "").orEmpty(),
+                "google_location" to p.getString("google_location", "").orEmpty(),
+                "google_asr_model" to p.getString("google_asr_model", "").orEmpty(),
+                "google_tts_model" to p.getString("google_tts_model", "").orEmpty(),
+                "google_language" to p.getString("google_language", "").orEmpty(),
                 "hub_url" to hc.url,
                 "device_id" to hc.deviceId,
                 "device_name" to hc.deviceName,
@@ -711,6 +949,10 @@ data class VoiceConfig(
             "api_key",
             "asr_endpoint", "asr_resource_id",
             "tts_endpoint", "tts_resource_id", "tts_sample_rate",
+            "voice_provider",
+            "google_api_key", "google_base_url",
+            "google_project", "google_location",
+            "google_asr_model", "google_tts_model", "google_language",
             "hub_url", "device_name",
             "brain",
             "show_hub",

@@ -686,27 +686,159 @@ class SettingsUi(
         )
         note(localBlock, lctx.getString(R.string.settings_brain_local_note))
 
+        // ---- Which service hears and speaks ----
+        //
+        // One container, so that the whole block can be taken out in one move
+        // rather than view by view — see the visibility flip at the end of it.
+        //
+        // **Not inside `localBlock`**, even though it reads like a 本机
+        // concern: who hears and who thinks are two different questions, and
+        // hanging this off the 本机 tab would hide it from a 云端 device that
+        // legitimately wants to point its own voice service somewhere.
+        //
+        // The two sets of rows are mutually exclusive and are not two flavours
+        // of the same thing: 火山's are endpoints and resource ids, Google's are
+        // a project, a location and two model names.
+        val voiceBlock = block(panel)
+        rowLabel(voiceBlock, lctx.getString(R.string.settings_voice_provider))
+        var applyProvider: ((String, Boolean) -> Unit)? = null
+        val provider = segmented(
+            voiceBlock,
+            "voice_provider",
+            listOf(
+                // 火山 first, because the first option is the fallback when
+                // nothing is saved — and for every device that predates this
+                // row, 火山 is what it has been running. See
+                // [VoiceConfig.voiceProvider].
+                VoiceConfig.VOICE_HUOSHAN to lctx.getString(R.string.settings_voice_provider_huoshan),
+                VoiceConfig.VOICE_GOOGLE to lctx.getString(R.string.settings_voice_provider_google),
+            ),
+        ) { applyProvider?.invoke(it, true) }
+
         // 火山: previously in 高级 → 火山. Rows copy that section's labels,
         // which still describe exactly these keys.
+        val huoshanBlock = block(voiceBlock)
         field(
-            localBlock,
+            huoshanBlock,
             "api_key",
             lctx.getString(R.string.settings_voice_api_key),
             hint = lctx.getString(R.string.settings_voice_api_key_hint),
             secret = true,
         )
-        field(localBlock, "asr_endpoint", lctx.getString(R.string.settings_voice_asr_endpoint))
-        field(localBlock, "asr_resource_id", lctx.getString(R.string.settings_voice_asr_resource_id))
-        field(localBlock, "tts_endpoint", lctx.getString(R.string.settings_voice_tts_endpoint))
-        field(localBlock, "tts_resource_id", lctx.getString(R.string.settings_voice_tts_resource_id))
-        field(localBlock, "tts_sample_rate", lctx.getString(R.string.settings_voice_tts_sample_rate), numeric = true)
+        field(huoshanBlock, "asr_endpoint", lctx.getString(R.string.settings_voice_asr_endpoint))
+        field(huoshanBlock, "asr_resource_id", lctx.getString(R.string.settings_voice_asr_resource_id))
+        field(huoshanBlock, "tts_endpoint", lctx.getString(R.string.settings_voice_tts_endpoint))
+        field(huoshanBlock, "tts_resource_id", lctx.getString(R.string.settings_voice_tts_resource_id))
+        field(
+            huoshanBlock,
+            "tts_sample_rate",
+            lctx.getString(R.string.settings_voice_tts_sample_rate),
+            numeric = true,
+        )
 
+        // ---- Google: one Vertex Express key, two protocols ----
+        //
+        // Every hint here is the value a blank row resolves to, from the same
+        // constants [VoiceConfig.load] reads — the same rule the LLM rows
+        // follow, for the same reason: a card that advertises a model but
+        // silently calls another is lying where the user goes to decide.
+        // A blank row means "use whatever the build carries", which for a
+        // packaged-for-Google APK is a real key and a real project number. So
+        // the hint has to say that, or the user reads an empty box as "not set
+        // up" while the device is happily talking to Google with a credential
+        // they never typed. The key's *value* is never shown — a settings card
+        // is not a place to print a secret — but the project number is not one,
+        // and printing it is how the row can be checked at a glance.
+        val builtInKey = VoiceConfig.googleApiKeyDefault()
+        val builtInProject = VoiceConfig.googleProjectDefault()
+
+        val googleBlock = block(voiceBlock)
+        field(
+            googleBlock,
+            "google_api_key",
+            lctx.getString(R.string.settings_google_api_key),
+            hint = if (builtInKey.isNotEmpty()) {
+                lctx.getString(R.string.settings_google_key_builtin)
+            } else {
+                lctx.getString(R.string.settings_google_api_key_hint)
+            },
+            secret = true,
+        )
+        field(
+            googleBlock,
+            "google_project",
+            lctx.getString(R.string.settings_google_project),
+            hint = builtInProject.ifEmpty {
+                lctx.getString(R.string.settings_google_project_hint)
+            },
+        )
+        field(
+            googleBlock,
+            "google_location",
+            lctx.getString(R.string.settings_google_location),
+            hint = VoiceConfig.googleLocationDefault(),
+        )
+        field(
+            googleBlock,
+            "google_asr_model",
+            lctx.getString(R.string.settings_google_asr_model),
+            hint = VoiceConfig.googleAsrModelDefault(),
+        )
+        field(
+            googleBlock,
+            "google_tts_model",
+            lctx.getString(R.string.settings_google_tts_model),
+            hint = VoiceConfig.googleTtsModelDefault(),
+        )
+        field(
+            googleBlock,
+            "google_base_url",
+            lctx.getString(R.string.settings_google_base_url),
+            hint = VoiceConfig.googleBaseUrlDefault(),
+        )
+        field(
+            googleBlock,
+            "google_language",
+            lctx.getString(R.string.settings_google_language),
+            hint = lctx.getString(R.string.settings_google_language_hint),
+        )
+        note(googleBlock, lctx.getString(R.string.settings_voice_google_note))
+
+        applyProvider = { p, animate ->
+            Glass.setVisible(huoshanBlock, p == VoiceConfig.VOICE_HUOSHAN, animate)
+            Glass.setVisible(googleBlock, p == VoiceConfig.VOICE_GOOGLE, animate)
+        }
+        applyProvider(provider, false)
+
+        // **The voice block is not drawn at all under the hosted backend**, and
+        // not merely disabled. There, [VoiceConfig.voiceProvider] pins 火山 and
+        // [VoiceConfig.load] takes every endpoint and credential from the build
+        // — so every control in this block is read by nothing. A row the user
+        // can edit that changes no behaviour is the small lie this card exists
+        // to avoid, and the honest surface for "what is actually in use" is the
+        // self-check page, which grades the real provider rather than a saved
+        // string.
+        //
+        // **Its flip belongs to the mode picker, not to this build pass.** It
+        // used to be a lone `setVisible` evaluated once here, against the
+        // *saved* mode, so picking 本机 out of CodeFlying left the block hidden
+        // until 保存 rebuilt the card — a control that only appears if you
+        // press the button standing next to it. Same condition; the difference
+        // is that it is asked of the value the user just picked, through
+        // [VoiceConfig.resolveBrainMode], so a build that does not enable
+        // CodeFlying still shows the block its runtime is actually reading.
+        //
         // One block visible at a time. Simultaneous flips so the card's total
         // height barely moves — see the old comment, still true.
         applyMode = { m, animate ->
             Glass.setVisible(hubBlock, m == VoiceConfig.BRAIN_HUB, animate)
             Glass.setVisible(cfBlock, m == VoiceConfig.BRAIN_CODEFLYING, animate)
             Glass.setVisible(localBlock, m == VoiceConfig.BRAIN_LOCAL, animate)
+            Glass.setVisible(
+                voiceBlock,
+                VoiceConfig.resolveBrainMode(m) != VoiceConfig.BRAIN_CODEFLYING,
+                animate,
+            )
         }
         applyMode(mode, false)
         applyThinking = { th, animate ->

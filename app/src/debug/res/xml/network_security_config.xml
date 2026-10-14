@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    **仅 debug。** 资源合并时同名资源由构建变体胜出，所以这份整个盖掉
+    src/main/res/xml/network_security_config.xml —— release 包里跑的仍然
+    是那份严格的（只放行一个主机），发布包不会因为联调多出任何明文口子。
+
+    这里多出来的是回环地址，给本机联调用的：
+
+        adb reverse tcp:8080 tcp:8080
+
+    把平板的 127.0.0.1:8080 经 USB 转回开发机，两边不在同一个网也能连。
+    从 app 的角度看这就是自己机器上的地址，但 Android 的明文策略不区分这个，
+    不写就报 "CLEARTEXT communication to 127.0.0.1 not permitted by
+    network security policy" —— 而且这句话会一路冒到界面上，看着像版本检查
+    失败，跟网络配置八竿子打不着。
+
+    **改 src/main 那份的时候记得同步这里。** 是整文件覆盖，不是追加 ——
+    漏一个主机，debug 上就会少一个能连的地址，而 release 上一切正常。
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">124.71.176.202</domain>
+    </domain-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
+</network-security-config>
