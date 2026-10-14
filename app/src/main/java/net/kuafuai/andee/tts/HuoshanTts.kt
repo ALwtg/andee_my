@@ -34,19 +34,9 @@ import javax.net.ssl.SSLContext
  */
 class HuoshanTts(
     private val config: VoiceConfig,
-    private val listener: Listener,
-) {
-    interface Listener {
-        fun onOpen(sampleRate: Int)
-        fun onAudio(pcm: ByteArray)
-        fun onSentenceStart(text: String)
-        fun onSentenceEnd(text: String)
-        fun onDone()
-        fun onError(msg: String)
-        fun onClose(reason: CloseReason)
-    }
+    private val listener: TtsEngine.Listener,
+) : TtsEngine {
 
-    enum class CloseReason { USER, SERVER, ERROR }
     private enum class State { IDLE, CONNECTING, SESSION_OPENING, READY, FINISHING, CLOSED }
 
     private var ws: WebSocketClient? = null
@@ -62,7 +52,7 @@ class HuoshanTts(
     private var state: State = State.IDLE
     private var sessionId: String = ""
     private var connectId: String = ""
-    private var failReason: CloseReason = CloseReason.SERVER
+    private var failReason: TtsEngine.CloseReason = TtsEngine.CloseReason.SERVER
     private var baseReqParams: JSONObject? = null
 
     @Volatile
@@ -71,7 +61,7 @@ class HuoshanTts(
     @Volatile
     private var pendingFinishTrigger: (() -> Unit)? = null
 
-    fun open() {
+    override fun open() {
         check(state == State.IDLE) { "already open (state=$state)" }
 
         state = State.CONNECTING
@@ -125,7 +115,7 @@ class HuoshanTts(
 
             override fun onError(ex: Exception?) {
                 Log.e(TAG, "onError", ex)
-                failReason = CloseReason.ERROR
+                failReason = TtsEngine.CloseReason.ERROR
                 listener.onError("ws error: ${ex?.message ?: ex?.javaClass?.simpleName}")
             }
         }
@@ -150,7 +140,7 @@ class HuoshanTts(
     }
 
     /** Push a chunk of text to be spoken. Can be called multiple times. */
-    fun push(text: String) {
+    override fun push(text: String) {
         if (state != State.READY) {
             Log.w(TAG, "push dropped, state=$state")
             return
@@ -177,7 +167,7 @@ class HuoshanTts(
      * seed-tts-2.0, some speakers don't emit audio until they see FinishSession,
      * causing a mutual wait deadlock. Send immediately.
      */
-    fun finish() {
+    override fun finish() {
         if (state == State.CLOSED || state == State.IDLE) return
         if (state != State.READY && state != State.SESSION_OPENING) return
         state = State.FINISHING
@@ -185,9 +175,9 @@ class HuoshanTts(
         sendEvent(EVT_FINISH_SESSION, "{}".toByteArray(Charsets.UTF_8))
     }
 
-    fun cancel() {
+    override fun cancel() {
         if (state == State.CLOSED || state == State.IDLE) return
-        failReason = CloseReason.USER
+        failReason = TtsEngine.CloseReason.USER
         try {
             if (state == State.READY || state == State.SESSION_OPENING) {
                 sendEvent(EVT_CANCEL_SESSION, "{}".toByteArray(Charsets.UTF_8))
@@ -236,7 +226,7 @@ class HuoshanTts(
             return
         }
         if (msg.type == MSG_SERVER_ERROR) {
-            failReason = CloseReason.ERROR
+            failReason = TtsEngine.CloseReason.ERROR
             listener.onError(
                 "TTS server error code=${msg.errorCode} " + "msg=${
                     String(
@@ -258,7 +248,7 @@ class HuoshanTts(
             }
 
             EVT_CONNECTION_FAILED -> {
-                failReason = CloseReason.ERROR
+                failReason = TtsEngine.CloseReason.ERROR
                 listener.onError("ConnectionFailed: ${String(msg.payload, Charsets.UTF_8)}")
             }
 
@@ -294,7 +284,7 @@ class HuoshanTts(
             }
 
             EVT_SESSION_FAILED -> {
-                failReason = CloseReason.ERROR
+                failReason = TtsEngine.CloseReason.ERROR
                 listener.onError("SessionFailed: ${String(msg.payload, Charsets.UTF_8)}")
             }
 

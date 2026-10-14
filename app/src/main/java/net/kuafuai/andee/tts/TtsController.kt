@@ -13,9 +13,10 @@ import net.kuafuai.andee.ui.FloatingWindowUi
 import java.util.concurrent.Executors
 
 /**
- * One-shot TTS: speak a single string via 火山 bidi TTS, stream PCM to AudioIO.
+ * One-shot TTS: speak a single string through whichever engine the settings
+ * name, stream PCM to AudioIO.
  *
- *   IDLE ── speak(text) ─→ SPEAKING (WS open, push, finish)
+ *   IDLE ── speak(text) ─→ SPEAKING (engine open, push, finish)
  *                          │
  *                          ├── sentence_start → subtitle SPEAKING
  *                          ├── done           → IDLE
@@ -30,7 +31,7 @@ class TtsController(
     private val window: FloatingWindowUi,
 ) {
     @Volatile
-    private var client: HuoshanTts? = null
+    private var client: TtsEngine? = null
 
     // Set by [stopSpeaking] so the in-flight websocket callbacks of an
     // interrupted utterance stop touching the UI. Without it, cancelling the
@@ -311,7 +312,7 @@ class TtsController(
         ui.post { cueNext = 0 }
 
         // Before the socket opens, not when the first audio lands: a media app
-        // takes a moment to actually stop, and the whole 火山 handshake is that
+        // takes a moment to actually stop, and the engine's own start-up is that
         // moment. Losing the floor mid-answer (a call arriving) ends the
         // utterance — talking underneath a ringtone helps nobody.
         //
@@ -324,7 +325,7 @@ class TtsController(
             window.setState(FloatingWindowUi.State.IDLE)
         }
 
-        val listener = object : HuoshanTts.Listener {
+        val listener = object : TtsEngine.Listener {
             override fun onOpen(sampleRate: Int) {
                 if (cancelled) return
                 audio.startStreamPlayback(sampleRate)
@@ -367,7 +368,7 @@ class TtsController(
                 // and it is read on the same thread the audio arrived on.
                 cueTotalMs = audio.queuedMs()
                 // SessionFinished means the *server* has stopped sending, not
-                // that the user has stopped hearing: 火山 delivers audio far
+                // that the user has stopped hearing: every engine delivers audio far
                 // faster than real time, so most of the utterance is usually
                 // still queued at this point. The ball therefore goes IDLE on
                 // the other side of the drain, not here — otherwise it drops
@@ -395,7 +396,7 @@ class TtsController(
                 reportUnavailable(msg)
             }
 
-            override fun onClose(reason: HuoshanTts.CloseReason) {
+            override fun onClose(reason: TtsEngine.CloseReason) {
                 // Every planned exit (stopSpeaking, cancel, onDone, onError)
                 // nulls [client] before the socket actually closes. Reaching
                 // here with it still set therefore means the socket died on
@@ -412,7 +413,11 @@ class TtsController(
             }
         }
 
-        val c = HuoshanTts(cfg, listener)
+        // Which service speaks. Same fail-to-火山 rule as the listening side.
+        val c: TtsEngine = when (cfg.voiceProvider) {
+            VoiceConfig.VOICE_GOOGLE -> GoogleTts(cfg, listener)
+            else -> HuoshanTts(cfg, listener)
+        }
         client = c
         c.open()
     }

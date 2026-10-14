@@ -120,6 +120,21 @@
     <string name="settings_voice_tts_endpoint">TTS endpoint</string>
     <string name="settings_voice_tts_resource_id">TTS resource ID</string>
     <string name="settings_voice_tts_sample_rate">TTS sample rate</string>
+    <string name="settings_voice_provider">Voice provider</string>
+    <string name="settings_voice_provider_huoshan">Volcengine</string>
+    <string name="settings_voice_provider_google">Google</string>
+    <string name="settings_google_api_key">Google API key</string>
+    <string name="settings_google_api_key_hint">Vertex Express key — hearing and speaking both use it</string>
+    <string name="settings_google_key_builtin">Built in at package time — leave blank to use it</string>
+    <string name="settings_google_project">Project number</string>
+    <string name="settings_google_project_hint">The GCP project *number* (not its id); recognition needs it</string>
+    <string name="settings_google_location">Location</string>
+    <string name="settings_google_asr_model">Recognition model</string>
+    <string name="settings_google_tts_model">Synthesis model</string>
+    <string name="settings_google_base_url">Endpoint</string>
+    <string name="settings_google_language">Language</string>
+    <string name="settings_google_language_hint">blank = detect automatically</string>
+    <string name="settings_voice_google_note">Recognition runs on Gemini Live (so it needs the project number and location); synthesis is plain HTTP. The key stays on this device.</string>
     <string name="settings_section_diagnostics">Diagnostics</string>
     <string name="settings_section_advanced">Advanced</string>
     <string name="settings_max_steps">Max steps per task</string>
@@ -482,8 +497,8 @@
     <string name="check_detail_secure_spare">Not granted, and typing works anyway — it goes through the accessibility input method. This is only needed by the spare channel above.</string>
     <string name="check_detail_mic_on">Allowed.</string>
     <string name="check_detail_mic_off">Not allowed. Tapping the ball does nothing at all — the failure that least resembles a permission problem.</string>
-    <string name="check_detail_voice_key_ok">Set. Recognition and synthesis use it to reach Volcengine.</string>
-    <string name="check_detail_voice_key_missing">Not set. The source ships without a key — open a Volcengine Speech service of your own and put the key in ⚙ → Backend → On-device → “Volcengine API key”. Without it, hearing and speaking cannot connect, and what you get back is a connection timeout that looks like a network fault. Everything else works.</string>
+    <string name="check_detail_voice_key_ok">Set. Recognition and synthesis use it to reach the provider.</string>
+    <string name="check_detail_voice_key_missing">Not set. The source ships without a key — open a speech service of your own and put its key in ⚙ → Backend → On-device. Without it, hearing and speaking cannot connect, and what you get back is a connection timeout that looks like a network fault. Everything else works.</string>
     <string name="check_detail_voice_host_ok">%1$s is reachable.</string>
     <string name="check_detail_voice_host_bad">Could not reach %1$s: %2$s. Both recognition and synthesis will time out.</string>
     <string name="check_detail_wake_on">Taught, and it wakes when you say it.</string>

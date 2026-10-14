@@ -51,6 +51,26 @@ android {
         buildConfigField "String",  "DEFAULT_LANG",            buildConfigString('DEFAULT_LANG')
         buildConfigField "String",  "DEFAULT_THINKING",        buildConfigString('DEFAULT_THINKING')
 
+        // The Google voice path, baked in at package time.
+        //
+        // Same rule as CODEFLYING_KEY above and for the same reason: a key in
+        // the source is a key in a search index, so it lives in
+        // local.properties — which .gitignore excludes — and the repository's
+        // copy of that file stays empty. The source's own default is the empty
+        // string, so a checkout with nothing configured builds exactly what it
+        // built before Google existed.
+        //
+        // **GOOGLE_VOICE_KEY non-empty is also what makes 谷歌 the default
+        // provider** — see VoiceConfig.voiceProvider. A build is packaged for
+        // whoever it is packaged for, and baking a key is the most explicit
+        // statement of that intent there is.
+        buildConfigField "String",  "GOOGLE_VOICE_KEY",        buildConfigString('GOOGLE_VOICE_KEY')
+        buildConfigField "String",  "GOOGLE_VOICE_PROJECT",    buildConfigString('GOOGLE_VOICE_PROJECT')
+        buildConfigField "String",  "GOOGLE_VOICE_LOCATION",   buildConfigString('GOOGLE_VOICE_LOCATION')
+        buildConfigField "String",  "GOOGLE_VOICE_BASE_URL",   buildConfigString('GOOGLE_VOICE_BASE_URL')
+        buildConfigField "String",  "GOOGLE_VOICE_ASR_MODEL",  buildConfigString('GOOGLE_VOICE_ASR_MODEL')
+        buildConfigField "String",  "GOOGLE_VOICE_TTS_MODEL",  buildConfigString('GOOGLE_VOICE_TTS_MODEL')
+
         // Verification hook, off unless asked for: `-PdbgSuffix=.dbg` builds a
         // *parallel* package that installs next to whatever is already on the
         // device. Needed because the package on the tablet was signed with a

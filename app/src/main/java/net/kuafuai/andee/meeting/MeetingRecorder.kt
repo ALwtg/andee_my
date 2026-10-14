@@ -6,6 +6,8 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import net.kuafuai.andee.R
+import net.kuafuai.andee.asr.AsrEngine
+import net.kuafuai.andee.asr.GoogleAsr
 import net.kuafuai.andee.asr.HuoshanAsr
 import net.kuafuai.andee.audio.AudioFocusGate
 import net.kuafuai.andee.audio.AudioIO
@@ -29,20 +31,35 @@ import java.util.concurrent.atomic.AtomicInteger
  * screen with `show_html`. That split is why this class has no notion of a
  * "summary" anywhere in it.
  *
- * **Why segments.** [HuoshanAsr] reports a final transcript exactly once, when
- * the server answers our `isLast`. One session for one meeting would therefore
- * produce nothing at all until the meeting ended, and any dropped connection in
- * between would take the whole hour with it. So the recogniser is rotated: a
- * segment lives ~2 minutes, its final text is appended to disk the moment it
- * arrives, and a disconnect costs one segment instead of the meeting.
+ * **Why segments.** A recogniser reports a final transcript exactly once, when
+ * it is told the utterance is over — and neither engine produces one before
+ * that. One session for one meeting would therefore produce nothing at all
+ * until the meeting ended, and any dropped connection in between would take
+ * the whole hour with it. So the recogniser is rotated: a segment lives ~2
+ * minutes, its final text is appended to disk the moment it arrives, and a
+ * disconnect costs one segment instead of the meeting.
  *
  * **Why the new session opens before the old one is retired.** Retiring costs
- * up to [FINAL_WAIT_MS] of blocking (火山 sends the final ~500 ms after our
- * `isLast` — see `AsrController.stopImpl`), and connecting costs a second or
- * two. Doing either with no live session would punch a hole in the recording.
+ * up to the engine's own final wait of blocking (a recogniser owes a final once
+ * it has been told the segment is over — see [AsrEngine.finalWaitMs]), and
+ * connecting costs a second or two. Doing either with no live session would
+ * punch a hole in the recording.
  * Opening first means audio always has somewhere to go, and it makes a failed
  * rotation free: if the replacement cannot connect, the old segment is still
  * receiving and the meeting carries on.
+ *
+ * **Why the recogniser is not 火山-specific.** The three properties this class
+ * needs are the three [AsrEngine] already promises: audio goes in as it
+ * arrives, listening continues while it does, and one final comes back when
+ * the caller says the segment is over. 火山 and the Google Live API both have
+ * them, so a segment is built from [VoiceConfig.voiceProvider] like every
+ * other listener on this device. A meeting is not a different kind of
+ * listening, and a device configured only for Google can take minutes.
+ *
+ * The wait in [retire] is provider-dependent, and that is why it is asked of
+ * the engine rather than named here: 火山 answers a retiring segment in about
+ * half a second, while the Google engine pushes trailing silence and waits for
+ * the reply. A single constant in this file could only ever suit one of them.
  */
 class MeetingRecorder(
     private val context: Context,
@@ -189,7 +206,7 @@ class MeetingRecorder(
             .put("file", fileRef())
     }
 
-    /** Synchronous stop, for the dispatcher. Blocks for up to [FINAL_WAIT_MS]. */
+    /** Synchronous stop, for the dispatcher. Blocks for the engine's final wait. */
     fun stop(): JSONObject {
         if (!recording.compareAndSet(true, false)) {
             throw IllegalStateException("no meeting is being recorded")
@@ -205,7 +222,7 @@ class MeetingRecorder(
      * asked it for one.
      *
      * Safe from the main thread and from a binder thread: the teardown blocks
-     * on 火山's last word, which would ANR the UI, so it goes to [exec] and the
+     * on the recogniser's last word, which would ANR the UI, so it goes to [exec] and the
      * result comes back through [onEnded].
      *
      * @param reason reaches the brain verbatim as `stopped_by`, and it says
@@ -238,8 +255,8 @@ class MeetingRecorder(
      *
      * Blocks, because the caller releases the microphone the instant this
      * returns and the last segment's text exists only in memory until [io]
-     * runs — but without [FINAL_WAIT_MS], which would put three seconds into
-     * `onDestroy` to gain a final that the settled partial already covers.
+     * runs — but without waiting for the final, which would put seconds into
+     * `onDestroy` to gain text the settled partial already covers.
      */
     fun shutdown() {
         if (recording.compareAndSet(true, false)) {
@@ -325,7 +342,11 @@ class MeetingRecorder(
 
     private fun retire(seg: Segment, waitForFinal: Boolean = true) {
         runCatching { seg.asr.sendAudio(ByteArray(0), isLast = true) }
-        if (waitForFinal) runCatching { seg.asr.waitFinished(FINAL_WAIT_MS) }
+        // The deadline is the engine's own: 火山 answers a retiring segment in
+        // about half a second, while the Google engine pushes trailing silence
+        // and waits for the reply. One shared number could only be right for
+        // one of them — see [AsrEngine.finalWaitMs].
+        if (waitForFinal) runCatching { seg.asr.waitFinished(seg.asr.finalWaitMs) }
         runCatching { seg.asr.close() }
         // The latch also trips on error and on close, so a final is not
         // guaranteed to have arrived. Settling here keeps the last partial
@@ -360,7 +381,7 @@ class MeetingRecorder(
         val f = file ?: return
         // runCatching around the submit too: a segment can settle from its
         // WebSocket thread after [shutdown] closed the writer, and a rejected
-        // task must not surface as a crash inside 火山's callback.
+        // task must not surface as a crash inside the recogniser's callback.
         runCatching {
             io.execute {
                 runCatching { f.appendText(block) }
@@ -455,8 +476,16 @@ class MeetingRecorder(
 
     // ---- One recogniser session ----------------------------------------
 
-    private inner class Segment(val index: Int) : HuoshanAsr.Listener {
-        val asr = HuoshanAsr(VoiceConfig.load(context), this)
+    private inner class Segment(val index: Int) : AsrEngine.Listener {
+        // Whichever service hears, the same one the conversation uses — a
+        // meeting is not a different kind of listening. Both engines suit a
+        // segment exactly: audio goes in for as long as the segment lives,
+        // and one final comes back when it is told the segment is over.
+        val asr: AsrEngine = if (VoiceConfig.voiceProvider(context) == VoiceConfig.VOICE_GOOGLE) {
+            GoogleAsr(VoiceConfig.load(context), this)
+        } else {
+            HuoshanAsr(VoiceConfig.load(context), this)
+        }
 
         /** Reset by [rotate] when a replacement could not be opened. */
         @Volatile
@@ -523,7 +552,14 @@ class MeetingRecorder(
         /** Quiet this long and the seam is safe to put here. */
         const val PAUSE_MS = 800L
 
-        /** 火山 sends its final ~500 ms after our isLast; this is the ceiling. */
+        /**
+         * How long a retiring segment waits for its final.
+         *
+         * 火山 answers in about half a second; the Google engine holds the
+         * segment's text for its own grace first (`GoogleAsr.EMIT_GRACE_MS`)
+         * and that has to fit inside this. A caller that has already given up
+         * is one nobody can hand a transcript to.
+         */
         const val FINAL_WAIT_MS = 3000L
 
         /** Roughly a four-hour Chinese meeting. Beyond it, see [elide]. */
