@@ -172,7 +172,7 @@ class WakeEnrollUi(
         TextView(context).apply {
             text = label
             textSize = Glass.Type.BODY
-            setTextColor(Color.parseColor(if (filled) Glass.TITLE else Glass.LABEL))
+            setTextColor(Color.parseColor(if (filled) Glass.ON_TINT else Glass.LABEL))
             gravity = Gravity.CENTER
             background =
                 if (filled) Glass.tinted(context, dp(20)) else Glass.panel(context, dp(20))

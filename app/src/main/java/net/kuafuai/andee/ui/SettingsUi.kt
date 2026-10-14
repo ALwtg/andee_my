@@ -962,7 +962,7 @@ class SettingsUi(
             )
             // Same pair [button] picks with, so the on state reads as the
             // filled chip it would have been had it been born on.
-            lockedBtn.setTextColor(Color.parseColor(if (on) Glass.TITLE else Glass.LABEL))
+            lockedBtn.setTextColor(Color.parseColor(if (on) Glass.ON_TINT else Glass.LABEL))
             lockedBtn.background =
                 if (on) Glass.tinted(context, dp(24)) else Glass.panel(context, dp(24))
         }
@@ -1671,7 +1671,7 @@ class SettingsUi(
             textSize = Glass.Type.BODY
             setTextColor(
                 Color.parseColor(
-                    if (danger) Glass.DANGER else if (filled) Glass.TITLE else Glass.LABEL,
+                    if (danger) Glass.DANGER else if (filled) Glass.ON_TINT else Glass.LABEL,
                 ),
             )
             gravity = Gravity.CENTER

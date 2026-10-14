@@ -356,7 +356,7 @@ object CardUi {
                         // brighter than they would on a frosted one.
                         Glass.thumb(context, dp(22))
                     }
-                    setTextColor(Color.parseColor(if (isPrimary) Glass.TITLE else Glass.LABEL))
+                    setTextColor(Color.parseColor(if (isPrimary) Glass.ON_TINT else Glass.LABEL))
                     Glass.pressable(this)
                 }
                 val lp = LinearLayout.LayoutParams(

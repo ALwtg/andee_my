@@ -97,8 +97,8 @@ object Glass {
     // near-black, and the three state colours were darkened until they carry on a
     // white field rather than glowing against a dark one.
     //
-    // The exception is [TINT_START]/[TINT_END]: a saturated gradient reads on either
-    // ground, and it is the one place colour is allowed to be loud.
+    // The exception is the committing button ([tinted]): one saturated fill reads on
+    // either ground, and it is the one place colour is allowed to be loud.
 
     /**
      * The two palettes, behind one set of names.
@@ -137,6 +137,8 @@ object Glass {
         val muted: String,
         val photoInk: String,
         val accent: String,
+        /** The fill of the one committing surface; see [tinted]. */
+        val tint: String,
         val danger: String,
         val ok: String,
         val warn: String,
@@ -164,6 +166,7 @@ object Glass {
         muted = "#7D8592",
         photoInk = "#252A33",
         accent = "#3B62E0",
+        tint = "#3B62E0",
         danger = "#DC2626",
         ok = "#16A34A",
         warn = "#D97706",
@@ -188,6 +191,7 @@ object Glass {
         muted = "#5F6775",
         photoInk = "#98A0AE",
         accent = "#7FA5FF",
+        tint = "#4C6FFF",
         danger = "#FF6B6B",
         ok = "#4ADE80",
         warn = "#FBBF24",
@@ -322,14 +326,18 @@ object Glass {
     val ACCENT: String get() = active.accent
 
     /**
-     * The primary button is a gradient, which is the one place colour is loud.
+     * The label on the button that commits — on [tinted], and nowhere else.
      *
-     * The only two colours here that are **not** theme-dependent: a saturated
-     * blue-to-violet gradient with white text on it reads on a white card and on a
-     * dark one, and it is what makes the button the loudest thing on either.
+     * **Not [TITLE]**, which is what those call sites used to name, and the reason is
+     * measurable rather than a matter of taste: [TITLE] is near-black in day and white
+     * at night, because its job is to sit on a card. On a saturated fill that only
+     * works at night — a near-black label on the day tint measures about 4:1, under
+     * the line for body text, while white clears 4.5:1 on either tint.
+     *
+     * Both fills were picked deep enough to carry white, which is what lets one
+     * constant be right for both themes.
      */
-    const val TINT_START = "#4C6FFF"
-    const val TINT_END = "#8250FF"
+    const val ON_TINT = "#FFFFFF"
 
     val DANGER: String get() = active.danger
 
@@ -570,16 +578,31 @@ object Glass {
         radius = radius,
     )
 
-    /** The one loud surface: the button that commits. */
+    /**
+     * The one loud surface: the button that commits.
+     *
+     * **Flat, and the theme's own blue.** It used to be a fixed blue-to-violet
+     * gradient, and both halves of that turned out to be wrong. A gradient inside a
+     * pill makes the button carry its own light source — the look of a landing page's
+     * call to action — and it was the only colour in the palette that did not answer
+     * to [Theme], so on a light card it sat there like a sticker off another design.
+     *
+     * What makes this the loudest thing on a card is that it is the only saturated
+     * fill on it. That survives going flat; the gradient was never what did the work.
+     *
+     * The two values sit one step deeper than each theme's [ACCENT], because the label
+     * on this surface is white in both themes ([ON_TINT]) and white is the thing a
+     * fill has to be chosen against. Violet went with the gradient — the interface has
+     * exactly one hue and it is blue.
+     */
     @Suppress("UNUSED_PARAMETER") // takes a Context like its siblings, so callers read alike
-    fun tinted(context: Context, radius: Int): Drawable = LayerDrawable(
-        arrayOf(
-            GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor(TINT_START), Color.parseColor(TINT_END)),
-            ).apply { cornerRadius = radius.toFloat() },
-            sheen(radius),
-        ),
+    fun tinted(context: Context, radius: Int): Drawable = sheened(
+        base = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(Color.parseColor(active.tint))
+            cornerRadius = radius.toFloat()
+        },
+        radius = radius,
     )
 
     private fun fill(context: Context, color: String, edge: String, radius: Int) =

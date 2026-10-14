@@ -271,7 +271,7 @@ class ExpressionsUi(
     private fun light(chip: TextView, on: Boolean) {
         chip.background =
             if (on) Glass.tinted(context, dp(18)) else Glass.panel(context, dp(18))
-        chip.setTextColor(Color.parseColor(if (on) Glass.TITLE else Glass.LABEL))
+        chip.setTextColor(Color.parseColor(if (on) Glass.ON_TINT else Glass.LABEL))
     }
 
     private fun button(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
