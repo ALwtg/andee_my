@@ -292,6 +292,13 @@ started, and once it runs out, tokens are purchased.
 4. Grant Overlay, then Accessibility → the ball appears
 ```
 
+Or take the middle route — **a bare debug APK is attached to the
+[latest release](https://github.com/kuafuai/andee/releases/latest)**. That skips building it yourself,
+but **not** the token setup: no keys are configured, it comes up in English, and CodeFlying is off, so
+you put your own model and voice keys in under ⚙ → **Backend → On-device** before it can do anything.
+It is a stopgap for trying the thing rather than a distribution build; the release notes say why and
+what it costs.
+
 To build it yourself instead:
 
 > **Requirements**
