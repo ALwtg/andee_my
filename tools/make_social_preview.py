@@ -48,9 +48,20 @@ ART_CX, ART_CY = 952.0, 322.0
 # 头部本身的直径（量出来的 693px）按同比例缩放后的值，用于文字间距自检。
 HEAD_W_SRC = 693.0
 
-# 文字基线
-Y_EYEBROW, Y_TITLE, Y_TAG = 170, 296, 356
-Y_RULE, Y_FOOT = 440, 482
+# 文字基线（比原来整体上移 60px，给最下面那条表情行让位）
+Y_EYEBROW, Y_TITLE, Y_TAG = 118, 244, 304
+Y_RULE, Y_FOOT = 388, 430
+
+# 最下面那条「一张插画 + 一个字」的行：五张横向排开，标签居中在每张下面。
+# 宽度锁在左栏里（96 → 700），所以它不会碰到右边那颗头。
+# 插画是 App 的手势情绪（WINK / WAVE / PROTECT / REST 那批带道具的），
+# 网页渲染器 ball.js 画不出它们，所以这里用的是真图，不是渲出来的。
+FLOW_W = 604
+FLOW_IMG = 104
+FLOW_TOP = 486
+FLOW_LABEL_DY = 26
+FLOW_FONT = 15
+FLOW_DIR = REPO / "images" / "brand" / "illustrations"
 
 INK = "#10172A"
 INK_SOFT = "#3B4768"
@@ -62,6 +73,8 @@ EN = {
     "title": "Andee",
     "tagline": ["It becomes the soul", "of the device."],
     "foot": ["Nineteen moods. Its own notebook.", "It reviews itself when nobody watches."],
+    "flow": [("wave", "Listen"), ("wink", "Look"), ("think", "Think"),
+             ("protect", "Act"), ("rest", "Speak")],
     "font": "'SF Pro Display','Helvetica Neue',Helvetica,Arial,sans-serif",
 }
 ZH = {
@@ -69,6 +82,8 @@ ZH = {
     "title": "Andee",
     "tagline": ["他会成为这台设备的", "主人。"],
     "foot": ["十九种情绪、一本只有他自己能读的笔记本。", "没人看着的时候，他会自己复盘。"],
+    "flow": [("wave", "听"), ("wink", "看"), ("think", "想"),
+             ("protect", "做"), ("rest", "说")],
     "font": "'PingFang SC','Hiragino Sans GB','Heiti SC',sans-serif",
 }
 
@@ -87,6 +102,11 @@ def build_svg(copy: dict) -> str:
     foot = "\n  ".join(
         f'<text x="96" y="{Y_FOOT + i * 32}" class="foot" fill="{INK_FAINT}">{html.escape(l)}</text>'
         for i, l in enumerate(copy["foot"]))
+    cell_w = FLOW_W / len(copy["flow"])
+    flow = "\n  ".join(
+        f'<text x="{96 + i * cell_w + cell_w / 2:.1f}" y="{FLOW_TOP + FLOW_IMG + FLOW_LABEL_DY}"'
+        f' text-anchor="middle" class="flow" fill="{INK_SOFT}">{html.escape(label)}</text>'
+        for i, (_, label) in enumerate(copy["flow"]))
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">
   <defs>
     <style>
@@ -94,6 +114,7 @@ def build_svg(copy: dict) -> str:
       .wordmark {{ font-family: {f}; font-size: 130px; font-weight: 700; letter-spacing: -3px; }}
       .tag {{ font-family: {f}; font-size: 33px; font-weight: 500; letter-spacing: -0.2px; }}
       .foot {{ font-family: {f}; font-size: 22px; font-weight: 400; letter-spacing: 0.1px; }}
+      .flow {{ font-family: {f}; font-size: {FLOW_FONT}px; font-weight: 500; letter-spacing: 0.2px; }}
     </style>
   </defs>
   <text x="96" y="{Y_EYEBROW}" class="eyebrow" fill="{ACCENT}">{html.escape(copy["eyebrow"])}</text>
@@ -101,6 +122,7 @@ def build_svg(copy: dict) -> str:
   {tag}
   <rect x="96" y="{Y_RULE}" width="88" height="3" rx="1.5" fill="{ACCENT}"/>
   {foot}
+  {flow}
 </svg>
 '''
 
@@ -132,11 +154,80 @@ def text_right_edge(text_layer: Path) -> int:
     return int(cols.max()) if len(cols) else 0
 
 
+def _flood(mask, seed):
+    """8 连通泛洪，返回该连通块的布尔掩码。"""
+    h, w = mask.shape
+    seen = np.zeros_like(mask)
+    stack = [seed]
+    seen[seed] = True
+    while stack:
+        y, x = stack.pop()
+        for dy in (-1, 0, 1):
+            yy = y + dy
+            if yy < 0 or yy >= h:
+                continue
+            for dx in (-1, 0, 1):
+                xx = x + dx
+                if 0 <= xx < w and mask[yy, xx] and not seen[yy, xx]:
+                    seen[yy, xx] = True
+                    stack.append((yy, xx))
+    return seen
+
+
+def _drop_edge_fragments(im):
+    """抹掉贴着画布边缘的连通块，返回 (新图, 抹掉多少像素)。
+
+    这套插画是从一张拼图上切出来的，边上会把**隔壁那只**的一小条一起带进来：
+    `protect` 左侧 x=0..30 有 2226px、`rest` 左侧 x=0..41 有 2960px。
+
+    ⚠️ 判据是「**被画布的左边或上边切开**」（`x0 == 0 or y0 == 0`），有两个坑：
+    1. **不能按"连不连着球"删** —— `wave` / `wink` 里那几笔橙色动效线本来就脱离主体
+       （3979px / 2158px），是画的一部分，按连通删会把它们一起删掉。
+    2. **不能写成"贴任意一条边就删"** —— `protect` 的**主体**包围盒是 x=88..512，
+       它自己就被画布右边切了；按"贴边"删会把整个主体删掉（第 4 格会变空）。
+       真正的规律是：这套图是从拼图上**从左往右**切的，溢出来的邻居只会落在**左边缘**
+       （`protect` x=0..30、`rest` x=0..41 都是），所以只认左边和上边。
+    """
+    a = np.asarray(im).copy()
+    mask = a[:, :, 3] > 16
+    ys, xs = np.nonzero(mask)
+    done = np.zeros_like(mask)
+    removed = 0
+    for k in range(0, len(ys), 8):       # 抽样做种子就够：连通块比 8px 大得多
+        seed = (int(ys[k]), int(xs[k]))
+        if done[seed]:
+            continue
+        comp = _flood(mask, seed)
+        done |= comp
+        cy, cx = np.nonzero(comp)
+        if cx.min() == 0 or cy.min() == 0:
+            a[comp, 3] = 0
+            removed += int(comp.sum())
+    return Image.fromarray(a), removed
+
+
+def flow_layer(copy: dict):
+    """五张插画按同一高度排成一行（源图是 512×512 方图，直接缩，不裁边）。
+
+    刻意**不裁透明边**：这五张是同一套画，球的大小和位置本来就一致，伸出去的是道具
+    （挥手、盾牌、手指）和动效线。裁边会把带道具的那几张的包围盒撑宽、按高度归一化之后
+    球反而变小 —— 五个排出来一大一小。整张方图一起缩，球的尺寸才是齐的。
+    只做一件事：把误切进来的邻居碎片抹掉（见 [_drop_edge_fragments]）。
+    """
+    cell_w = FLOW_W / len(copy["flow"])
+    for i, (key, _) in enumerate(copy["flow"]):
+        im, _ = _drop_edge_fragments(Image.open(FLOW_DIR / f"{key}.webp").convert("RGBA"))
+        im = im.resize((FLOW_IMG, FLOW_IMG), Image.LANCZOS)
+        yield im, (round(96 + i * cell_w + (cell_w - FLOW_IMG) / 2), FLOW_TOP)
+
+
 def compose(copy, name, tmp, size=None):
     base = Image.new("RGB", (W, H), (253, 253, 253)).convert("RGBA")
     art = art_layer(ART_SIDE).convert("RGBA")
     left, top = int(ART_CX - ART_SIDE / 2), int(ART_CY - ART_SIDE / 2)
     base.alpha_composite(art, (left, top)) if left >= 0 and top >= 0 else base.paste(art, (left, top))
+    for im, xy in flow_layer(copy):
+        base.alpha_composite(im, xy)
     text_layer = render_text_layer(build_svg(copy), tmp)
     base.alpha_composite(Image.open(text_layer).convert("RGBA"))
     final = base.convert("RGB")
