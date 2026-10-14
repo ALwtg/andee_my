@@ -1,6 +1,6 @@
 <p align="center">
   <a href="./DISCLAIMER.md"><img alt="English" src="https://img.shields.io/badge/English-d9d9d9"></a>
-  <a href="./DISCLAIMER.zh-CN.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
+  <a href="./DISCLAIMER.zh-CN.md"><img alt="Chinese" src="https://img.shields.io/badge/Chinese-d9d9d9"></a>
 </p>
 
 # Disclaimer
@@ -94,4 +94,4 @@ Do not install it, do not run it, delete it. Using it means you have read, under
 
 ---
 
-**Other languages:** [简体中文](DISCLAIMER.zh-CN.md)
+**Other languages:** [Chinese](DISCLAIMER.zh-CN.md)

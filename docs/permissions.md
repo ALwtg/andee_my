@@ -1,6 +1,6 @@
 <p align="center">
   <a href="./permissions.md"><img alt="English" src="https://img.shields.io/badge/English-d9d9d9"></a>
-  <a href="./permissions.zh-CN.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
+  <a href="./permissions.zh-CN.md"><img alt="Chinese" src="https://img.shields.io/badge/Chinese-d9d9d9"></a>
 </p>
 
 # Permissions
@@ -150,4 +150,4 @@ If you want to look deeper, [../SECURITY.md](../SECURITY.md) has the full securi
 
 ---
 
-**Other languages:** [简体中文](permissions.zh-CN.md)
+**Other languages:** [Chinese](permissions.zh-CN.md)

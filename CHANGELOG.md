@@ -39,7 +39,8 @@ the reader to build one — see *Added* and `docs/releases/v0.3.2.md`.
   since a dark tablet on a bedside table should not be listening all night, but the screen being off is
   also the normal state of a phone in a pocket, so it meant the assistant could not be called from the
   one place a person actually keeps their phone. The gate now asks `wakeListeningAllowed()` — *the
-  screen is on, or the user left 锁屏时也听 on* — and that setting **defaults to on**. Its cost is stated
+  screen is on, or the user left the "listen while locked" row on* — and that setting **defaults to
+  on**. Its cost is stated
   on the row that flips it rather than left for the status bar to mention: the microphone stays open,
   and so does the system's recording indicator.
   Woken with the keyguard up, Andee can hear and answer — `tts.speak` needs nothing from the screen —
@@ -65,14 +66,15 @@ the reader to build one — see *Added* and `docs/releases/v0.3.2.md`.
   Three frames is a click, a tap on the tablet's edge, or the recorder's own first read, so the segment
   started on the hardware rather than on the person. A segment that starts early comes out long and
   dirty and, past `MAX_FRAMES`, was **dropped in silence** — the caller's latch never counted down and
-  the card sat on 听着… for the rest of the window. That is the second and third try. The fix slows the
+  the card sat on "listening…" for the rest of the window. That is the second and third try. The fix slows the
   decision down without throwing audio away: `START_FRAMES` 3 → 8 (80 ms) so a transient cannot open a
   segment, and `PREROLL_FRAMES` 15 → 30 (300 ms) so the onset is still in the ring when the decision
   lands. Delaying a decision is free; discarding the audio is not — which is why there is deliberately
   no warm-up that drops the first 200 ms. The obvious fix was proposed and withdrawn: a user who taps
   and speaks immediately would lose exactly the syllable the ring exists to protect.
 - **Five of the character's faces now run along the bottom of both cover images**
-  (`images/cover*.png`, `images/social-preview*.png`), one word under each — 听 看 想 做 说. They are
+  (`images/cover*.png`, `images/social-preview*.png`), one word under each — Listen, Look, Think,
+  Act, Speak. They are
   the app's own illustrations rather than drawings made for the web, and they are the *gesture* moods,
   the set the web renderer cannot draw because they use props — so this is the first place the cover
   shows the character instead of describing it. The row is confined to the left column by the head's own
@@ -102,9 +104,9 @@ the reader to build one — see *Added* and `docs/releases/v0.3.2.md`.
 
 ### Fixed
 
-- **The enrolment prompt appeared before the microphone existed.** 现在说吧 was set on the tapper's
+- **The enrolment prompt appeared before the microphone existed.** The "now speak" prompt was set on the tapper's
   thread, before a recorder existed, so the user was invited to speak into a microphone that had not
-  started. It now moves after `mic.start()` returns: the card reads 正在听… for the 100–300 ms the
+  started. It now moves after `mic.start()` returns: the card reads "listening…" for the 100–300 ms the
   recorder takes to come up, and the prompt appears once something is listening. Nothing is taken from
   the user to pay for it.
 - **The wake threshold was anchored on the worst take rather than the closest.** `thresholdFor` was
@@ -160,11 +162,11 @@ oversight later.
   the model composes stayed in the night palette. That fix was on the table and was turned down on
   purpose — a page's look is the model's business, not ours. Two things stay, and neither is a matter
   of taste: the `<meta viewport>`, because `HtmlActivity` sets `useWideViewPort` and a page without
-  one is laid out at desktop width and scaled down, and the ~110×44 px the ✕完成 pill occupies in the
+  one is laid out at desktop width and scaled down, and the ~110×44 px the Done pill occupies in the
   top-right corner, because that pill is ours. **The cost is on the record**: for the small models this
   runs against, that description was the only lever on page quality, and nothing enforces any more
   that a generated page reads as part of Andee.
-- **The local LLM endpoint and model follow the UI language.** The 本机 tab's two LLM rows already had
+- **The local LLM endpoint and model follow the UI language.** The on-device tab's two LLM rows already had
   a hint that doubled as the value a blank row resolves to, and both were hardcoded to DeepSeek —
   self-consistent for a Chinese card and wrong for an English one. The cheapest possible fix, changing
   only the hint text, is the worst version of it: the box would advertise `https://api.openai.com/v1`
@@ -176,14 +178,14 @@ oversight later.
   because its model belongs to the hosted backend and an English build inventing `gpt-4o-mini` there
   would name a model CodeFlying does not serve.
 - **Errand trips from the check card are handed to the page instead of made by it**, so the list
-  survives the trip. On the check *page* tapping a row's 处理 sent the user to Settings and coming back
+  survives the trip. On the check *page* tapping a row's fix button sent the user to Settings and coming back
   landed on the list; from the check *card* the same three taps ended on the desktop with a ball in the
   corner, because the card was closed and the assistant folded before the destination launched — which
   does clear the screen, since an overlay outranks every Activity, but throws the list away: a window
   gets no `onResume`, and the destination went out with `FLAG_ACTIVITY_NEW_TASK` into a task of its
   own, so back from Settings had nowhere of ours to return to. `SelfCheckUi.onErrand` (was
   `onYieldScreen`) now hands the host the Intent and lets the host say whether it can carry it.
-  `Fix.Grant` goes through the same door, so 允许 on 麦克风 / 弹出通知 stops ending on the launcher too.
+  `Fix.Grant` goes through the same door, so Allow on the microphone and notification rows stops ending on the launcher too.
 - **The prop-and-pose layer is on every look now**, not just Andee — stars, a heart, a shield, a sweat
   bead, the sliced lid, and the idle life that lets a look wear its own expressions and nap while
   nothing is happening. The argument for keeping it to one look was that the others had been tuned
@@ -211,7 +213,7 @@ oversight later.
   judgement about when to speak, and limits, all of which happen in the time you did **not** ask for
   anything.
 - **The English README no longer contains a single Chinese character** (`\p{Han}` returns nothing): the
-  language badge, five look names, a dozen `([中文](…))` links, the `(中文)` markers on the CodeFlying
+  language badge, five look names, a dozen Chinese-language links, the language markers on the CodeFlying
   sites and a button quoted in Chinese. The Chinese README keeps its own language.
 
 ### Fixed
@@ -221,7 +223,7 @@ oversight later.
   persistent notification that is the way back to it, and every reminder `Scheduler` fires. The
   codebase half knew: `Scheduler` carries a comment blaming this permission for its own failure to
   notify, and nothing anywhere tested the claim. The row that looked like it covered this does not —
-  通知使用权 is the notification *listener*, which can be granted and green while every notification
+  The notification-access row is the notification *listener*, which can be granted and green while every notification
   the app sends disappears. Two things this needed beyond a catalog entry: `Perm.api`, because on
   API 32 and below the permission does not exist and `checkSelfPermission` answers **denied** for
   anything it does not know, so an ungated row would report a missing permission on every Android 12
@@ -317,7 +319,7 @@ matter, because a ROM that revokes accessibility now costs one capability instea
   all; the new address resolves outside the mainland and retires that particular trap. It does not
   retire the other one: a domain still has to resolve *and* serve 443, and a fresh record is not
   everywhere at once. Measured while making the move, `1.1.1.1` still answered `NXDOMAIN` while
-  `223.5.5.5` already had the address — on the wrong resolver that reads as 查不到 on the 版本 row,
+  `223.5.5.5` already had the address — on the wrong resolver that reads as "not found" on the version row,
   which is the intended failure rather than a fault to report. The service itself was checked before
   the switch: the new host answers `GET /api/version` with the same envelope, and the same `data`
   fields the client parses.
@@ -326,7 +328,7 @@ matter, because a ROM that revokes accessibility now costs one capability instea
   used to hand the screen to the assistant as soon as it could draw one, which happens on the *first*
   of those returns, so the list was taken away after row one. On a page whose whole job is to walk
   somebody down a list, the user is the only one who knows when the list is finished. Closing it with
-  完成 puts the assistant back. Two surfaces fighting for the screen was the real bug underneath and
+  the Done button puts the assistant back. Two surfaces fighting for the screen was the real bug underneath and
   it stays fixed by the same move: nothing unfolds a card while the page is up.
 - **Closing a page puts the assistant back at full size, unconditionally.** The fold that makes room
   for a page is ours — our card is a fullscreen opaque overlay and would cover it — so undoing it is
@@ -365,12 +367,12 @@ matter, because a ROM that revokes accessibility now costs one capability instea
   painted over it. Two things put it there, both in the body's birth: `window.setCompact(false)`, and
   `window.show()`, which is subtler — this window is fullscreen *even when the ball is compact* and
   swallows the touches it does not use, so a page with a ball in the corner is a page whose buttons
-  cannot be pressed (measured: 完成 did nothing). Telling a fresh launch apart from a return needed
+  cannot be pressed (measured: the Done button did nothing). Telling a fresh launch apart from a return needed
   `SelfCheck.isPageOpen`, written down in the prefs file the startup check already uses. The startup
   self-check card is skipped while the page is up as well, because that page *is* the list.
 - **A just-fixed row stops showing as red when the card resumes.** The card's own rows send the user
   out to a system screen and the only thing that happened on the way back was a language comparison,
-  so a row the user had just fixed stayed red until they found 重新检查 — and a stale red row reads as
+  so a row the user had just fixed stayed red until they found "check again" — and a stale red row reads as
   "the fix did not take". An Activity gets a resume callback and an overlay does not, which is why
   this is a change to one host rather than to the list; it is local-only on purpose, because the
   probes hold the card open for seconds. The first resume is skipped (a full pass just ran), the
@@ -420,16 +422,16 @@ in the direction that made the model act on a grant nobody had given.
   `stopEverything()`, reused rather than reimplemented, so the single tap and the triple tap cannot
   drift into two different stops and the hub gets its `task.stop` either way. It is guarded on
   `dispatcher.isTaskActive()`: on an idle ball there is nothing to stop, and the call would still
-  clear a pending 继续修改, tell the hub to stop, and flash 已停止 ahead of 听着… — three side effects
+  clear a pending "keep editing", tell the hub to stop, and flash "stopped" ahead of "listening…" — three side effects
   for a tap that only ever meant "listen". Triple-tap still stops, and is still the *immediate* stop,
   because a single tap has to wait out the double-tap window before it knows it is not the first of
   two. No gesture moved and no string changed: what a tap *does* depends on what is running, which is
   not something a line of text can say. Verified on device (HONOR AMM-AN00) — an idle tap listens
-  without flashing 已停止.
+  without flashing "stopped".
 - **A device with no conversation is offered ready-made scenes instead of a dead line.** It used to
-  show 还没有对话 and nothing under it. There is nothing to be helpful *about* yet, and a ball in the
+  show "no conversation yet" and nothing under it. There is nothing to be helpful *about* yet, and a ball in the
   corner has taught a newcomer nothing about what the thing does, so the one moment this app can be
-  proactive without being early went unused. The card now shows a hint line — 告诉我，或者选一个 —
+  proactive without being early went unused. The card now shows a hint line — "tell me, or pick one" —
   then a bubble per preset from `ScenePresets`, each labelled with the scene's name and carrying a
   sentence the user could have said: the name is what a person picks between, the sentence is exactly
   the part a newcomer cannot invent. Both are fields of one `ScenePresets.Text`, so a bubble cannot
@@ -453,7 +455,7 @@ in the direction that made the model act on a grant nobody had given.
   what the model reasoned, and what each request cost in prompt tokens — was already in
   `files/brain_trace.jsonl` and reachable only with `run-as`. The new page is built from those
   records and opened through `HtmlActivity`, which is where folding the card, hanging the ball off
-  the ledge and the 完成 pill were already solved. Long-press because the other two gestures on a row
+  the ledge and the Done pill were already solved. Long-press because the other two gestures on a row
   are taken — a single tap opens a page row's page, a double tap reads a message fullscreen — and the
   two detectors had to become **one**, because `setOnTouchListener` replaces rather than chains, so a
   second one would have silently killed the first. **The row and its log are joined by
@@ -503,7 +505,7 @@ in the direction that made the model act on a grant nobody had given.
   the same reason, so this joins them — and only when `confirm=true`, because the first call is the
   script the brain reads back and that one belongs in the card.
 - **Both READMEs gained a one-click build page and had its likely-reading fixed.** The nav and the
-  CodeFlying paragraph now point at the `/andee` page — describe the app, tap 立即打包, get a
+  CodeFlying paragraph now point at the `/andee` page — describe the app, tap the build button, get a
   pre-configured package with a QR code — and the "any app" feature line was reworded in both
   languages, because "not a list of integrations" was being read as a claim about integrations this
   app has rather than a claim about aim. The page itself is a separate service with no direct
@@ -513,13 +515,13 @@ in the direction that made the model act on a grant nobody had given.
 
 - **The prompt's rule about the system permission sheet was wrong, and is now the measured one.** It
   said a system permission sheet "does not take a tap you inject", and that turned out to be false.
-  With the card folded, an injected tap on 「始终允许」 really does grant: `READ_CONTACTS` went
-  false → true, and one tap on 「本次使用允许」 produced an `ACCESS_FINE_LOCATION` carrying `ONE_TIME`,
+  With the card folded, an injected tap on "Always allow" really does grant: `READ_CONTACTS` went
+  false → true, and one tap on "Allow this time" produced an `ACCESS_FINE_LOCATION` carrying `ONE_TIME`,
   a flag only that button can set. The earlier four failures had one cause between them and it was our
   own card eating the touch, not the sheet refusing it. So the rule changes from "you cannot press it"
   to **"you cannot read it, so do not aim at it"**: the sheet exposes no accessibility elements at
   all, so any tap is blind, and the button at the bottom of this particular screen is
-  「禁止后不再提示」, which nothing can undo. That is the real reason this step stays the user's, and
+  "Deny and don't ask again", which nothing can undo. That is the real reason this step stays the user's, and
   it is a reason that survives being measured. `LocalPrompt` §0's `type_text`-only rule is stated as
   the general one — a tool saying it pressed something is not the thing being done — and §1's list of
   genuine exceptions gains the sheet, which is worth naming because putting it on screen is the whole
@@ -535,33 +537,33 @@ in the direction that made the model act on a grant nobody had given.
   instructions, finds nothing, and concludes the app is broken rather than the text.
 
   - `check_detail_brain_key_missing`, `check_detail_brain_hub_missing` and `brain_no_key` all said
-    **⚙ → 「大脑」 / "Brain"**. The section header is `settings_section_brain`, which reads
-    **「后端」 / "Backend"** — there is no label containing 大脑 in the settings card at all. The
-    火山 tab names use 大脑 only in prose ("the brain lives on a hub you run yourself"), never as a
+    **⚙ → "Brain"**. The section header is `settings_section_brain`, which reads
+    **"Backend"** — there is no label containing that word in the settings card at all. The
+    Volcengine tab names use it only in prose ("the brain lives on a hub you run yourself"), never as a
     destination.
-  - `check_detail_voice_key_missing` said **⚙ → 「语音（火山引擎）」 / "Speech (Volcengine)"** — a
-    section that no longer exists. The Volcengine rows were moved into 后端 → 本机, and
+  - `check_detail_voice_key_missing` said **⚙ → "Speech (Volcengine)"** — a
+    section that no longer exists. The Volcengine rows were moved into Backend → on-device, and
     `settings_section_voice` / `settings_section_voice_key` are still in both string files but
-    referenced by nothing. The path is now the same **后端 → 本机** as the two brain keys, which is
+    referenced by nothing. The path is now the same **Backend → on-device** as the two brain keys, which is
     where the field actually is.
-  - `brain_no_key` also said **"长按小球打开设置" / "long-press the ball, open settings"**.
+  - `brain_no_key` also said **"long-press the ball, open settings"**.
     `onLongPress` does not open settings; it calls `dispatcher.expand()`, which brings the full card
     back. Settings is the ⚙ button in that card's control bar. The sentence now names both steps,
     because the first one is genuinely required — the control bar only exists at full size.
-  - `check_detail_brain_hub_missing` gained the missing precondition: **「云端」 is hidden unless
-    高级 →「显示云端选项」 is on.** `showHub` gates the tab in the picker, but `brainMode` does not
+  - `check_detail_brain_hub_missing` gained the missing precondition: **the hub tab is hidden unless
+    Advanced → "Show cloud option" is on.** `showHub` gates the tab in the picker, but `brainMode` does not
     consult it, so a device can sit in hub mode with the tab that fixes it invisible — turn the
-    toggle on, pick 云端, turn it off again, and the self-check would have pointed at nothing.
+    toggle on, pick the hub, turn it off again, and the self-check would have pointed at nothing.
 
   Every label these strings now name was checked against its resource value rather than transcribed
   from the sentence being replaced — which is how the one remaining error was caught: the English
   label is **"Show cloud option"**, singular, and the first draft of this fix wrote it plural.
 - **Both READMEs promised a first-run wizard that no longer exists.** "The first run is a stepped
-  setup that walks you through both" / 「第一次启动会有一个分步引导」 — `8dac568` deleted the wizard
+  setup that walks you through both" — in both languages — `8dac568` deleted the wizard
   (`ui/FirstRunUi.kt`). A missing setup guide is indistinguishable from a broken install, so this
   read as a bug report rather than as stale prose. Both now say what the app does instead: the
   self-check runs on every start, the card names the missing key, and its button opens settings.
-- `README.md` named the Volcengine field as **火山 API key** — the Chinese label — while the English
+- `README.md` named the Volcengine field by its Chinese label, while the English
   build displays **Volcengine API key** (`settings_voice_api_key`). The Chinese README already had
   this right; only the English file was pointing at a word that never appears on an English screen.
 - **A picture, a video or a clip now goes into a page, instead of being handed over as a URL.** The
@@ -582,7 +584,7 @@ in the direction that made the model act on a grant nobody had given.
   was attached, so a real `https` image and a real `.mp4` rendering in the page are still
   unconfirmed.
 - **The launcher icon could become a permanent dead end, because the overlay was inferred from a view
-  object instead of asked for as a grant.** First run, accessibility on, 悬浮球权限 off: the checklist
+  object instead of asked for as a grant.** First run, accessibility on, the overlay grant off: the checklist
   came up, the user closed it, and from then on the icon did nothing — no screen, no error, no way
   back in short of reinstalling. Nothing was removing the ball's window. On HONOR/MagicOS a denied
   `SYSTEM_ALERT_WINDOW` does not make `addView` throw: it succeeds, and the system hides the window
@@ -593,9 +595,9 @@ in the direction that made the model act on a grant nobody had given.
   `SelfCheckActivity` took its expand-and-finish branch, called `expand()` on a card that cannot be
   drawn, finished itself, and left an empty screen; the checklist branch, which is the one that names
   this failure in red, never ran. The grant is now asked **first and directly**, as
-  `Settings.canDrawOverlays()` — the same predicate `SelfCheck.overlay` uses for the 悬浮窗 row, so the
+  `Settings.canDrawOverlays()` — the same predicate `SelfCheck.overlay` uses for the overlay row, so the
   page and the door can no longer contradict each other (which is what the user hit: the page said
-  没开 while the door said 在屏). It also covers revoking a grant that was already given, when `root`
+  "off" while the door said it was on screen). It also covers revoking a grant that was already given, when `root`
   stays non-null for the life of the process. `showSelfCheckCard()` guarded with the same marker,
   where its own comment had claimed it already did. Verified on the device (LIO-TL00) on **both**
   paths, because this edits the working path's entry test too — grant denied now reaches the
@@ -604,20 +606,20 @@ in the direction that made the model act on a grant nobody had given.
 
 ### Changed
 
-- **The 悬浮窗权限 row now leads the self-check list**, ahead of 无障碍服务. Both are hard gates and
+- **The overlay-permission row now leads the self-check list**, ahead of accessibility. Both are hard gates and
   the order between them was arbitrary; what settles it is that they fail in opposite directions.
   With the service off the app is visibly inert — nothing to run, and every row below is decoration.
   With the grant off it *looks* broken instead: the service runs perfectly well, silently cannot
   draw, and tapping the icon appears to do nothing at all. That second shape is the one users misread
   as "the app is dead", so it goes first.
-- 无障碍服务's off-state copy named the row's list position — 「后面几条都不用看」 / *"the rest of this
-  list does not matter yet"* — which the reorder above invalidated. It is now 「其他都不用看」 /
+- The accessibility row's off-state copy named the row's list position — *"the rest of this
+   which the reorder above invalidated. It is now *"nothing else here matters"* —
   *"nothing else here matters either"*: same meaning, no longer positional. Same edit in both string
   files.
 
 ### Removed
 
-- **The first-run wizard is gone** (`ui/FirstRunUi.kt`, its wiring in `ScreenBodyService`, the 重新设置
+- **The first-run wizard is gone** (`ui/FirstRunUi.kt`, its wiring in `ScreenBodyService`, the re-run-setup
   button on the self-check card, and its strings in both languages). The wizard and the startup
   self-check both wanted to put a card up on a first start, and when the check found a problem it
   covered the wizard, so a new user saw whichever lost the race. The wizard was removed rather than
@@ -627,7 +629,7 @@ in the direction that made the model act on a grant nobody had given.
   the self-check. The two READMEs had promised this wizard — see the *Fixed* entry above.
 - `check_page_no_overlay` and the `SelfCheckUi.note()` helper it was the only caller of. The note
   explained that the settings sheet is drawn as an overlay — a fact the page does not need to teach,
-  because the 悬浮窗 row directly below it already carries the fix, in that row's own words and with a
+  because the overlay row directly below it already carries the fix, in that row's own words and with a
   button. `fixButton()`'s comment used to point at "the note above the list"; it now states the rule
   on its own: a button that does nothing is worse than no button.
 
@@ -655,7 +657,7 @@ because a release this size is the norm.
   GitHub renders a README image through `<img>` and `var(--color-*)` resolves to black there; both
   were rendered at 1:1 and read back to check for overflow, which caught three layout faults that
   reading the source alone would not have shown.
-- **Both READMEs now ask for your use case (`## Showcase` / `## 好玩的用法`).** The
+- **Both READMEs now ask for your use case (`## Showcase`).** The
   README described what the thing can do and never asked anyone to show what they did with it,
   which is how a project ends up with no idea whether the odd corners work. The section is an
   invitation and three things that make a post useful: the device and ROM (this app talks to Android
@@ -709,7 +711,7 @@ because a release this size is the norm.
 - Both READMEs now carry a warning above the fold and a `## Disclaimer and acceptable use` section;
   `SECURITY.md` states the triage boundary (steering it is a vulnerability; doing what it was built
   to do is documented behaviour).
-- **A 版本 row in the self-check list — the first thing this app ever sends anywhere.** It asks a
+- **A version row in the self-check list — the first thing this app ever sends anywhere.** It asks a
   version service whether a newer build exists and reports the answer as one more row in the same list
   the device diagnostics live in: one row, one renderer, no second settings page. The level mapping is
   the deliberate part. **Current → OK, newer release available → NOTE, forced update → WARN, and
@@ -729,7 +731,7 @@ because a release this size is the norm.
 - **`res/xml/network_security_config.xml` deliberately did *not* gain the version host, on the second
   pass.** Android refuses cleartext HTTP to any host not named there, and what it produces —
   `CLEARTEXT communication to X not permitted by network security policy` — arrives as a version row
-  reading 查不到, a message about a policy rather than about anything the user did. So the first cut
+  reading "not found", a message about a policy rather than about anything the user did. So the first cut
   added the service's IP address to that file, which is the right move *for a `http://` address*. The
   address then became `https://andee.kuafuai.net`, which needs no exception at all, and the entry was
   deleted rather than left in place: an exception for a host nobody calls only widens what this app
@@ -744,7 +746,7 @@ because a release this size is the norm.
   meaning the constructor's `(String) -> Unit` callback that routes the message to the owner. Kotlin
   resolves an unqualified call to the nearest scope first, so the line called *itself*: one recognizer
   error became infinite recursion until the stack ran out (`stack size 1039KB`, thousands of frames of
-  `AsrController.kt:152`). Any 火山 failure — a dead network, an expired token, a rejected handshake —
+  `AsrController.kt:152`). Any Volcengine failure — a dead network, an expired token, a rejected handshake —
   took the whole process down, which is the opposite of what the callback is for. Now qualified
   `this@AsrController.onError(msg)`. The listener's three other callbacks are unaffected: none of them
   shares a name with an outer member.
@@ -852,7 +854,7 @@ because a release this size is the norm.
   `DISCLAIMER.md` / `DISCLAIMER.zh-CN.md` and `docs/permissions.md` / `docs/permissions.zh-CN.md` all
   listed `brain=hub` first in their "data goes where" table's *Default* column, which read as though
   the hub were the out-of-box mode. It is not: `VoiceConfig.brainConfig` reads
-  `getString("brain", BRAIN_LOCAL)`, and the `brain` picker lists 本机 leftmost for the same reason.
+  `getString("brain", BRAIN_LOCAL)`, and the `brain` picker lists the on-device option leftmost for the same reason.
   The row now reads `brain=local` (the default) → `api.deepseek.com`, with hub mode as the other
   case. Separately, `CLAUDE.md`'s "Existing but not wired up" section claimed there was **no `tts.*`
   dispatcher namespace** — there is one (`tts.speak`, `CommandDispatcher`); what it lacks is a
@@ -868,7 +870,7 @@ because a release this size is the norm.
   *this* project to). It is now described in its own terms first — **a general platform where you
   describe the app you want and it develops and publishes it** — followed by one plain sentence:
   **a separate service with no direct relationship to this project**, its own terms, pricing and data
-  handling. Same treatment in `## Using Andee` / `## 三种使用方式`; the Chinese `## 从哪里开始看`
+  handling. Same treatment in `## Using Andee`; the Chinese getting-started section
   table carried it too, and has since been removed (see *Removed*). The practical guidance is
   unchanged (still the shortest path; still an APK you have to install; the free token allowance is
   still finite and then paid), because none of that was wrong — only the implied ownership was.
@@ -880,16 +882,16 @@ because a release this size is the norm.
   now `WhatsApp`, `Amazon` and `eBay` — WhatsApp rather than a platform-native messenger because this
   runs on Android only, and naming an iOS-only one would be a false claim rather than a foreign one.
   Two of the scene examples needed rewriting rather than substituting: "look after my WeChat" is
-  帮我看着微信 carried across word for word, which is not a sentence English builds. Separately, the
+  a Chinese scene example carried across word for word, which is not a sentence English builds. Separately, the
   panel names were the Chinese labels, so a reader on an English device was being told to look for
-  **产物** — a word their screen does not have. They now use the labels `values-en/` actually ships:
+  **a Chinese label** — a word their screen does not have. They now use the labels `values-en/` actually ships:
   **Scenes**, **Made for you**, **What it remembers**, **Voice API key**.
   The **measured** passage keeps every fact. Xiaomi Pad 5, MIUI, WeChat 8.0.78 and the 219-node count
   are what was observed, and changing the app name there to make the prose consistent would be
   inventing a measurement. Only its framing moved: it opened on WeChat, which a non-Chinese reader
   reads as someone else's app having someone else's problem, so it now opens on the general
   behaviour and names WeChat as the one we happened to measure.
-- **The blanket "没有任何遥测 / no telemetry at all" claim is gone, because the version row above
+- **The blanket "no telemetry at all" claim is gone, because the version row above
   made it false.** It appeared in nine places — `DISCLAIMER.md`, `DISCLAIMER.zh-CN.md`,
   `docs/permissions.md`, `docs/permissions.zh-CN.md`, both READMEs, and both README badges — and all
   nine were in the same voice: not "we anonymise it", not "opt out in settings", but a flat statement
@@ -900,8 +902,8 @@ because a release this size is the norm.
   confirmed by the same grep the old text quoted — and then state the single exception field by field,
   in a row of its own in the data table, next to an explicit list of what that request does *not*
   carry (conversation, screen, app list, contacts, location, crash log, advertising ID). `docs/permissions.md`
-  is the canonical copy; the rest point at it. The badge went from `遥测-无` / `telemetry-none` to
-  `遥测-不含内容` / `telemetry-no content`, because "no content" is the claim that survives.
+  is the canonical copy; the rest point at it. The badge went from `telemetry-none` to
+  `telemetry-no content`, because "no content" is the claim that survives.
   Worth recording for whoever edits these next: the old sentence was true of the *repository* on the
   day it was written and was always going to be false the moment the project shipped anything that
   phoned home. This file had already annotated that distinction in the DISCLAIMER's own entry above —
@@ -916,7 +918,7 @@ because a release this size is the norm.
   `git show <rev>:brain/andee-system-prompt.md`.
 - `dog/NRF24_Dongle/README.md` reference in the README — the dongle firmware is not in this
   repository and never was. The README now says so.
-- The `## 从哪里开始看` section in `README.zh-CN.md`, heading included. Its visible content was three
+- The Chinese getting-started section in `README.zh-CN.md`, heading included. Its visible content was three
   rows announcing that the demo video and the screenshots do not exist yet, which tells a reader
   nothing they cannot see for themselves. The heading went too: once the table was gone the section
   held nothing but an HTML comment, and a heading over nothing renders as exactly that. Every

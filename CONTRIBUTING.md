@@ -1,6 +1,6 @@
 <p align="center">
   <a href="./CONTRIBUTING.md"><img alt="English" src="https://img.shields.io/badge/English-d9d9d9"></a>
-  <a href="./CONTRIBUTING.zh-CN.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
+  <a href="./CONTRIBUTING.zh-CN.md"><img alt="Chinese" src="https://img.shields.io/badge/Chinese-d9d9d9"></a>
 </p>
 
 # Contributing
@@ -166,4 +166,4 @@ Open an issue and ask, or ask in the PR. Do not sit on it — we would much rath
 
 ---
 
-**Other languages:** [简体中文](CONTRIBUTING.zh-CN.md)
+**Other languages:** [Chinese](CONTRIBUTING.zh-CN.md)

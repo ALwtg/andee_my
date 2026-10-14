@@ -1,6 +1,6 @@
 <p align="center">
   <a href="./acceptable-use.md"><img alt="English" src="https://img.shields.io/badge/English-d9d9d9"></a>
-  <a href="./acceptable-use.zh-CN.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
+  <a href="./acceptable-use.zh-CN.md"><img alt="Chinese" src="https://img.shields.io/badge/Chinese-d9d9d9"></a>
 </p>
 
 # Acceptable Use Policy
@@ -27,7 +27,7 @@ The following are **prohibited without exception**. They are listed because they
 **(a) Crime, and providing help to crime**
 
 - Any criminal or unlawful activity.
-- Telecom and network fraud, or **any form of assistance** to it — including transferring funds for others, money laundering ("跑分"), faking transaction flows, receiving and passing on proceeds, promotional referral, bulk account registration or unblocking, and creating or distributing fraud tooling.
+- Telecom and network fraud, or **any form of assistance** to it — including transferring funds for others, laundering money by moving it through payment accounts, faking transaction flows, receiving and passing on proceeds, promotional referral, bulk account registration or unblocking, and creating or distributing fraud tooling.
   This **may constitute "the crime of aiding information network criminal activities" under Article 287-2 of the Criminal Law of the People's Republic of China** — up to three years' imprisonment or detention, plus a fine. Note that in practice, **even without direct profit and even while claiming not to have known, a court may infer knowledge from objective conduct.**
 - Operating another person's payment account, bank card, or settlement instrument on their behalf.
 
@@ -90,4 +90,4 @@ This document **is not legal advice.** It is a condition of use, not a legal opi
 
 ---
 
-**Other languages:** [简体中文](acceptable-use.zh-CN.md)
+**Other languages:** [Chinese](acceptable-use.zh-CN.md)
