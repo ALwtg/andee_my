@@ -102,7 +102,7 @@ Andee has a vault (`config/Vault.kt`) for the account passwords you enter yourse
 
 | What | Where it goes | Default |
 |---|---|---|
-| Speech recognition (what you say), speech synthesis (what he says) | **Volcengine (ByteDance) cloud** | `openspeech.bytedance.com` |
+| Speech recognition (what you say), speech synthesis (what he says) | **The speech provider you select** — Volcengine (ByteDance) by default, or Google | Whichever is picked in ⚙ → **Backend → Voice provider**: Volcengine → `openspeech.bytedance.com`; Google → `aiplatform.googleapis.com`. A build packaged with a Google key comes up on Google; the source checkout defaults to Volcengine |
 | Conversation content, **and every tool result** | The "brain" **you** configured | `brain=local` (the out-of-box default) → `api.deepseek.com` on a Chinese UI and `api.openai.com` on an English one; in hub mode, your own `hub_url` |
 | Private notebook (`config/Notebook.kt`: what he remembers about you, what he promised) | **On-device only** | It is `localOnly` and never enters the hub payload |
 | **Version check**: your version number, phone model / brand / OS version, UI language, one random install ID | **A server the maintainers run** (not a third party) | Once on first launch, and once per tap on **Check again**; capped at 10 per IP per day |

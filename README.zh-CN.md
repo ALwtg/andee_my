@@ -109,7 +109,8 @@ https://github.com/user-attachments/assets/866e8333-e97b-4bf5-9525-540f9fdb01cd
 
 > **装之前先读这段。** Andee 会替你点击、输入、动手。他能完成一笔支付，能以你的名义发消息，能读你的
 > 短信、通讯录和位置，接了机器狗还会**真的在地板上移动**。他是实验性的、不提供任何担保，而
-> **他做的一切都算你的** —— 包括转错账。数据也会离开设备：语音走火山引擎，对话走你配置的那个大脑。
+> **他做的一切都算你的** —— 包括转错账。数据也会离开设备：语音走你选的那家服务商（默认火山，
+> 也可以选 Google），对话走你配置的那个大脑。
 > 装之前请先读 **[DISCLAIMER.zh-CN.md](DISCLAIMER.zh-CN.md)** 和 **[docs/acceptable-use.zh-CN.md](docs/acceptable-use.zh-CN.md)**。
 
 ## 核心能力
@@ -287,10 +288,13 @@ debug 包**。它省掉的是「自己打包」，**省不掉「配令牌」**�
 OpenAI 兼容端点（`llm_api_key`，中文界面默认 `https://api.deepseek.com`）。**空着，本机大脑根本跑不起来**
 —— 它后面没有别的兜底。球至少会把这句话说出来，而不是默默什么都不做。
 
-**2. 语音密钥 —— 非必须。** 一个[火山引擎语音服务](https://www.volcengine.com/product/voice-tech)
-的 API Key，填在**后端 → 本机**同一 tab 下的「火山 API Key」。不填，识别和合成会在 WebSocket
-握手阶段失败，**表现为连接超时** —— 看着像网络坏了，其实是那一栏空着。其余功能照常，只是既听不见
-也说不出。
+**2. 语音密钥 —— 非必须。** 先在同一个**后端 → 本机** tab 顶部选服务商（**语音服务商** → 火山 /
+Google），再填该服务商的密钥。这是两个独立的服务，条款和数据处理各归各家。
+选**火山**就填[火山引擎语音服务](https://www.volcengine.com/product/voice-tech)的 API Key；
+选 **Google** 则要一把 Vertex Express Key，外加 GCP 的**项目编号**（不是项目名）和一个区域。
+选中的那家没填密钥，识别和合成就会在握手阶段失败，**表现为连接超时** —— 看着像网络坏了，
+其实是那一栏空着。其余功能照常，只是既听不见也说不出。
+不管你选哪家，音频都会发到那家 —— 见 [DISCLAIMER.zh-CN.md](DISCLAIMER.zh-CN.md)。
 
 > **如果你走的是[快速开始](#快速开始)里 CodeFlying 那条路，这两把 Key 都已经在安装包里了。**
 > ⚙ → **后端**会直接显示 **CodeFlying** 这一 tab 为当前后端；LLM、ASR、TTS 以及海量第三方 API
@@ -403,7 +407,7 @@ OpenAI 兼容端点（`llm_api_key`，中文界面默认 `https://api.deepseek.c
 | minSdk | 30 | Android 11 —— 因为要用 `AccessibilityAction.ACTION_IME_ENTER`（API 30+）和 `takeScreenshot`（API 30+） |
 | Java / Kotlin JVM target | 1.8 | `sourceCompatibility` 1.8、`jvmTarget = '1.8'` |
 | **构建用 JDK** | **17–20** | 见[配 JDK](#配-jdk)，这是最容易卡住的一步 |
-| versionCode / versionName | 6 / 0.3.2 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
+| versionCode / versionName | 7 / 0.4.0 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
 | applicationId / namespace | `net.kuafuai.andee` | 从模板里没改，不影响功能 |
 
 **运行库依赖**（`app/build.gradle`）：
@@ -852,7 +856,8 @@ CLAUDE.md               给 AI 编码助手看的架构说明（英文）
   `FLAG_SECURE`，**本项目对这条路径没有任何技术围栏**。任何涉及钱的操作都要人在场；并且请记住
   **"是 AI 自己做的"不是抗辩理由**，因为它确实不是。
 - **他发出去的东西是你的。** 消息、帖子、通话、订单，署名都是你。
-- **你的数据会离开设备。** 本仓库里没有数据分析 SDK，但语音会走火山引擎，对话连同**全部工具返回
+- **你的数据会离开设备。** 本仓库里没有数据分析 SDK，但语音会走你选的那家服务商（默认火山，
+  也可以选 Google），对话连同**全部工具返回
   结果**会走到你配置的那个大脑端点，版本自检会走到一台维护者自己跑的服务器。"本机模式"换的是
   目的地，不是这个事实。
 - **他能被屏幕上的字操纵。** 任何能让你打开一个页面的人，都可能影响到他。
@@ -865,7 +870,7 @@ CLAUDE.md               给 AI 编码助手看的架构说明（英文）
 随包分发的第三方组件清单在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。再分发之前请先看：
 **ML Kit 扫码 SDK 和 `play-services-*` 不是开源许可**，而且扫码模型是运行时从 Google 拉的。
 
-改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.3.2`**，故意停在
+改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.4.0`**，故意停在
 pre-1.0：线上协议和构建开关都还在动。
 
 ## 相关文档

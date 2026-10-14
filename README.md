@@ -123,7 +123,8 @@ is what would make a new one a port rather than a rewrite, but nothing outside A
 > send messages under your name, read your messages, contacts and location, and — with a robot dog  
 > attached — physically move. It is experimental, carries no warranty, and **what it does is your  
 > responsibility**, including a transfer to the wrong person. Data does leave the device: your speech  
-> goes to Volcengine, and the conversation goes to whichever brain you configure. Read  
+> goes to whichever speech provider you select (Volcengine by default, Google if you pick it), and the  
+> conversation goes to whichever brain you configure. Read  
 > **[DISCLAIMER.md](DISCLAIMER.md)** and **[docs/acceptable-use.md](docs/acceptable-use.md)** first.
 
 ## Key features
@@ -333,11 +334,15 @@ behind it falls back to something else. The ball does at least say so out loud, 
 doing nothing.
 
 
-**2. The voice key — optional.** A [Volcengine Speech](https://www.volcengine.com/product/voice-tech)  
-API key, in the **Volcengine API key** field of the same **Backend → On-device** tab. Without it  
-ASR and TTS fail during the WebSocket handshake, which surfaces as a **connect timeout** — the device looks  
-like it has a network problem when what it has is a blank field. Everything else still works; it is  
-just mute and deaf.
+**2. The voice key — optional.** You pick the provider first, at the top of the same **Backend →
+On-device** tab (**Voice provider** → Volcengine or Google), and then fill in that provider's key.
+This is a separate service from Volcengine's, with its own terms and data handling.
+For **Volcengine**, a [Volcengine Speech](https://www.volcengine.com/product/voice-tech) API key goes
+in the **Volcengine API key** field; for **Google**, a Vertex Express key plus a GCP project *number*
+and a location. Without a key for whichever one is selected, ASR and TTS fail during the handshake,
+which surfaces as a **connect timeout** — the device looks like it has a network problem when what it
+has is a blank field. Everything else still works; it is just mute and deaf.
+Whichever you pick, the audio goes to that provider — see [DISCLAIMER.md](DISCLAIMER.md).
 
 > **If you took the CodeFlying route in [Quick Start](#quick-start), both keys are already baked in.**  
 > ⚙ → **Backend** will show **CodeFlying** as the active tab; LLM, ASR, TTS and the long tail of  
@@ -556,7 +561,7 @@ Pure Kotlin, no Compose; the whole thing hangs off two pillars, `WindowManager` 
 | minSdk                    | 30                  | Android 11 — `AccessibilityAction.ACTION_IME_ENTER` and `takeScreenshot` are both API 30+ |
 | Java / Kotlin JVM target  | 1.8                 | `sourceCompatibility` 1.8, `jvmTarget = '1.8'`                                            |
 | **Build JDK**             | **17–20**           | see [Which JDK](#which-jdk) — this is the step people get stuck on                        |
-| versionCode / versionName | 6 / 0.3.2           | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
+| versionCode / versionName | 7 / 0.4.0           | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
 | applicationId / namespace | `net.kuafuai.andee` | never changed from the template. It affects nothing                                       |
 
 **Runtime dependencies** (`app/build.gradle`):
@@ -968,7 +973,8 @@ The four points worth reading even if you read nothing else:
   defence, because it is not one.
 - **What it sends is yours.** Messages, posts, calls and orders go out under your name.
 - **Your data leaves the device.** There is no analytics SDK in this repo — but speech goes to
-  Volcengine, the conversation plus every tool result goes to whichever brain endpoint you configure,
+  whichever speech provider you select (Volcengine by default, Google if you pick it), the conversation
+  plus every tool result goes to whichever brain endpoint you configure,
   and the version check goes to a server the maintainers run. Local mode changes the destination, not
   the fact.
 - **It can be steered by what is on screen.** Anyone who can get you to open a page can influence it.
@@ -984,7 +990,7 @@ Read it before redistributing: **the ML Kit barcode SDK and the `play-services-*
 open-source**, and the barcode model is fetched from Google at runtime.
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed and for the versioning policy. The latest release is
-**`v0.3.2`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
+**`v0.4.0`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
 
 ## Related documents
 

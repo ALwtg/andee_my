@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`6` / `"0.3.2"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`7` / `"0.4.0"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -13,7 +13,8 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 **The project starts at `0.x`, and that is the accurate number rather than a modest one.** Nothing is
 frozen. The tool-schema contract a hub brain speaks has been rewritten repeatedly
-(`net/ToolSchemas.kt` has been rewritten in every release so far), the `local.properties`
+(`net/ToolSchemas.kt` has been rewritten in most releases — it read "in every release so far" until
+a release did not touch it, which is why the count is not written down here), the `local.properties`
 build flags that decide the first-install language, the thinking default and whether CodeFlying is
 compiled in have all been added since, and a saved scene is a shape that only appeared in `0.2.0`. Each of those is something a user or a second implementation would have to rebuild against,
 so `0.x` is being honest that MINOR may break. The release that moves off `0` should be the one where
@@ -26,6 +27,86 @@ anything not built at a tag, identify it by the short commit hash it was built f
 hash into `versionName` at build time would close this hole; it is not implemented yet.)
 
 ## [Unreleased]
+
+## [0.4.0] - 2026-10-14
+
+Two new capabilities, both of them choices rather than defaults: **a second voice provider** (Google,
+selectable beside the existing one, contributed as PR #8) and **a launcher icon that is the
+character's thinking pose**. Behind them, three fixes to how the interface is drawn — the primary
+button, the type scale on a phone, and a tracker string that had been calling every new device a
+Volcengine device.
+
+### Added
+
+- **A second voice provider.** `VoiceConfig.voiceProvider` reads `huoshan` or `google`, the settings
+  card grew a **Voice provider** picker above the two credential blocks, and `AsrController` /
+  `TtsController` now build one of two engines behind a shared interface (`AsrEngine`, `TtsEngine`);
+  the two are streaming on both sides and reduce to the same five calls, so nothing above them
+  changed. Volcengine stays the fallback — anything that is not exactly `google` reads as Volcengine,
+  and it is the leftmost option — because for every device that predates this row, Volcengine is what
+  it has been running.
+  Google's two halves are different protocols: recognition runs over the **Gemini Live API** (a
+  WebSocket, so it needs the project *number* and a location) and synthesis is plain HTTP against the
+  same Vertex Express key. Its defaults are a real region and two model names rather than a blank
+  (`asia-northeast1`, `gemini-3.5-transcribe-live-preview`, `gemini-3.1-flash-tts-preview`), and every
+  hint on its rows is the value a blank row resolves to — a card that advertises a model but silently
+  calls another is lying in the one place the user goes to decide.
+  **`GOOGLE_VOICE_KEY` non-empty at package time is also what makes Google the default provider.**
+  That is deliberate: a build is packaged for whoever it is packaged for, and baking a key is the most
+  explicit statement of that intent there is. The repository's own source defaults to the empty string,
+  so a checkout with nothing configured builds exactly what it built before Google existed.
+  The self-check moved with it, and the move is the interesting part: `voiceKey` now asks for the key
+  of the provider **actually in use**, and `voiceReach` probes that provider's host. The rows name
+  neither — a green tick earned by the Volcengine key while the device is talking to Google is the exact lie
+  that having one checklist instead of two exists to prevent.
+  *(Contributed by @kuafu-limanxiang in [#8](https://github.com/kuafuai/andee/pull/8).)*
+- **The launcher icon is now the thinking pose, on white.** It was built from a sheet with a glow
+  painted around the whole head and composited over that glow; it is now built from the cut-out of the
+  character with a hand on its chin, on a plain `#ffffff`. Same character either way, so nothing about
+  the identity changes — the icon is now the pose the app is in when it is thinking, and the background
+  is literally white because these illustrations were drawn on white and the warm light on the ball's
+  edge is painted on the ball itself. The inferred-glow treatment is not deleted; it is one flag away
+  (`--bg glow`), because it is real work that came close. The icon set also came out smaller,
+  405.4 → 258.3 KiB.
+
+### Changed
+
+- **The primary button is one flat fill instead of a blue-to-violet gradient.** A gradient inside a
+  pill makes the button carry its own light source — the look of a landing page's call to action —
+  and it was the only colour in the whole palette that did not answer to the theme, so on a light card
+  it sat there like a sticker off another design. It is now `Palette.tint`, a step deeper than each
+  theme's own accent, which keeps the button the loudest thing on a card for the reason that survives
+  going flat: it is the only saturated fill on it. Violet went with the gradient — the interface has
+  exactly one hue and it is blue. `Glass.TINT_START` and `Glass.TINT_END` are gone.
+  The label had to move with the fill, and that is measurable rather than taste: it was `Glass.TITLE`,
+  near-black by day and white at night, which works on a saturated ground at night and measures about
+  **4:1** by day — under the line for body text. It is `Glass.ON_TINT` now, white in both themes,
+  because both fills were picked deep enough to carry it. Seven call sites, one token each; no other
+  surface changes.
+- **Type is sized against the device now, not just against the tablet.** The six rungs were drawn on a
+  711dp tablet where a card is 500dp wide with air around it. A phone is 392dp and the same card fills
+  it edge to edge, so the same 26sp title read as a heading on one and a shout on the other — on the
+  phone it showed up as a row title clipped to "Accessibilit…" with the next card pushed off screen
+  entirely. Nothing about the type had grown: the box framing it lost a third of its width while
+  padding, radii and line spacing stayed in dp, and that mismatch is what reads as clumsy rather than
+  as large. Six rungs now carry a second column about three quarters of the first, chosen once from the
+  device's short side against Android's own 600dp line (`sw600dp`) — the same line, not a second one.
+  The tablet column is the original design and is untouched; a phone gets 20 / 15.5 / 13.5 / 12 / 10.5 /
+  9.5. **MICRO moves least on purpose**: it is already the floor of what can be read, and a floor that
+  moves with the screen is not a floor. The system font scale is deliberately not read — a phone with
+  text turned up still renders these at that scale, and the phone column is set with that in mind.
+- **Every English-facing markdown file is now free of Chinese characters.** The README had to be; the
+  other fourteen did not, and they had accumulated UI labels, language badges (the Chinese badge text
+  became `Chinese`, with its link target unchanged), and one piece of shorthand. The rule is mechanical now rather than a
+  habit, and it is worth knowing what it deliberately excludes: **code identifiers, code comments and
+  `CLAUDE.md` are out of scope** — the last one is written for AI assistants.
+
+### Fixed
+
+- **The voice self-check named a provider the device might not be using.** `voiceKey` asked for
+  `apiKey` and `voiceReach` probed `openspeech.bytedance.com`, unconditionally — correct while there
+  was one provider, and a wrong answer the moment there were two. Both follow the selected provider
+  now.
 
 ## [0.3.2] - 2026-10-14
 
