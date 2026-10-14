@@ -403,7 +403,7 @@ OpenAI 兼容端点（`llm_api_key`，中文界面默认 `https://api.deepseek.c
 | minSdk | 30 | Android 11 —— 因为要用 `AccessibilityAction.ACTION_IME_ENTER`（API 30+）和 `takeScreenshot`（API 30+） |
 | Java / Kotlin JVM target | 1.8 | `sourceCompatibility` 1.8、`jvmTarget = '1.8'` |
 | **构建用 JDK** | **17–20** | 见[配 JDK](#配-jdk)，这是最容易卡住的一步 |
-| versionCode / versionName | 5 / 0.3.1 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
+| versionCode / versionName | 6 / 0.3.2 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
 | applicationId / namespace | `net.kuafuai.andee` | 从模板里没改，不影响功能 |
 
 **运行库依赖**（`app/build.gradle`）：
@@ -628,7 +628,8 @@ adb shell pm grant net.kuafuai.andee android.permission.WRITE_SECURE_SETTINGS
 ## 唤醒词
 
 不想每次都去点球，可以教它认自己的声音：**⚙ → 唤醒词 → 录入唤醒词**，照提示把你想用的词说 3
-遍（比如「嘿 Andee」，换成别的词也行，每遍说同一个）。之后**亮屏状态下**说这个词，效果和点一下球完全一样。
+遍（比如「嘿 Andee」，换成别的词也行，每遍说同一个）。之后说这个词，效果和点一下球完全一样 ——
+**不需要亮屏**，除非你自己把那条关掉。
 
 几件值得先知道的事：
 
@@ -640,8 +641,11 @@ adb shell pm grant net.kuafuai.andee android.permission.WRITE_SECURE_SETTINGS
   可能叫不醒；叫不醒就点球，不影响别的。
 - **录的时候别刻意念清楚。** 判定阈值是从你那 3 遍之间的差距算出来的：念得过分标准，阈值会收得
   很紧，平时那样叫反而认不出来。
-- **只在亮屏时监听。** 息屏、Andee 自己正在说话、以及正在录你说话的时候都会把麦克风让出来 ——
-  对话本身的麦克风优先级永远高于唤醒词。
+- **息屏时也在听，而这一条可以关。** 息屏不再把麦克风让出来 —— 手机揣在兜里时屏幕本来就黑着，
+  这是它最该被叫醒的地方。开关在 **⚙ → 唤醒词 → 锁屏时也听**，默认**开启**；代价是麦克风会一直
+  开着，下面说的状态栏提示也会一直显示。Andee 自己正在说话、以及正在录你说话的时候，两种设置下都会
+  把麦克风让出来 —— 对话本身的优先级永远高于唤醒词。锁屏时它听得到、答得了，但**不会假装能动手**：
+  碰屏幕和开 App 那类工具会直接拒绝，并说明原因。
 - Android 12 以后，只要麦克风开着，状态栏就有个绿点，这是系统行为，去不掉。没录唤醒词的话监听
   根本不启动，也就不会有绿点。
 
@@ -861,7 +865,7 @@ CLAUDE.md               给 AI 编码助手看的架构说明（英文）
 随包分发的第三方组件清单在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。再分发之前请先看：
 **ML Kit 扫码 SDK 和 `play-services-*` 不是开源许可**，而且扫码模型是运行时从 Google 拉的。
 
-改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.3.1`**，故意停在
+改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.3.2`**，故意停在
 pre-1.0：线上协议和构建开关都还在动。
 
 ## 相关文档

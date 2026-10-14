@@ -556,7 +556,7 @@ Pure Kotlin, no Compose; the whole thing hangs off two pillars, `WindowManager` 
 | minSdk                    | 30                  | Android 11 — `AccessibilityAction.ACTION_IME_ENTER` and `takeScreenshot` are both API 30+ |
 | Java / Kotlin JVM target  | 1.8                 | `sourceCompatibility` 1.8, `jvmTarget = '1.8'`                                            |
 | **Build JDK**             | **17–20**           | see [Which JDK](#which-jdk) — this is the step people get stuck on                        |
-| versionCode / versionName | 5 / 0.3.1           | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
+| versionCode / versionName | 6 / 0.3.2           | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
 | applicationId / namespace | `net.kuafuai.andee` | never changed from the template. It affects nothing                                       |
 
 **Runtime dependencies** (`app/build.gradle`):
@@ -725,8 +725,8 @@ If any step does not line up, go back to that section's **Verify**.
 
 If you would rather not tap the ball every time, teach it your voice: **⚙ → wake word → record wake  
 word**, and say the phrase you want to use three times as prompted (for example "Hey Andee" — any  
-other phrase works too, as long as you say the same one each time). After that, saying it **while the  
-screen is on** does exactly what tapping the ball does.
+other phrase works too, as long as you say the same one each time). After that, saying it does exactly
+what tapping the ball does — **the screen does not have to be on**, unless you turn that off.
 
 
 A few things worth knowing first:
@@ -742,8 +742,13 @@ A few things worth knowing first:
 - **Do not over-enunciate when you record.** The threshold is derived from the spread between your
   three takes: pronounce it too perfectly and the threshold tightens so much that your ordinary voice
   no longer matches.
-- **It only listens while the screen is on.** Screen off, Andee mid-sentence, and Andee recording you
-  all hand the microphone back — a conversation always outranks the wake word.
+- **It listens with the screen off too, and that is a setting you can turn off.** Screen off no longer
+  hands the microphone back, because a screen being off is the normal state of a phone in a pocket —
+  **⚙ → wake word → the "listen while locked" row** controls it and ships **on**. The cost is that the
+  microphone stays open and so does the status-bar indicator below. Andee mid-sentence, and Andee
+  recording you, still hand it back either way: a conversation always outranks the wake word. With the
+  screen locked it can hear and answer, but it will not pretend it can act — screen and app-launch
+  tools refuse, and say why.
 - From Android 12 on, a green dot appears in the status bar whenever the microphone is open. That is
   the system, and it cannot be removed. If you never record a wake word, the listener never starts and
   the dot never appears.
@@ -979,7 +984,7 @@ Read it before redistributing: **the ML Kit barcode SDK and the `play-services-*
 open-source**, and the barcode model is fetched from Google at runtime.
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed and for the versioning policy. The latest release is
-**`v0.3.1`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
+**`v0.3.2`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
 
 ## Related documents
 

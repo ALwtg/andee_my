@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`5` / `"0.3.1"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`6` / `"0.3.2"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -26,6 +26,99 @@ anything not built at a tag, identify it by the short commit hash it was built f
 hash into `versionName` at build time would close this hole; it is not implemented yet.)
 
 ## [Unreleased]
+
+## [0.3.2] - 2026-10-14
+
+Wake word plus polish, and the first release that ships the APK with the release rather than telling
+the reader to build one — see *Added* and `docs/releases/v0.3.2.md`.
+
+### Added
+
+- **The wake word now listens with the screen off, and stops the tools that cannot work locked.** The
+  gate used to hold the microphone only while the screen was on — a rule with a real reason behind it,
+  since a dark tablet on a bedside table should not be listening all night, but the screen being off is
+  also the normal state of a phone in a pocket, so it meant the assistant could not be called from the
+  one place a person actually keeps their phone. The gate now asks `wakeListeningAllowed()` — *the
+  screen is on, or the user left 锁屏时也听 on* — and that setting **defaults to on**. Its cost is stated
+  on the row that flips it rather than left for the status bar to mention: the microphone stays open,
+  and so does the system's recording indicator.
+  Woken with the keyguard up, Andee can hear and answer — `tts.speak` needs nothing from the screen —
+  but it must not pretend it can act. A gesture aimed at a locked device is dropped by the input
+  pipeline and reports nothing; the lock screen's own `FLAG_SECURE` means there were never any logs to
+  search; `screen.ui_tree` returns the keyguard's empty placeholder, indistinguishable from the
+  blank-tree case; `device.launch` opens an Activity behind the lock screen where nobody sees it. Every
+  one of those would come back to the brain as "completed" and be repeated to the user as something
+  that happened, so `dispatch()` refuses them outright with a sentence saying why and what to do
+  instead. `screen.` is blocked by prefix so a new tool in that namespace inherits the guard; the names
+  outside it — `device.launch`, `open_url`, `scan`, `look`, `permissions.request`, `ui.ask`,
+  `ui.alert`, `ui.show_html` — are the same act by another road. `device.battery`, `device.volume`,
+  `tts.speak` and the whole `note.` namespace stay open, because they work perfectly well locked. Read
+  live rather than mirrored into a flag, because the caller that matters fires at any point of a turn:
+  locking the phone mid-answer is a normal thing to do, not a state transition to track. Verified on
+  the tablet over the 9008 tool port, including the device being unlocked again to prove the guard
+  reads the device rather than a memory of it.
+- **The voice segmenter now starts on the voice, not on the microphone.** Two symptoms reported
+  separately, neither with a log line to explain it — "it takes three tries to enrol, but if I wait
+  three seconds one is enough", and "it wakes on everything" — turned out to be one defect with two
+  faces. `VoiceSegmenter` decides an utterance has started when the level holds for `START_FRAMES`
+  frames, three of them, 30 ms, and the floor is seeded from the *first frame the microphone delivers*.
+  Three frames is a click, a tap on the tablet's edge, or the recorder's own first read, so the segment
+  started on the hardware rather than on the person. A segment that starts early comes out long and
+  dirty and, past `MAX_FRAMES`, was **dropped in silence** — the caller's latch never counted down and
+  the card sat on 听着… for the rest of the window. That is the second and third try. The fix slows the
+  decision down without throwing audio away: `START_FRAMES` 3 → 8 (80 ms) so a transient cannot open a
+  segment, and `PREROLL_FRAMES` 15 → 30 (300 ms) so the onset is still in the ring when the decision
+  lands. Delaying a decision is free; discarding the audio is not — which is why there is deliberately
+  no warm-up that drops the first 200 ms. The obvious fix was proposed and withdrawn: a user who taps
+  and speaks immediately would lose exactly the syllable the ring exists to protect.
+- **Five of the character's faces now run along the bottom of both cover images**
+  (`images/cover*.png`, `images/social-preview*.png`), one word under each — 听 看 想 做 说. They are
+  the app's own illustrations rather than drawings made for the web, and they are the *gesture* moods,
+  the set the web renderer cannot draw because they use props — so this is the first place the cover
+  shows the character instead of describing it. The row is confined to the left column by the head's own
+  geometry, which is why the whole column moved up 60 px rather than the band being full width.
+
+### Changed
+
+- **The APK now ships with the release.** Every release up to `0.3.1` said "no binary, on purpose",
+  and the reason has not changed — the release build type has no `signingConfig` and the repository
+  has no keystore, so `assembleRelease` emits an unsigned APK that will not install. What changed is
+  the trade: a reader who cannot install anything has no way to try the app at all short of
+  provisioning an Android SDK. The attached APK is the **debug** build — signed with the standard
+  Android debug certificate and installs as-is — and it is deliberately **bare**: `CODEFLYING_ENABLED`
+  is `false` with both `CODEFLYING_KEY` and `CODEFLYING_DOMAIN` empty, `DEFAULT_LANG` is `en`, and the
+  thinking default is off. All four were read back out of the generated `BuildConfig` rather than
+  assumed, and the artifacts were scanned for key material. **The cost is stated rather than buried**:
+  a debug APK is `debuggable` and is signed with the shared Android debug key, so it cannot install
+  over a release-signed build — moving from this to a signed release takes an uninstall, and an
+  uninstall takes the notebook and the vault with it. The READMEs' advice (*hand out a signed release
+  build, not the debug one*) is still right for anything actually distributed, and both now point at
+  this stopgap so the two do not read as a contradiction.
+- **The wake-word prose moved with the default.** `wake_done`, `check_detail_wake_on` and
+  `settings_wake_enrolled` all said the wake word works "while the screen is on" — in both languages —
+  and both READMEs said "it only listens while the screen is on, screen off hands the microphone
+  back". The default is the thing that changed, so every sentence describing it had to move with it or
+  it would have shipped stale.
+
+### Fixed
+
+- **The enrolment prompt appeared before the microphone existed.** 现在说吧 was set on the tapper's
+  thread, before a recorder existed, so the user was invited to speak into a microphone that had not
+  started. It now moves after `mic.start()` returns: the card reads 正在听… for the 100–300 ms the
+  recorder takes to come up, and the prompt appears once something is listening. Nothing is taken from
+  the user to pay for it.
+- **The wake threshold was anchored on the worst take rather than the closest.** `thresholdFor` was
+  anchored on the *worst* pair, so one dirty take set the door width for the whole system — 2.2755 and
+  2.1083 against a measured band of non-wake speech at 2.21–2.59, with sixteen of sixty judgements
+  within 0.06 of the line. `bestDistance` returns the nearest template, so the question the door width
+  answers is "how far can a real attempt be from the nearest take" — and the evidence for that is the
+  takes that landed close, not the one that did not. `MAX_THRESHOLD` 2.8 → 1.8, which had been picked
+  as "the widest thing still callable a threshold" and never measured. Across three enrolments twenty
+  minutes apart the spread between takes fell from 0.42 to 0.12.
+- `VoiceSegmenter` gained a pure-Kotlin `Stats` (frames / loud / firstLoud / peak / floor / segments /
+  droppedShort / droppedLong) with no Android dependency, keeping the DSP half of the wake pipeline
+  JVM-testable; `WakeEnrollUi` logs it once per attempt and `WakeMic` logs the read that ends a capture
+  early, both under the `Wake` tag so one filter sees the whole pipeline.
 
 ## [0.3.1] - 2026-10-13
 
