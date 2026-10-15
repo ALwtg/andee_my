@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`7` / `"0.4.0"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`8` / `"0.4.1"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -28,6 +28,17 @@ hash into `versionName` at build time would close this hole; it is not implement
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-15
+
+A day of fixes and one feature pair, and the version number is **a deliberate departure from the
+policy below**. The delta holds three `feat` commits — page versioning, the brain being able to see
+its own pages, and the default palette — and the policy says MINOR for a new capability, which would
+have made this `0.5.0`. It is `0.4.1` because the first two are two halves of repairing one
+incomplete feature rather than a new capability: `show_html` could already make a page and the panel
+could already list it, and what was missing was the model's knowledge of it and the device's
+willingness to treat a change as a change. Nothing in the wire contract or an existing configuration
+breaks either way, so neither number is wrong about compatibility — this one is about intent.
+
 ### Added
 
 - **Revising a page makes a new *version* of it, not a second page.** Changing a page used to archive
@@ -41,17 +52,22 @@ hash into `versionName` at build time would close this hole; it is not implement
   files its answer as the next version instead of rebuilding a lookalike beside it. `show_html`
   gained an optional `revise` for naming the page explicitly; the device also infers it from the
   `get_page` in the same turn, and from the panel row the user tapped. One artifact keeps at most 20
-  revisions.
+  revisions. Which artifact a revision belongs to is decided on the device and never asked of the
+  model — and **the target is consumed rather than merely read**, a distinction found by hand on a
+  device, where a target left standing folded a second, unrelated page in as a later version of the
+  first.
 - **The brain can see the pages it has made.** `show_html` draws a page and the device keeps it —
   the *Made for you* panel lists them, so to the user they are a shelf — but nothing put that record into the
   model's context, so a page built yesterday did not exist to the brain that built it. A request to
   revise earlier work could come back as a fresh table that merely resembled the old one, or as a
   flat "I have not made that". Two read-only tools close it: **`list_pages`** returns every page with
   its id, title, date, size and whether the file is still there, and **`get_page`** reads one back by
-  id so a revision is a revision rather than a new page wearing the old name. Alongside them the
-  newest few ride on the per-turn user message as a short index — the same place and the same reason
+  id so a revision is a revision rather than a new page wearing the old name. Both are deliberately
+  **outside the `screen.` prefix**, so neither folds the card nor stops at the lock screen: reading a
+  file reaches neither. Alongside them the newest few ride on the per-turn user message as a short
+  index — the same place and the same reason
   as the notebook index, since a tool only answers a question the model thought to ask. `available:
-  false` on a page whose file the 100-page cap has taken is reported honestly rather than passed
+  false` on a page whose file the cap has taken is reported honestly rather than passed
   over: the title and date are still true, the contents are not there to read.
 
 ### Changed
@@ -61,7 +77,24 @@ hash into `versionName` at build time would close this hole; it is not implement
   `night`, so nothing here can overrule a user who picked dark, and the dark palette stays one tap
   away in **Settings → Appearance**. Written this way round on purpose: the test is against the
   *non-default* value, which is what makes changing the default later a one-line edit rather than a
-  migration.
+  migration. **Dark is not the older palette and is not being corrected** — it is the look this app
+  was designed on, and light was derived from it as the inversion. `Theme.night`'s initial value
+  moves with the default, so the frame drawn before the saved setting is read is already the right
+  palette rather than flipping one frame in.
+- **Every face got its props, its idle life and its finishing touches.** Andee's mouth dropped twice
+  — `−0.185 → −0.235 → −0.285` — so there is a finger of sphere between its eyes and its smile
+  instead of the two crowding together. Sleep stopped being a flattening pose: the `sqx`/`sqy` that
+  squashed the resting and sleeping ball into a puddle are gone, and the floppy horns, the ⌣ eyes and
+  (while sleeping) the bubble carry it instead.
+
+### Fixed
+
+- **Changing the model, the thinking switch or the reasoning effort no longer wipes the
+  conversation.** Closing the settings card rebuilt the local brain on any `BrainConfig` difference,
+  and a rebuild is the loss of the whole conversation — flipping the thinking switch reset the
+  history mid-task, and the model then said it had no record of a page it had just built. Only a
+  change of **who answers** (mode, key, endpoint) rebuilds now; model, thinking and reasoning effort
+  are request parameters and are retuned in place, taking effect on the next request.
 
 ## [0.4.0] - 2026-10-14
 

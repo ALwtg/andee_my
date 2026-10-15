@@ -184,9 +184,10 @@ Android 13 及以上，它通过无障碍服务自带的输入通道打字 —�
 选，带不带文字都可以。
 
 **12. 能留下来的答案。**
-凡是有结构的东西 —— 一份对比、一个计划、一份会议纪要 —— 它会写成一页放到屏幕上。**「产物」**面板最多
-留一百页，可以重新打开、删除，或者直接说"哪里要改"让它改。让它录会，它会占着麦克风录完一整场，边录
-边把逐字稿写到本机，结束后再整理成纪要。
+凡是有结构的东西 —— 一份对比、一个计划、一份会议纪要 —— 它会写成一页放到屏幕上。**「产物」**面板
+一个产物一行，改动记录都留在它后面（每个最多二十版），可以重新打开、删除，或者直接说"哪里要改"让它
+改。**改一次是同一个产物的新版本，不是又生出一个产物**，任何一版都能恢复成当前版。让它录会，它会
+占着麦克风录完一整场，边录边把逐字稿写到本机，结束后再整理成纪要。
 
 ### 身体
 
@@ -222,7 +223,7 @@ WebSocket hub 连到设备。两者之间只是一份普通的工具 schema 契�
 那个后端（`brain = local` 是开箱默认）。
 
 agent loop **就是** `LocalBrain`。它让系统提示词保持不变，把会变的部分（时钟、notebook 索引、
-情景、照片）内联进 user 消息，这样服务商的前缀缓存仍然命中；工具表每轮重建；然后是一个
+情景、产物、照片）内联进 user 消息，这样服务商的前缀缓存仍然命中；工具表每轮重建；然后是一个
 **非流式**的 `for` 循环，最多 `maxSteps` 步。带工具调用的回复经 `methodOf()` 送到唯一的
 `CommandDispatcher`；不带工具调用的回复结束这一轮。结果从六个通道送出来 —— 语音、文字、
 全屏网页、产物、长文、以及物理动作。
@@ -407,7 +408,7 @@ Google），再填该服务商的密钥。这是两个独立的服务，条款�
 | minSdk | 30 | Android 11 —— 因为要用 `AccessibilityAction.ACTION_IME_ENTER`（API 30+）和 `takeScreenshot`（API 30+） |
 | Java / Kotlin JVM target | 1.8 | `sourceCompatibility` 1.8、`jvmTarget = '1.8'` |
 | **构建用 JDK** | **17–20** | 见[配 JDK](#配-jdk)，这是最容易卡住的一步 |
-| versionCode / versionName | 7 / 0.4.0 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
+| versionCode / versionName | 8 / 0.4.1 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
 | applicationId / namespace | `net.kuafuai.andee` | 从模板里没改，不影响功能 |
 
 **运行库依赖**（`app/build.gradle`）：
@@ -870,7 +871,7 @@ CLAUDE.md               给 AI 编码助手看的架构说明（英文）
 随包分发的第三方组件清单在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。再分发之前请先看：
 **ML Kit 扫码 SDK 和 `play-services-*` 不是开源许可**，而且扫码模型是运行时从 Google 拉的。
 
-改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.4.0`**，故意停在
+改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.4.1`**，故意停在
 pre-1.0：线上协议和构建开关都还在动。
 
 ## 相关文档

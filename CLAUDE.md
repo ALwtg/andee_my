@@ -86,6 +86,18 @@ The hub wire uses **LLM-facing tool names** (`get_screen_element`, `tap_screen_e
 
 Consequence: **adding a tool means editing both `ToolSchemas.kt` and `CommandDispatcher.kt`.** A schema entry with no matching dispatcher branch fails at call time with `unknown method`; a dispatcher branch with no schema entry is invisible to the brain. The `description` strings in `ToolSchemas` are prompt text read by an LLM — they are behavioral documentation, not code comments, and are meant to stay in sync with the equivalent Python `body_tools/` files on the brain side.
 
+### 产物面板记的是「版本」，不是「条目」（`ui/ChatHistory.kt`）
+
+一轮 `show_html` 曾经就是一个新条目，所以「继续修改」两次会在货架上留下三个几乎一样的产物，且没有任何东西说明哪个是当前的。现在 `Entry` 多两个字段：**`groupId`**（属于哪个产物）与 **`version`**（第几版，**只增不减**）。面板 `ArtifactsUi` 用 `collapseToArtifacts` 折成 **一产物一行**（`ChatHistory.kt:158`），行上带 `v3`；旧版仍在磁盘上，**版本**打开列表、任何一版都能打开、**回到这版**把旧的一版改成当前版 —— 而这个动作本身**是追加一个新版本**，所以历史永远是 append-only，连回退都可回退。**单产物上限 `MAX_VERSIONS = 20`**（`artifacts()` 里 `dropLast`），全局页数上限仍是 `MAX_PAGES = 100`（数的是**带 page 的 entry 数**，版本化之后就是"最多一百个版本"）。
+
+**归属判定全在设备侧，绝不问模型**，这是这一节最该记住的东西。三个入口：① `ui.get_page` 读完设目标；② 面板的「继续修改」把这个产物的 id 交给这一轮；③ `show_html` 可选参数 `revise` 显式点名。`show_html` 不带以上任何一个 ⇒ 新产物。
+
+🔴 **目标必须「消费」而不是只「读」**：`resolveRevisionTarget` 返回 `Pair(目标, null)`，调用方必须把返回的 null 存回去。真机抓到的 bug —— 一个回合里 `get_page` 之后再画两页，第二页被误并成第一页的 `v5`。**每个回合入口都要 `beginTurn`**（非编辑态传 null），否则上一轮的目标会漏进来。分组逻辑是纯函数、有 `ChatHistoryVersionsTest` 18 个用例，但**单测没覆盖到上面那个消费 bug** —— 真机走一遍四条路径（`get_page`→`show_html`、显式 `revise`、必须不被吞的新页面、回退）才算验过。
+
+**模型看得见自己的产物**靠两个**只读**工具：`list_pages`（一产物一行，带 version/versions）与 `get_page`（按 id 读回源码，**任何历史版本都可读**）。**故意不在 `screen.` 前缀下** —— 读文件既不折叠卡片也不受锁屏限制，那个前缀的守卫对它们没有意义。它们的新鲜几行还搭在**每轮 user message**的索引里，与 notebook 索引同一位置同一理由（工具只回答模型想得到的问题）。
+
+⚠️ 存档里新增了 `group`/`version` 两个键，**`load()` 遇到缺 `group` 的旧记录必须 fallback 成它自己的 id**（`ChatHistory.kt:608` 的 `if (o.has("group")) o.optLong("group") else id`），**绝不能是 0** —— 那会把所有旧页面并成一个产物。`Entry` 上 `groupId = id` 的默认值同时是「新条目自成一组」的表达。
+
 ### The overlay-vs-gesture conflict
 
 This is the subtlest invariant in the codebase. `ScreenController.tap/swipe/longPress` use `dispatchGesture`, which injects events into the **real touch pipeline** — so the app's own floating overlay would intercept them first. Every gesture-based command is therefore wrapped in `passthroughForGesture` (`CommandDispatcher`) or the equivalent in `ScreenBodyService.swipe`, which flips the overlay to non-touchable, **sleeps ~50 ms** (because `updateViewLayout` is posted to the UI thread and needs a frame or two to actually apply), runs the gesture, then restores. The window stays visible throughout.

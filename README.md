@@ -212,8 +212,10 @@ up to six photos — from the camera or the gallery — with or without words.
 
 **12. Answers you can keep.**  
 Anything structured — a comparison, a plan, meeting minutes — comes back as a page it writes and  
-puts on screen. The **Made for you** panel keeps up to a hundred of them to reopen, delete, or  
-revise by just saying what should change. Ask it to record a meeting and it holds the microphone  
+puts on screen. The **Made for you** panel keeps one row per page and holds the revisions behind it —
+up to twenty of each — so you can reopen it, delete it, or have it revised by just saying what should
+change. **A revision is a new version of the same page, not a second page**, and any earlier version
+can be made current again. Ask it to record a meeting and it holds the microphone
 for the hour, writing a verbatim transcript to disk as it goes, then turns it into minutes.
 
 ### Body
@@ -256,8 +258,8 @@ logged to `ChatHistory`, and is handed to whichever backend is in effect (`brain
 out-of-box default).
 
 The agent loop **is** `LocalBrain`. It holds the system prompt constant and inlines the volatile  
-parts (clock, notebook index, scenes, photos) into the user message, so the provider's prefix cache  
-still hits; it rebuilds the tool table every turn; and it calls the model in a **non-streaming**  
+parts (clock, notebook index, scenes, pages, photos) into the user message, so the provider's prefix  
+cache still hits; it rebuilds the tool table every turn; and it calls the model in a **non-streaming**  
 `for` loop of up to `maxSteps` steps. A reply carrying tool calls goes through `methodOf()` to the  
 one `CommandDispatcher`; a reply without any ends the turn. The result comes back out through six  
 channels — speech, text, a full-screen page, saved artifacts, long text, and physical motion.
@@ -561,7 +563,7 @@ Pure Kotlin, no Compose; the whole thing hangs off two pillars, `WindowManager` 
 | minSdk                    | 30                  | Android 11 — `AccessibilityAction.ACTION_IME_ENTER` and `takeScreenshot` are both API 30+ |
 | Java / Kotlin JVM target  | 1.8                 | `sourceCompatibility` 1.8, `jvmTarget = '1.8'`                                            |
 | **Build JDK**             | **17–20**           | see [Which JDK](#which-jdk) — this is the step people get stuck on                        |
-| versionCode / versionName | 7 / 0.4.0           | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
+| versionCode / versionName | 8 / 0.4.1           | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
 | applicationId / namespace | `net.kuafuai.andee` | never changed from the template. It affects nothing                                       |
 
 **Runtime dependencies** (`app/build.gradle`):
@@ -990,7 +992,7 @@ Read it before redistributing: **the ML Kit barcode SDK and the `play-services-*
 open-source**, and the barcode model is fetched from Google at runtime.
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed and for the versioning policy. The latest release is
-**`v0.4.0`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
+**`v0.4.1`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
 
 ## Related documents
 
