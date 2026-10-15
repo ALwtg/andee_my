@@ -28,6 +28,32 @@ hash into `versionName` at build time would close this hole; it is not implement
 
 ## [Unreleased]
 
+### Added
+
+- **Revising a page makes a new *version* of it, not a second page.** Changing a page used to archive
+  the result as a brand-new artifact, so two rounds of revision left three near-identical entries on
+  the *Made for you* shelf with nothing saying which one was current. An entry now carries which
+  artifact it belongs to and which revision of it, the panel shows one row per artifact with its
+  version number (`v3`), and the older revisions stay on disk behind it: **Versions** opens the list,
+  any of them can be opened, and **Go back to this** makes an old one current again — **as a new
+  version**, so the history stays append-only and the rollback itself can be rolled back. The brain
+  is told the same thing, so a request to change an earlier page reads the current source back and
+  files its answer as the next version instead of rebuilding a lookalike beside it. `show_html`
+  gained an optional `revise` for naming the page explicitly; the device also infers it from the
+  `get_page` in the same turn, and from the panel row the user tapped. One artifact keeps at most 20
+  revisions.
+- **The brain can see the pages it has made.** `show_html` draws a page and the device keeps it —
+  the *Made for you* panel lists them, so to the user they are a shelf — but nothing put that record into the
+  model's context, so a page built yesterday did not exist to the brain that built it. A request to
+  revise earlier work could come back as a fresh table that merely resembled the old one, or as a
+  flat "I have not made that". Two read-only tools close it: **`list_pages`** returns every page with
+  its id, title, date, size and whether the file is still there, and **`get_page`** reads one back by
+  id so a revision is a revision rather than a new page wearing the old name. Alongside them the
+  newest few ride on the per-turn user message as a short index — the same place and the same reason
+  as the notebook index, since a tool only answers a question the model thought to ask. `available:
+  false` on a page whose file the 100-page cap has taken is reported honestly rather than passed
+  over: the title and date are still true, the contents are not there to read.
+
 ## [0.4.0] - 2026-10-14
 
 Two new capabilities, both of them choices rather than defaults: **a second voice provider** (Google,

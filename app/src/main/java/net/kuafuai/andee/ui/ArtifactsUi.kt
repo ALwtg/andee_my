@@ -47,6 +47,9 @@ class ArtifactsUi(
     /** The row whose 删除 has been tapped once and now reads 确认删除. */
     private var arming: Long? = null
 
+    /** The artifact whose version list is open, by group id; null = none. */
+    private var expanded: Long? = null
+
     fun isShown(): Boolean = root != null
 
     fun show() {
@@ -186,18 +189,36 @@ class ArtifactsUi(
             Glass.pressable(this)
             setOnClickListener { hide { onOpen(e) } }
         }
-        row.addView(TextView(context).apply {
+        // Title and version badge on one line: the number belongs next to the
+        // name, not down in the metadata — "which one is current" is the whole
+        // question a revised page raises, and it has to be answerable without
+        // reading two lines.
+        val versions = ChatHistory.versionsOf(e.groupId)
+        val titleRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        titleRow.addView(TextView(context).apply {
             text = e.text
             textSize = Glass.Type.BODY
             setTextColor(Color.parseColor(Glass.TITLE))
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
-        }, matchWrap())
+        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        // Only when it actually has been revised: a 「v1」 on every page is
+        // noise that makes the ones with a v2 harder to pick out.
+        if (e.version > 1 || versions.size > 1) {
+            titleRow.addView(versionBadge(e.version), LinearLayout.LayoutParams(WRAP, WRAP))
+        }
+        row.addView(titleRow, matchWrap())
 
         val meta = buildString {
             append(SimpleDateFormat("yyyy-MM-dd HH:mm", AppLocale.localeOf(context)).format(Date(e.ts)))
             val bytes = e.page?.length() ?: 0L
             if (bytes > 0) append(" · ${(bytes + 1023) / 1024} KB")
+            // How much history is behind this page, so the 版本 entry has a
+            // reason to be pressed before it is pressed.
+            if (versions.size > 1) append(" · ${lctx.getString(R.string.artifacts_versions_count, versions.size)}")
         }
         row.addView(TextView(context).apply {
             text = meta
@@ -217,6 +238,14 @@ class ArtifactsUi(
         actions.addView(action(lctx.getString(R.string.artifacts_edit), Glass.ACCENT) {
             hide { onEdit(e) }
         })
+        actions.addView(View(context), LinearLayout.LayoutParams(dp(8), 1))
+        // Only offered when there is somewhere to go back to.
+        if (versions.size > 1) {
+            actions.addView(action(lctx.getString(R.string.artifacts_versions), Glass.SECONDARY) {
+                expanded = if (expanded == e.groupId) null else e.groupId
+                rebuild()
+            })
+        }
         actions.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
         val armed = arming == e.id
         actions.addView(
@@ -236,7 +265,85 @@ class ArtifactsUi(
             },
         )
         row.addView(actions, matchWrap())
+
+        if (expanded == e.groupId) row.addView(versionList(e), matchWrap())
         return row
+    }
+
+    /** The 「v3」 chip. Small, muted, and never the thing you tap. */
+    @SuppressLint("SetTextI18n")
+    private fun versionBadge(version: Int): TextView = TextView(context).apply {
+        text = "v$version"
+        textSize = Glass.Type.MICRO
+        setTextColor(Color.parseColor(Glass.SECONDARY))
+        background = Glass.well(context, dp(8))
+        setPadding(dp(8), dp(3), dp(8), dp(3))
+    }
+
+    /**
+     * Every revision of this artifact, newest first — open it, or make it the
+     * current one again.
+     *
+     * 回退 files the old bytes as a *new* version rather than editing history
+     * (see [ChatHistory.restoreVersion]), so this list never loses the version
+     * you rolled back from. The row that is current says so and offers no
+     * action; a version whose file is gone says that instead of pretending to
+     * be openable.
+     */
+    @SuppressLint("SetTextI18n")
+    private fun versionList(current: ChatHistory.Entry): View {
+        val box = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        for (v in ChatHistory.versionsOf(current.groupId)) {
+            val isCurrent = v.id == current.id
+            val line = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = Glass.well(context, dp(10))
+            }
+            line.addView(versionBadge(v.version), LinearLayout.LayoutParams(WRAP, WRAP))
+            line.addView(TextView(context).apply {
+                // The date, not the title: every revision of an artifact shares
+                // the title, so the time is what tells them apart.
+                text = "  " + SimpleDateFormat("MM-dd HH:mm", AppLocale.localeOf(context)).format(Date(v.ts))
+                textSize = Glass.Type.MICRO
+                setTextColor(Color.parseColor(Glass.MUTED))
+            }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            if (isCurrent) {
+                line.addView(TextView(context).apply {
+                    text = lctx.getString(R.string.artifacts_version_current)
+                    textSize = Glass.Type.MICRO
+                    setTextColor(Color.parseColor(Glass.SECONDARY))
+                }, LinearLayout.LayoutParams(WRAP, WRAP))
+            } else if (v.page == null) {
+                line.addView(TextView(context).apply {
+                    text = lctx.getString(R.string.artifacts_version_gone)
+                    textSize = Glass.Type.MICRO
+                    setTextColor(Color.parseColor(Glass.MUTED))
+                }, LinearLayout.LayoutParams(WRAP, WRAP))
+            } else {
+                val openBtn = action(lctx.getString(R.string.artifacts_open), Glass.LABEL) {
+                    hide { onOpen(v) }
+                }
+                line.addView(openBtn, LinearLayout.LayoutParams(WRAP, WRAP))
+                line.addView(View(context), LinearLayout.LayoutParams(dp(6), 1))
+                line.addView(action(lctx.getString(R.string.artifacts_restore), Glass.ACCENT) {
+                    // Roll back: files the old bytes as the next version, so
+                    // this list keeps everything it had. The panel redraws
+                    // rather than closing — the user is mid-way through a
+                    // history and dropping them out of it would lose their place.
+                    if (ChatHistory.restoreVersion(v.id) != null) {
+                        expanded = current.groupId
+                        rebuild()
+                    }
+                }, LinearLayout.LayoutParams(WRAP, WRAP))
+            }
+            box.addView(line, matchWrap().apply { bottomMargin = dp(6) })
+        }
+        return box
     }
 
     private fun action(label: String, color: String, onClick: () -> Unit): TextView =

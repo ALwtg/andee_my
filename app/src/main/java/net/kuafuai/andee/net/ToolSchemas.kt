@@ -896,6 +896,24 @@ object ToolSchemas {
         change. Send the whole new page, not a diff. Never ask the user to
         close the page first.
 
+        The page is KEPT after it closes, on this device — the user has a 产物
+        panel listing everything you have made. So a page is not gone when it
+        leaves the screen: list_pages shows what exists and get_page reads one
+        back for revision. Check before building something the user may already
+        have.
+
+        REVISING KEEPS THE HISTORY. A page you revise becomes the next VERSION
+        of that same artifact; it does not become a second entry on the shelf.
+        The user's panel shows one row per artifact with its version number, and
+        they can look back through the older revisions and return to one. So
+        when the user asks you to change an existing page, read the current one
+        back (`get_page`) and send the full revised page — that pairing is what
+        files it as a revision. Use `revise` to name the page explicitly if you
+        have its id; the device also infers it from the `get_page` you just
+        made, and from the panel the user tapped. Building the page from scratch
+        instead, without reading it back, is how a "change" turns into a
+        near-duplicate the user has to sort out themselves.
+
         Inline CSS and JS ONLY. The device may have no usable internet, so a
         page that fetches a font, a framework or a script over the network
         renders broken. Media is the exception: an image, video or audio
@@ -923,6 +941,96 @@ object ToolSchemas {
                 // `html_default_title`, resolved in the interface language, and
                 // `default = "AI 界面"` used to sit here as a literal.
                 "title" to prop("string", "Short page title — carried into the conversation record, and quoted back to you if a page is already open. Omit it and the page is named in the interface language."),
+                "revise" to prop(
+                    "integer",
+                    "The id (from list_pages) of the page this one is a revised version of. " +
+                        "Optional — reading a page with get_page in the same turn sets it for you, " +
+                        "and so does the user tapping 继续修改. Give it when you know which page " +
+                        "you are continuing; omit it to build a new artifact.",
+                ),
+            ),
+        ),
+        // ------------------------------------------------------------------
+        // The pages it has made — `ui.list_pages` / `ui.get_page`.
+        //
+        // Read-back for the one piece of its own work the brain cannot
+        // otherwise see. `show_html` draws a page and the device keeps it (the
+        // 产物 panel lists them), but nothing carries that record into the
+        // context, so before these existed a page built yesterday did not exist
+        // to the brain that built it — which is how "改一下上次那个表格" got an
+        // answer about a page that was never made.
+        //
+        // Neither one draws anything, which is why they are not under `screen.`
+        // and not in [CommandDispatcher.LOCKED_BLOCKED]: a rolled-up card and a
+        // locked screen do not get in the way of reading a file.
+        // ------------------------------------------------------------------
+        tool(
+            name = "list_pages",
+            method = "ui.list_pages",
+            description = """
+        The pages you have made on this device, newest first, with the id each
+        one is read back by. This is the half of your own work you cannot
+        otherwise see: the pages you build with `show_html` stay on the tablet
+        afterwards — the user has a panel listing all of them (产物 on a Chinese
+        device, *Made for you* on an English one) — but the record does not ride
+        in your context, so without this call a page you built yesterday does
+        not exist.
+
+        Call it before answering anything that refers to earlier work
+        (「上次那个表格」「我做的番茄钟」「把昨天那页改一下」) and before rebuilding
+        something the user may already have. A page that already exists is
+        usually a page to revise, not a second one to build beside it.
+
+        ONE ROW PER ARTIFACT, not one per revision: the id is the **current**
+        version's, and that is the one to read with get_page. `version` says how
+        many revisions that page has been through — a v4 has been revised three
+        times, so the user is likely attached to details you cannot see from the
+        title. Older revisions are not lost (get_page still takes their ids) but
+        they are not listed: what you are being told is what is *current*.
+
+        Each entry carries the id, the page's title, when it was made, its size
+        in bytes, and `available`. **`available: false` means the page
+        itself is gone** (only the newest 100 are kept) — the row still records
+        that it was made, and saying that honestly beats both silence and
+        pretending to remember what was in it.
+    """.trimIndent(),
+            required = emptyList(),
+            props = emptyMap<String, JSONObject>(),
+        ),
+        tool(
+            name = "get_page",
+            method = "ui.get_page",
+            description = """
+        Read back the source of a page you made earlier, by the id from
+        `list_pages`.
+
+        Two reasons to call it: the user wants that page CHANGED — send the
+        whole revised page with `show_html`, because a revision written from the
+        title alone is a new page wearing the old name — or they are asking
+        about what is in it and you cannot answer from memory.
+
+        Reading a page back also sets up the revision: the `show_html` that
+        follows in the same turn files the new bytes as the next VERSION of this
+        page rather than as a second one beside it. That is the whole reason to
+        read before you write — do not skip this call and rebuild from the
+        title.
+
+        The source comes back raw, the same bytes the tablet renders. It is long
+        by nature (inline CSS and JS, sometimes a base64 image); past
+        ${net.kuafuai.andee.ui.ChatHistory.ARTIFACT_SOURCE_MAX} characters it is
+        cut and `truncated` says so, and the missing tail has to be rebuilt in
+        the same style rather than dropped.
+
+        Reading a page is not showing one — nothing appears on screen. When the
+        page should be in front of the user, follow with `show_html`.
+    """.trimIndent(),
+            required = listOf("id"),
+            props = mapOf(
+                "id" to prop(
+                    "integer",
+                    "A page id from list_pages (the current version), or any older revision's id " +
+                        "if the user wants to go back to one. Do not make one up.",
+                ),
             ),
         ),
         tool(

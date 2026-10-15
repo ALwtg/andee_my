@@ -176,6 +176,11 @@
     <string name="artifacts_delete_confirm">Really delete</string>
     <string name="artifacts_empty">Nothing here yet.\nAsk it to build you a page — say, “make me a pomodoro timer”.</string>
     <string name="artifacts_cap_note">Only the latest 100 are kept</string>
+    <string name="artifacts_versions">Versions</string>
+    <string name="artifacts_versions_count">%1$d versions</string>
+    <string name="artifacts_version_current">current</string>
+    <string name="artifacts_version_gone">gone</string>
+    <string name="artifacts_restore">Go back to this</string>
     <string name="artifacts_edit_prompt">How should “%1$s” change? Say it or type it</string>
     <string name="artifacts_edit_said">Revise “%1$s”: %2$s</string>
 
@@ -419,6 +424,7 @@
     <string name="narrate_launch">Opening…</string>
     <string name="narrate_system">Pressing a system key…</string>
     <string name="narrate_show_html">Putting it on screen…</string>
+    <string name="narrate_pages">Looking through what it made before…</string>
     <string name="narrate_camera">Taking a look…</string>
     <string name="narrate_dog">Moving a leg…</string>
     <string name="narrate_market_search">Finding a tool…</string>

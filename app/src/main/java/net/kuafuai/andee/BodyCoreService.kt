@@ -1002,6 +1002,13 @@ class BodyCoreService : Service() {
         // the brain gets that plus the page it is about.
         val editing = pendingArtifact
         pendingArtifact = null
+        // Tell the dispatcher which artifact this turn is about, before the
+        // brain can call `show_html` inside it. The panel's 继续修改 is the one
+        // turn that starts out already knowing, and without this the revised
+        // page would be filed as a brand-new artifact — the bug the whole
+        // grouping exists to fix. A turn from speech or typing passes null,
+        // which is what stops the previous turn's target leaking into this one.
+        dispatcher.beginTurn(editing?.groupId)
         val forBrain = editing?.let { artifactEditQuery(it, said) } ?: said
         val row = if (editing != null) AppLocale.str(this, R.string.artifacts_edit_said, editing.text, said) else said
         net.kuafuai.andee.ui.ChatHistory.addUser(
@@ -2160,17 +2167,18 @@ class BodyCoreService : Service() {
      * language rule (§9) decides the reply's language from the user's words.
      */
     private fun artifactEditQuery(e: net.kuafuai.andee.ui.ChatHistory.Entry, said: String): String {
+        val cap = net.kuafuai.andee.ui.ChatHistory.ARTIFACT_SOURCE_MAX
         val html = e.page?.let { runCatching { it.readText() }.getOrNull() }.orEmpty()
-        val cut = html.length > ARTIFACT_SOURCE_MAX
+        val cut = html.length > cap
         return buildString {
             append(said)
             append("\n\n(I picked this from the 产物 panel: it is about the page you made earlier titled \"")
             append(e.text)
             append("\". Apply my change above to that page and show the full revised page with show_html,")
             append(" keeping everything I did not ask to change. Its current source follows")
-            if (cut) append(" — truncated at $ARTIFACT_SOURCE_MAX characters; rebuild the missing tail in the same style")
+            if (cut) append(" — truncated at $cap characters; rebuild the missing tail in the same style")
             append(".)\n\n<<<CURRENT PAGE SOURCE>>>\n")
-            append(if (cut) html.take(ARTIFACT_SOURCE_MAX) else html)
+            append(if (cut) html.take(cap) else html)
             append("\n<<<END PAGE SOURCE>>>")
         }
     }
@@ -2849,16 +2857,6 @@ class BodyCoreService : Service() {
          */
         private val END_MARKER = Regex("""(?i)\[END]""")
 
-        /**
-         * How much of a page's source a 继续修改 hands the brain.
-         *
-         * A generated page is routinely 10–60 KB of inline CSS and JS, which is
-         * nothing to the request; one with a base64 image can be several hundred
-         * KB, which is most of a context window for a picture the brain already
-         * drew and cannot usefully redraw from text. Past this the prompt says
-         * so and the tail is rebuilt rather than quoted.
-         */
-        private const val ARTIFACT_SOURCE_MAX = 60_000
         private val instanceRef = AtomicReference<BodyCoreService?>()
 
         /**

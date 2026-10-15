@@ -513,6 +513,12 @@ class LocalBrain(
             // paying for itself once there is something to remember.
             val index = net.kuafuai.andee.config.Notebook.indexForPrompt(appContext)
             val scenes = Notebook.scenesForPrompt(appContext)
+            // The pages it has made, the same way and for the same reason: a
+            // tool answers a question the brain thought to ask, and 「上次那个表格」
+            // is exactly the question it does not know to ask. `list_pages` has
+            // the full list; this is the four or five newest, to make the shelf
+            // visible at all.
+            val pages = net.kuafuai.andee.ui.ChatHistory.indexForPrompt()
             // Photos with no words: there is no sentence of the user's to take
             // the language from, so the bracketed fallback comes back for it.
             val wordless = userText.isEmpty()
@@ -556,6 +562,17 @@ class LocalBrain(
                             ""
                         } else {
                             "\n\n(scenes you can enter — see §11; you are in: ${VoiceConfig.activeScene(appContext) ?: "none"})\n$scenes"
+                        } +
+                        // And the shelf of pages it has built (§7). Same
+                        // position, same reasoning: this list changes every time
+                        // a page is made, and the system prompt is the one place
+                        // it must never go.
+                        if (pages.isEmpty()) {
+                            ""
+                        } else {
+                            "\n\n(pages you have made on this device — §7; the newest few, `#id title (vN)`; " +
+                                "use list_pages for all of them and get_page to read one back before revising " +
+                                "it — reading it back is what files your revision as its next version)\n$pages"
                         },
                 )
         }
@@ -1136,6 +1153,8 @@ class LocalBrain(
             AppLocale.str(appContext, R.string.narrate_launch)
         toolName == "system_action" -> AppLocale.str(appContext, R.string.narrate_system)
         toolName == "show_html" -> AppLocale.str(appContext, R.string.narrate_show_html)
+        toolName == "list_pages" || toolName == "get_page" ->
+            AppLocale.str(appContext, R.string.narrate_pages)
         toolName == "camera_turn" -> AppLocale.str(appContext, R.string.narrate_camera)
         toolName.startsWith("dog_") -> AppLocale.str(appContext, R.string.narrate_dog)
         toolName == "market_search" -> AppLocale.str(appContext, R.string.narrate_market_search)

@@ -151,6 +151,12 @@
     <string name="artifacts_delete_confirm">确认删除</string>
     <string name="artifacts_empty">还没有产物。\n让它给你做个网页试试，比如「做个番茄钟」。</string>
     <string name="artifacts_cap_note">只保留最近 100 个</string>
+    <!-- 版本: a revision of an artifact. See ChatHistory.Entry.version. -->
+    <string name="artifacts_versions">版本</string>
+    <string name="artifacts_versions_count">%1$d 个版本</string>
+    <string name="artifacts_version_current">当前</string>
+    <string name="artifacts_version_gone">已清理</string>
+    <string name="artifacts_restore">回到这版</string>
     <!-- Shown on the card after 继续修改, while it waits for the change. -->
     <string name="artifacts_edit_prompt">要怎么改「%1$s」？说出来或打字告诉我</string>
     <!-- The scrollback row for the user's change request. -->
@@ -498,6 +504,7 @@
     <string name="narrate_launch">打开…</string>
     <string name="narrate_system">操作系统按键…</string>
     <string name="narrate_show_html">把结果放到屏幕上…</string>
+    <string name="narrate_pages">翻一下之前做的东西…</string>
     <string name="narrate_camera">看一眼…</string>
     <string name="narrate_dog">动一下腿…</string>
     <!--

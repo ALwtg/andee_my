@@ -226,6 +226,64 @@ class CommandDispatcher(
     @Volatile
     private var compacted = false
 
+    /**
+     * The artifact a `ui.show_html` in this turn should land as a revision of,
+     * or null for "this is a new one".
+     *
+     * **Why this is device-side state and not a `show_html` argument alone.**
+     * The model cannot be relied on to keep a page id in mind across the two
+     * calls that make up a revision (`get_page` to read it, `show_html` to send
+     * the new bytes), and when it forgets, the user gets the bug this exists to
+     * kill: 改一版就多一个产物. So the two places that *know* the answer say so
+     * here, and `show_html` picks it up without being told:
+     *
+     *  * `ui.get_page` sets it — reading a page back has exactly one purpose,
+     *    and the `show_html` that follows in the same turn is that revision;
+     *  * the service sets it when a turn starts from the 产物 panel's
+     *    继续修改, where the user has already named the artifact by tapping it.
+     *
+     * An explicit `revise` argument on `show_html` outranks this, so a model
+     * that does keep the id can be precise. [beginTurn] clears it, which is what
+     * keeps a `get_page` from spilling into the user's next unrelated request.
+     */
+    @Volatile
+    private var revisionTarget: Long? = null
+
+    /**
+     * A user turn is starting. [groupId] is the artifact it is about when the
+     * turn began from 继续修改, else null.
+     *
+     * Called from `BodyCoreService.submitUserTurn` — the one place every turn
+     * begins, whichever way the user spoke — so the previous turn's target can
+     * never leak into this one.
+     */
+    fun beginTurn(groupId: Long?) {
+        revisionTarget = groupId
+    }
+
+    /**
+     * Which artifact the module's `show_html` should file this page under: an
+     * explicit `revise` wins, then whatever this turn established, else null
+     * (a new artifact). A `revise` that names nothing is ignored rather than
+     * refused — the page is still worth showing, and the alternative is losing
+     * the user's page to a bookkeeping complaint.
+     *
+     * **Consumed, not merely read** — see [revisionTarget]. A turn that reads a
+     * page back and then draws two of them means the second is a new artifact,
+     * and a target left standing would silently fold it into the first one.
+     */
+    private fun takeRevisionGroup(params: JSONObject?): Long? {
+        val explicit = params?.optLong("revise", Long.MIN_VALUE)?.takeIf { it != Long.MIN_VALUE }
+            ?.let { net.kuafuai.andee.ui.ChatHistory.pageById(it)?.groupId }
+        // The rule itself lives in ChatHistory so it can be tested without a
+        // device — see `resolveRevisionTarget`. This is the call site that holds
+        // the field.
+        val (group, rest) = net.kuafuai.andee.ui.ChatHistory
+            .resolveRevisionTarget(explicit, revisionTarget)
+        revisionTarget = rest
+        return group
+    }
+
     /** Main thread only: a task is being thought about or executed right now. */
     private var busy = false
 
@@ -773,6 +831,10 @@ class CommandDispatcher(
                 // key, so the page and its scrollback entry cannot drift apart.
                 val defaultTitle = AppLocale.str(appContext, R.string.html_default_title)
                 val title = params?.optString("title")?.ifEmpty { defaultTitle } ?: defaultTitle
+                // Which artifact this page is a revision of — see
+                // [takeRevisionGroup]. Resolved once, here, because both branches
+                // below archive the same bytes and must agree on the grouping.
+                val group = takeRevisionGroup(params)
                 if (net.kuafuai.andee.ui.HtmlActivity.pageUp) {
                     // A page is already up: put the new one *in its place*.
                     // This used to be refused with "ask the user to dismiss it
@@ -783,8 +845,9 @@ class CommandDispatcher(
                     // second instance over the shared static file, not a second
                     // render, so the replacement goes into the running WebView.
                     // Archived like a fresh page, so both versions are in the
-                    // scrollback.
-                    val archived = net.kuafuai.andee.ui.ChatHistory.addPage(title, html)
+                    // scrollback — but under the artifact's group when this is
+                    // a revision, so the panel grows a version instead of a row.
+                    val archived = net.kuafuai.andee.ui.ChatHistory.addPage(title, html, group)
                     val openedAt = android.os.SystemClock.elapsedRealtime()
                     val replaced = archived != null &&
                         net.kuafuai.andee.ui.HtmlActivity.replaceFile(appContext, archived, title) {
@@ -828,7 +891,7 @@ class CommandDispatcher(
                     // the scrollback are the same file. Falls back to a scratch
                     // copy in the cache dir if the archive can't be written — a
                     // page that shows but isn't re-openable beats no page.
-                    val archived = net.kuafuai.andee.ui.ChatHistory.addPage(title, html)
+                    val archived = net.kuafuai.andee.ui.ChatHistory.addPage(title, html, group)
                     val openedAt = android.os.SystemClock.elapsedRealtime()
                     val opened = if (archived != null) {
                         net.kuafuai.andee.ui.HtmlActivity.showFile(appContext, archived, title) {
@@ -857,6 +920,137 @@ class CommandDispatcher(
                                 "The page is open on screen now; this step ends here — do not wait for the user " +
                                     "to close it, and do not restate it. I will tell you when they close it.",
                             )
+                    }
+                }
+            }
+
+            // ---- ui.* : the pages it made, read back -----------------------
+            //
+            // The read half of `ui.show_html`. The pages stay on the device
+            // after they are drawn (the 产物 panel is the user's own view of
+            // them) but nothing puts that record into the model's context, so
+            // without these a page built yesterday does not exist to the brain
+            // that built it. Reading, not drawing: no fold, no perch, and
+            // nothing appears on screen — `show_html` is still the only door
+            // to the user's eyes.
+            "ui.list_pages" -> {
+                val arr = org.json.JSONArray()
+                for (e in net.kuafuai.andee.ui.ChatHistory.pages()) {
+                    arr.put(
+                        JSONObject()
+                            .put("id", e.id)
+                            .put("title", e.text)
+                            .put("created", Scheduler.formatLocal(e.ts))
+                            .put("bytes", e.page?.length() ?: 0L)
+                            .put("available", e.page != null)
+                            .put("version", e.version)
+                            // How many revisions exist, so the model knows
+                            // whether "put it back the way it was" is even a
+                            // sensible thing to offer.
+                            .put(
+                                "versions",
+                                net.kuafuai.andee.ui.ChatHistory.versionsOf(e.groupId).size,
+                            )
+                    )
+                }
+                JSONObject()
+                    .put("items", arr)
+                    .put("count", arr.length())
+                    .put(
+                        "note",
+                        when {
+                            arr.length() == 0 ->
+                                "No pages have been made on this device yet. Build one with show_html; " +
+                                    "do not describe a page that does not exist."
+                            else ->
+                                "Newest first, one row per page — the id is the CURRENT version. `version` " +
+                                    "above 1 means it has been revised before, and revising it again keeps " +
+                                    "that history. `available: false` means the page's file is gone (only " +
+                                    "the newest 100 are kept) — the title and date are still true, the " +
+                                    "contents are not there to read. Use get_page for the source of one you " +
+                                    "are going to change."
+                        },
+                    )
+            }
+
+            "ui.get_page" -> {
+                val id = params?.optLong("id", Long.MIN_VALUE)?.takeIf { it != Long.MIN_VALUE }
+                    ?: throw IllegalArgumentException(
+                        "ui.get_page requires integer id, from list_pages",
+                    )
+                val entry = net.kuafuai.andee.ui.ChatHistory.pageById(id)
+                val file = entry?.page
+                when {
+                    // Three failures, and they are not the same failure: an id
+                    // that names nothing (the model made it up, or the list is
+                    // stale), a row whose file the 100-page cap took, and a file
+                    // that is listed but will not open. Each gets its own
+                    // sentence, because the honest next move differs — look
+                    // again, say it is gone, or say it could not be read — and
+                    // one shared "not found" would make the model guess which.
+                    entry == null -> JSONObject()
+                        .put("found", false)
+                        .put(
+                            "note",
+                            "No page has that id. list_pages shows what there is — take an id from " +
+                                "there, and do not make one up.",
+                        )
+
+                    file == null -> JSONObject()
+                        .put("found", false)
+                        .put("id", entry.id)
+                        .put("title", entry.text)
+                        .put(
+                            "note",
+                            "That page was made, but its file is gone (only the newest 100 are " +
+                                "kept) — there is nothing to read back. Say so; do not reconstruct " +
+                                "it from impression.",
+                        )
+
+                    else -> {
+                        val html = runCatching { file.readText() }.getOrNull()
+                        if (html == null) {
+                            JSONObject()
+                                .put("found", false)
+                                .put("id", entry.id)
+                                .put(
+                                    "note",
+                                    "The page is listed but its file could not be read. Do not " +
+                                        "invent its contents.",
+                                )
+                        } else {
+                            val cap = net.kuafuai.andee.ui.ChatHistory.ARTIFACT_SOURCE_MAX
+                            val cut = html.length > cap
+                            // Reading a page back has one purpose, and the
+                            // `show_html` that follows is that revision — so
+                            // arm it here, where the answer is known, rather
+                            // than hoping the model repeats the id. See
+                            // [revisionTarget].
+                            revisionTarget = entry.groupId
+                            JSONObject()
+                                .put("found", true)
+                                .put("id", entry.id)
+                                .put("title", entry.text)
+                                .put("created", Scheduler.formatLocal(entry.ts))
+                                .put("truncated", cut)
+                                .put("version", entry.version)
+                                .put("versions", net.kuafuai.andee.ui.ChatHistory.versionsOf(entry.groupId).size)
+                                .put("html", if (cut) html.take(cap) else html)
+                                .put(
+                                    "note",
+                                    "The page's current source, verbatim. To change it, send the whole " +
+                                        "revised page with show_html — not a diff. This call showed the " +
+                                        "user nothing. Send it back with show_html and it lands as the " +
+                                        "next version of this same page, keeping the revisions that came " +
+                                        "before it." +
+                                        if (cut) {
+                                            " Cut at $cap characters; rebuild the missing tail in the " +
+                                                "same style."
+                                        } else {
+                                            ""
+                                        },
+                                )
+                        }
                     }
                 }
             }
