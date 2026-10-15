@@ -313,27 +313,46 @@ data class VoiceConfig(
         /**
          * Which palette the UI draws with. `true` = night, and false = day.
          *
-         * **Night is the default.** A fresh install comes up dark, and so does a
-         * device updating from a build that predates this setting — which is why the
-         * test is "not day" rather than "is night". Inverted here on request; the
-         * light palette is still one tap away in 设置 → 外观 and is remembered from
-         * then on.
+         * **Day (light) is the default.** A fresh install comes up light, and so does
+         * a device that has never touched the setting — which is why the test is
+         * "is night" rather than "is not day". The dark palette is one tap away in
+         * 设置 → 外观 and is remembered from then on.
+         *
+         * The inversion is on purpose and it is the whole content of this function.
+         * The test is written against the *non-default* value rather than the default
+         * one so that an explicit choice always wins and nothing else has to: only
+         * the string the picker actually wrote can turn night on, so no rewrite of
+         * the default can silently overrule a user who picked dark.
          *
          * Read straight off disk rather than out of [current], and that matters here:
          * [net.kuafuai.andee.ui.Theme] reads this once at process start and again on
          * every change, so the answer has to be the file's, not a snapshot of the
          * other rows that happens to be in memory.
          *
-         * Only the two strings are meaningful; the "day" one is written by the picker
-         * as [net.kuafuai.andee.ui.Theme.DAY].
+         * Only the two strings are meaningful; the "night" one is written by the
+         * picker as [net.kuafuai.andee.ui.Theme.NIGHT].
          */
         fun nightTheme(context: Context): Boolean {
             val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString("theme", "").orEmpty().trim().lowercase()
-            // Only an explicit "day" turns night off. Absent or unrecognised reads as
-            // night, so the default cannot be lost by a build that never wrote it.
-            return saved != "day"
+                .getString("theme", "").orEmpty()
+            return nightFromSaved(saved)
         }
+
+        /**
+         * The rule [nightTheme] implements, separated so it can be tested without a
+         * device — there is no Robolectric here, and the default this decides is not
+         * observable until something is drawn.
+         *
+         * `internal` rather than private for that reason alone. A theme default is
+         * exactly the kind of value that gets inverted by a later "make it dark again"
+         * request, and the two things that must move together (this and `Theme.night`'s
+         * initial value) are in different files.
+         */
+        internal fun nightFromSaved(saved: String): Boolean =
+            // Only an explicit "night" turns night on; absent or unrecognised reads as
+            // day, so the default cannot be lost by a build that never wrote it, and an
+            // explicit choice can never be overruled by a change to the default.
+            saved.trim().lowercase() == "night"
 
         /** Whether to show the 云端 (hub) tab in the backend picker. Default off. */
         fun showHub(context: Context): Boolean =

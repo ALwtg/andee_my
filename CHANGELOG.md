@@ -54,6 +54,15 @@ hash into `versionName` at build time would close this hole; it is not implement
   false` on a page whose file the 100-page cap has taken is reported honestly rather than passed
   over: the title and date are still true, the contents are not there to read.
 
+### Changed
+
+- **The default appearance is light, not dark.** A fresh install now comes up with the light palette.
+  A device that has touched the setting keeps whatever it chose — the rule reads only an explicit
+  `night`, so nothing here can overrule a user who picked dark, and the dark palette stays one tap
+  away in **Settings → Appearance**. Written this way round on purpose: the test is against the
+  *non-default* value, which is what makes changing the default later a one-line edit rather than a
+  migration.
+
 ## [0.4.0] - 2026-10-14
 
 Two new capabilities, both of them choices rather than defaults: **a second voice provider** (Google,

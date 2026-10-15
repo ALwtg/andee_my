@@ -45,14 +45,14 @@ object Theme {
     /**
      * The state of the switch. Set by [load] and [set]; read by [Glass].
      *
-     * **Initialised to night, because night is the default**
-     * ([VoiceConfig.nightTheme]). [load] is what makes that true from the saved
-     * preference, but this value is the one that must not be *wrong* in the window
-     * between process start and the service's first line: a surface drawn there would
-     * otherwise be light on a device whose answer is dark, and then flip.
+     * **Initialised to day, because day is the default** ([VoiceConfig.nightTheme]).
+     * [load] is what makes that true from the saved preference, but this value is the
+     * one that must not be *wrong* in the window between process start and the
+     * service's first line: a surface drawn there would otherwise be dark on a device
+     * whose answer is light, and then flip.
      */
     @Volatile
-    var night: Boolean = true
+    var night: Boolean = false
         private set
 
     /**
