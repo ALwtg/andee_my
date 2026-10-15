@@ -387,6 +387,17 @@ data class VoiceConfig(
              * [BRAIN_HUB] is "run elsewhere, listen on a socket".
              */
             val isLocal: Boolean get() = mode == BRAIN_LOCAL || mode == BRAIN_CODEFLYING
+
+            /**
+             * Same backend, possibly asked differently. [mode], [apiKey] and
+             * [baseUrl] say *who* answers; [model], [thinking] and
+             * [reasoningEffort] only say how they are asked, and a running brain
+             * can take those on the next request. A config change that is only
+             * the second kind must not rebuild the brain, because rebuilding it
+             * is what discards the conversation.
+             */
+            fun sameBackend(other: BrainConfig): Boolean =
+                mode == other.mode && apiKey == other.apiKey && baseUrl == other.baseUrl
         }
 
         /**

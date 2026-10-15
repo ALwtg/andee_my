@@ -58,10 +58,29 @@ class LlmHttpException(val code: Int, val body: String) :
 class LlmClient(
     private val baseUrl: String,
     private val apiKey: String,
-    private val model: String,
-    private val thinking: Boolean,
-    private val reasoningEffort: String,
+    model: String,
+    thinking: Boolean,
+    reasoningEffort: String,
 ) {
+
+    // Request parameters, read once per [complete]. Volatile because [retune]
+    // lands from the main thread while the loop thread may be mid-turn; the turn
+    // in flight keeps what it already sent and the next request carries the new.
+    @Volatile private var model = model
+    @Volatile private var thinking = thinking
+    @Volatile private var reasoningEffort = reasoningEffort
+
+    /**
+     * Change what the next request asks for, without touching the endpoint or
+     * the key. Those two are the identity of the backend; these three are only
+     * how it is asked, so a settings change to them has no reason to cost the
+     * user their conversation.
+     */
+    fun retune(model: String, thinking: Boolean, reasoningEffort: String) {
+        this.model = model
+        this.thinking = thinking
+        this.reasoningEffort = reasoningEffort
+    }
 
     /**
      * Read timeout is generous because a thinking model answers in minutes, not

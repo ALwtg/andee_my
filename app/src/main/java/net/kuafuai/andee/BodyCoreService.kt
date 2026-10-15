@@ -1835,14 +1835,21 @@ class BodyCoreService : Service() {
                     val after = net.kuafuai.andee.config.VoiceConfig.hubConfig(this)
                     val afterBrain = net.kuafuai.andee.config.VoiceConfig.brainConfig(this)
                     if (before.url != after.url || before.deviceName != after.deviceName ||
-                        beforeBrain != afterBrain
+                        !beforeBrain.sameBackend(afterBrain)
                     ) {
                         android.util.Log.i("Body", "brain/hub config changed → restart brain")
                         // Restarting the local brain discards the conversation,
-                        // which is the right trade: the user just changed the
-                        // model, the key or the endpoint out from under it.
+                        // which is the right trade only when the user changed
+                        // *who* answers: the key, the endpoint or the mode.
                         stopBrain()
                         startBrain()
+                    } else if (beforeBrain != afterBrain) {
+                        // Model, thinking or effort: the same backend, asked
+                        // differently on the next request. Rebuilding for this
+                        // used to wipe a conversation every time the thinking
+                        // switch was touched.
+                        android.util.Log.i("Body", "brain tuned in place: model=${afterBrain.model} thinking=${afterBrain.thinking}/${afterBrain.reasoningEffort}")
+                        localBrain?.retune(afterBrain)
                     }
                 }
                 // The self-check card can be sitting *under* this sheet: its
