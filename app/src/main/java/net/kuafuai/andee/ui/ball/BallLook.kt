@@ -1057,7 +1057,9 @@ val BAJIE = BallLook(
  *   head, [eyeY] −0.03, the picture's own baby proportion — but the picture's head
  *   is oblate and ours is a sphere, so that left a dome of blank forehead, and once
  *   the horns were raised it read as a face stuck on the bottom of a ball. They are
- *   now at +0.09 (and [mouthY] at −0.185, same gap), which gives the picture's 1.4
+ *   now at +0.09 (and [mouthY] at −0.285: first −0.185 with the same gap, then
+ *   twice lower by 0.05 on request because the mouth sat tight under the eyes),
+ *   which gives the picture's 1.4
  *   eye-diameters of forehead instead of 1.7. The eye is round, so
  *   [eyeCyl] is almost nothing.
  * * **Two catchlights.** A big one up and left ([glintR] 0.038, at the offset
@@ -1124,7 +1126,7 @@ val ANDEE = BallLook(
     eyeCyl = 0.012f,
     mouthR = 0.136f,
     mouthTube = 0.024f,
-    mouthY = -0.185f,
+    mouthY = -0.285f,
     mouthThick = 0.140f,
     eyeColor = floatArrayOf(0.030f, 0.065f, 0.230f),
     pupilR = 0f,

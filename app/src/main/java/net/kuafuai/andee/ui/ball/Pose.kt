@@ -114,8 +114,10 @@ val POSES: Map<Mood, Pose> = mapOf(
     // celebrate.webp — stars, a grin; the horns spring.
     Mood.CELEBRATE to Pose(stars = 1f, sparkTop = 1f, hornLean = -16f),
 
-    // rest.webp — squashed down, eyes shut, horns slack.
-    Mood.REST to Pose(sqx = 0.08f, sqy = -0.13f, arcFlip = true, hornLean = 24f),
+    // rest.webp — eyes shut, horns slack. The body used to squash (sqx 0.08,
+    // sqy −0.13) and the ball flattened into a puddle; a round sleeping ball with
+    // the lid-arc eyes and the floppy horns reads as napping on its own.
+    Mood.REST to Pose(arcFlip = true, hornLean = 24f),
 
     // The mic is open. What says "listening" is the horns standing up and the head
     // cocking, both of which are the Face row's — plus its open mouth [Face.gape],
@@ -148,5 +150,5 @@ val POSES: Map<Mood, Pose> = mapOf(
     // Eyes down, a bead of sweat, slumped, horns flopped.
     Mood.FAILED to Pose(lookY = -0.5f, lidCut = -1.2f, drop = 1f, sqy = -0.05f, hornLean = 24f),
 
-    Mood.SLEEPING to Pose(sqx = 0.08f, sqy = -0.13f, arcFlip = true, hornLean = 24f),
+    Mood.SLEEPING to Pose(arcFlip = true, hornLean = 24f),
 )
