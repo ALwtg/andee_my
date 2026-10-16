@@ -98,6 +98,21 @@ Consequence: **adding a tool means editing both `ToolSchemas.kt` and `CommandDis
 
 ⚠️ 存档里新增了 `group`/`version` 两个键，**`load()` 遇到缺 `group` 的旧记录必须 fallback 成它自己的 id**（`ChatHistory.kt:608` 的 `if (o.has("group")) o.optLong("group") else id`），**绝不能是 0** —— 那会把所有旧页面并成一个产物。`Entry` 上 `groupId = id` 的默认值同时是「新条目自成一组」的表达。
 
+### 话题：聊完的一段会被「收起」并可以读回来（`brain/TopicSplitter.kt` + `ChatHistory` 的 topics）
+
+**动机是上下文成本**：一段已经结束的对话，是之后每一次请求里最贵、又最不可能再用到的东西。
+`fold_topic`（**review-only**）让每晚复盘把用户编号回合里的起止标出来，设备**校验范围**后在**该回合之后**
+把它换成一行标记，逐字对话归档到 `ChatHistory` 的 topics（与 entries 分开的 `KEY_TOPICS`）。
+三个工具都 `localOnly`：`fold_topic` / `list_topics` / `get_topic`（读回全文，超 `TOPIC_TEXT_MAX = 40_000` 截断并带 `truncated`）。
+
+🔴 **几个不能踩的点**：
+- **`fold_topic` 只给复盘用**，普通回合调用会被**带理由拒绝** —— 收起在模型侧不可逆，用户提要求的那一刻不是花它的时机。
+- **设备拒绝时要「说清条件」，不是让模型重试**：编号不在列表里 / `to_turn` 是最新回合（后面没有任何东西开始，就没有东西说明它结束了）/ 里面还有等回答的东西 / 与已有话题重叠 / 太短 / 有情景在跑。
+- **最多 3 个/次**（`MAX_FOLDS_PER_REVIEW = 3`，`LocalBrain.kt:1667`，超了会**带理由拒绝**），**收起发生在复盘结束时而不是工具被调用时**；全局保留 `MAX_TOPICS = 60`（`ChatHistory.kt:350`，最旧的先删）。
+- 摘要的第 4 行**故意是「你漏掉了什么」** —— 读起来完整的摘要，就是细节已经丢了的那种。
+- `list_topics` 的描述里明确要求模型：**不许拿那一行摘要回答关于已收起话题的问题**，更不许说"这事没发生过"。
+- 回溯里折叠后的位置是一张**卡片**（`HistoryListView`），带 继续话题 / 对话记录 / 产出物；`debug.sweep`（**仅 loopback**）可按需触发复盘。
+
 ### The overlay-vs-gesture conflict
 
 This is the subtlest invariant in the codebase. `ScreenController.tap/swipe/longPress` use `dispatchGesture`, which injects events into the **real touch pipeline** — so the app's own floating overlay would intercept them first. Every gesture-based command is therefore wrapped in `passthroughForGesture` (`CommandDispatcher`) or the equivalent in `ScreenBodyService.swipe`, which flips the overlay to non-touchable, **sleeps ~50 ms** (because `updateViewLayout` is posted to the UI thread and needs a frame or two to actually apply), runs the gesture, then restores. The window stays visible throughout.

@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`8` / `"0.4.1"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`9` / `"0.5.0"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -27,6 +27,58 @@ anything not built at a tag, identify it by the short commit hash it was built f
 hash into `versionName` at build time would close this hole; it is not implemented yet.)
 
 ## [Unreleased]
+
+## [0.5.0] - 2026-10-16
+
+**A finished conversation is now something the device puts away and can read back.** That is the new
+capability this release is numbered for — a stretch of talking that has ended stops costing context on
+every later request, and stops being lost with it. Two smaller changes ride along: a choice card's
+question and answer now land in the scrollback, and the README explains what signing is actually
+protecting.
+
+### Added
+
+- **Topics: a finished stretch of conversation is folded away and can be picked back up.** A topic that
+  has ended was the most expensive thing in every later request and the least likely to be needed
+  again. The nightly review now marks where topics begin and end among the user's numbered turns
+  (`fold_topic`), the device validates the range and swaps it for a one-line marker **after the turn
+  it names**, and the verbatim conversation is archived so it can be read back. Three tools, all
+  `localOnly`: **`fold_topic`** (review-only — an ordinary turn that calls it is refused, because
+  folding is irreversible from the model's side and a request is not the moment to spend it),
+  **`list_topics`** (id, title, when it ended, how many messages), and **`get_topic`** (the whole
+  back-and-forth as plain text, truncated past a limit with `truncated` saying so).
+  The device refuses a fold **with a reason** — a turn number that is not in the list, a range that
+  ends at the latest turn (nothing has started after it, so nothing says it ended), something inside
+  still waiting on an answer, an overlap with a topic already put away, too short, or a scene active —
+  and the reason names the condition rather than inviting a retry. **At most three topics per review**,
+  and they are put away when the review ends rather than when the tool is called.
+  In the scrollback a folded topic is **a card standing where its messages stood** — the summary shown
+  by default, with **Continue**, **Transcript** and **Made here**. Continuing inlines the archived
+  conversation into the next turn; the transcript opens fullscreen (and says so honestly when the text
+  has been cleared and only the summary is left); *Made here* reopens the pages produced inside that
+  topic, each with its version. The summary's fourth line is deliberately **what the model left out**,
+  because a summary that reads complete is one whose details are lost — `list_topics`' own description
+  tells the model never to answer a question about a folded topic from its one-liner alone, and never
+  to say it did not happen. `debug.sweep` (loopback only) runs the review on demand for testing.
+
+### Fixed
+
+- **A choice card's question and answer now land in the scrollback.** `ui.ask` spoke the question and
+  handed the chosen option straight to the brain, so the card came and went and the conversation showed
+  the brain acting on a choice nobody could see being made. The question is an Andee row now and the
+  answer — the button, or the words said instead — is a row of the user's. A timeout writes nothing,
+  because nothing was chosen.
+
+### Changed
+
+- **The README says what signing is for.** The signature is the only thing stopping a fake "update"
+  from installing over a user's copy and inheriting the accessibility service, the secure-settings
+  grant and everything in the vault. That is now stated where signing is already discussed, along with
+  why a per-machine debug key is what produces `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
+- **The tool count in the READMEs and the DISCLAIMER is no longer a number.** Both said "sixty-odd
+  tools", which was accurate when written and had drifted to seventy-two. The sentences now describe
+  what the tools do and say "a few dozen", because a count in prose is a count that goes stale — the
+  same lesson the versioning policy above already learned once.
 
 ## [0.4.1] - 2026-10-15
 

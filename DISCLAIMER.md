@@ -46,14 +46,14 @@ The second row needs spelling out: **tool results are part of the conversation.*
 **So "local mode" does not mean "processed locally."** Local mode swaps the hub for whichever provider you typed in. It does not keep a single byte on the device.
 
 Therefore:
-- *"We do not monitor or store your data"* — **mostly true, but do not overclaim it.** No database, no behavioural analysis, and no reading of anything you send; the one exception is the version check, which tells us that some device of some model on some IP is running 0.4.1.
+- *"We do not monitor or store your data"* — **mostly true, but do not overclaim it.** No database, no behavioural analysis, and no reading of anything you send; the one exception is the version check, which tells us that some device of some model on some IP is running 0.5.0.
 - *"Your data never leaves the device"* — **false. Do not claim it.**
 
 ## 3. What it can actually do (not hypotheticals — current state of the code)
 
 **It can operate any app.** Its hands are "read the screen + tap by coordinates + type text + system actions," and the OS security policy does not stop a finger. §1 of the system prompt explicitly forbids it from treating "no dedicated tool" as "cannot be done," and lists what it reaches, including **ordering, booking and unsubscribing inside an app, changing a password, and filling in a form.**
 
-**It can spend money.** There is no payment tool — it does not need one; it can tap. The only thing standing between it and a completed payment is Android's own **`FLAG_SECURE`** (the screen blanks out on sensitive pages, so it cannot see). **That is the platform's protection, not this project's**, and not every app's payment flow sets it. This project has **no guardrail whatsoever** on completing a transfer by tapping: of sixty-odd tools, exactly one — `send_sms` — is marked sensitive.
+**It can spend money.** There is no payment tool — it does not need one; it can tap. The only thing standing between it and a completed payment is Android's own **`FLAG_SECURE`** (the screen blanks out on sensitive pages, so it cannot see). **That is the platform's protection, not this project's**, and not every app's payment flow sets it. This project has **no guardrail whatsoever** on completing a transfer by tapping: out of every tool it exposes, exactly one — `send_sms` — is marked sensitive.
 
 **It can speak as you.** `send_sms`, `dial`, `open_url` (any link), and typing into any social or community app. Everything it sends is sent under your name.
 

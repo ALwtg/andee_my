@@ -128,7 +128,7 @@ https://github.com/user-attachments/assets/866e8333-e97b-4bf5-9525-540f9fdb01cd
 Android 13 及以上，它通过无障碍服务自带的输入通道打字 —— 和键盘走同一条 `commitText` 路径，打进
 当前焦点输入框，**而你自己的输入法一直保持在用**。不用装、不用切。更老的系统退回 ADBKeyboard。
 
-**3. 六十来个工具，且被要求诚实地失败。**
+**3. 几十个工具，且被要求诚实地失败。**
 屏幕、输入、通知、短信、通话、通讯录、日历、位置、相机、会议录音、TTS/ASR，以及那只狗。每一个
 在动手**之前**先检查自己的运行时权限，拒绝就返回 `denied("sms")`，而不是绕过去偷偷做。工具返回
 它**看到**的，不是它**希望**的。
@@ -158,6 +158,10 @@ Android 13 及以上，它通过无障碍服务自带的输入通道打字 —�
 `localOnly`，在发往 hub 的载荷里被过滤掉，习惯和承诺从不离开设备。上面还有一个真的调度器，
 规矩很硬：说出"我会提醒你"的那一刻，任务必须**已经设好并确认过**。而且这本笔记你看得到：
 **「它记得的事」**里列着每一条记忆和每一个定时任务，每一条都可以删。
+**聊完的话题会被收起来，而不是删掉。** 一段结束了的对话，是之后每一次请求里最贵、又最不可能再被
+用到的东西。所以每晚的复盘会把它折成一段带标题的摘要，原地只留一行标记 —— 逐字的对话存档在旁边。
+回溯里那些消息变成一张卡片，上面有**继续话题**、**对话记录**和**产出物**。你问到摘要里没写的细节时，
+它会去读完整记录，而不是拿摘要硬答，也不会说"这事没发生过"。
 
 **8. 没人看着的时候，他一样。**
 对话安静下来之后，设备会发一个 `(to yourself …)` 的回合 —— Andee 独自复盘刚才的对话：
@@ -416,7 +420,7 @@ Google），再填该服务商的密钥。这是两个独立的服务，条款�
 | minSdk | 30 | Android 11 —— 因为要用 `AccessibilityAction.ACTION_IME_ENTER`（API 30+）和 `takeScreenshot`（API 30+） |
 | Java / Kotlin JVM target | 1.8 | `sourceCompatibility` 1.8、`jvmTarget = '1.8'` |
 | **构建用 JDK** | **17–20** | 见[配 JDK](#配-jdk)，这是最容易卡住的一步 |
-| versionCode / versionName | 8 / 0.4.1 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
+| versionCode / versionName | 9 / 0.5.0 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
 | applicationId / namespace | `net.kuafuai.andee` | 从模板里没改，不影响功能 |
 
 **运行库依赖**（`app/build.gradle`）：
@@ -879,7 +883,7 @@ CLAUDE.md               给 AI 编码助手看的架构说明（英文）
 随包分发的第三方组件清单在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。再分发之前请先看：
 **ML Kit 扫码 SDK 和 `play-services-*` 不是开源许可**，而且扫码模型是运行时从 Google 拉的。
 
-改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.4.1`**，故意停在
+改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.5.0`**，故意停在
 pre-1.0：线上协议和构建开关都还在动。
 
 ## 相关文档

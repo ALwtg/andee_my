@@ -145,7 +145,7 @@ On Android 13+ it types through the accessibility service's own input channel �
 `commitText` path a keyboard uses, into the focused field, **while your own keyboard stays active**.  
 Nothing to install, nothing to switch. Older devices fall back to ADBKeyboard.
 
-**3. Sixty-odd tools, held to honest failure.**  
+**3. A few dozen tools, held to honest failure.**  
 Screen, input, notifications, SMS, calls, contacts, calendar, location, camera, meetings, TTS/ASR,  
 and the dog. Every one checks its runtime permission *before* acting and reports `denied("sms")` rather  
 than working around a refusal. Tools return what they saw, not what was hoped for.
@@ -181,6 +181,12 @@ it wrong?"* The notebook is **private** — the tools are `localOnly` and filter
 payload, so habits and promises never leave the device. On top of it sits a real scheduler, under  
 a hard rule: the moment it says "I'll remind you", the task must already be set and confirmed. And it  
 is yours to read: **What it remembers** lists every memory and every scheduled task — all deletable.
+**Finished topics get put away, not deleted.** A conversation that has ended is the most expensive
+thing in every later request and the least likely to be needed again, so the nightly review folds it
+into a titled summary with a one-line marker left in its place — and the verbatim conversation is
+archived beside it. The scrollback shows a card where those messages stood, offering **Continue**,
+**Transcript** and **Made here**; it can read the full transcript back when you ask about a detail the
+summary left out, rather than answering from the summary or saying it never happened.
 
 **8. It behaves the same when nobody is watching.**  
 After a conversation goes quiet the device sends a `(to yourself …)` turn — Andee reviewing the  
@@ -573,7 +579,7 @@ Pure Kotlin, no Compose; the whole thing hangs off two pillars, `WindowManager` 
 | minSdk                    | 30                  | Android 11 — `AccessibilityAction.ACTION_IME_ENTER` and `takeScreenshot` are both API 30+ |
 | Java / Kotlin JVM target  | 1.8                 | `sourceCompatibility` 1.8, `jvmTarget = '1.8'`                                            |
 | **Build JDK**             | **17–20**           | see [Which JDK](#which-jdk) — this is the step people get stuck on                        |
-| versionCode / versionName | 8 / 0.4.1           | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
+| versionCode / versionName | 9 / 0.5.0           | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
 | applicationId / namespace | `net.kuafuai.andee` | never changed from the template. It affects nothing                                       |
 
 **Runtime dependencies** (`app/build.gradle`):
@@ -1002,7 +1008,7 @@ Read it before redistributing: **the ML Kit barcode SDK and the `play-services-*
 open-source**, and the barcode model is fetched from Google at runtime.
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed and for the versioning policy. The latest release is
-**`v0.4.1`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
+**`v0.5.0`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
 
 ## Related documents
 
