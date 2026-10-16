@@ -67,6 +67,21 @@ class BodyWsServer(
      * API key.
      */
     private val onSay: (text: String) -> Unit = {},
+
+    /**
+     * `debug.sweep` — run the quiet-hour review now instead of waiting out the
+     * silence timer. Loopback only, like [onSay].
+     *
+     * Goes through `BodyCoreService.onSweepTimer`, so every gate the timer
+     * applies still applies (silence, the daily budget, a running turn) and what
+     * gets exercised is the real path. `onSweepForced` is the same thing with
+     * the silence requirement lifted, for driving a test with the conversation
+     * still warm.
+     */
+    private val onSweep: () -> Unit = {},
+
+    /** `debug.sweep {"skip":true}` — the review with the silence gate bypassed. */
+    private val onSweepForced: () -> Unit = {},
 ) : WebSocketServer(InetSocketAddress(bindHost, port)) {
 
     /** Driver connections only — the ones broadcasts go to. Extensions never join. */
@@ -135,6 +150,27 @@ class BodyWsServer(
                     require(text.isNotEmpty()) { "debug.say needs {\"text\": …}" }
                     onSay(text)
                     JSONObject().put("submitted", text)
+                } else if (method == "debug.sweep") {
+                    // The quiet-hour review, on demand. Same reason as
+                    // [onSay] and the same loopback rule: the review fires off
+                    // an AlarmManager timer twenty minutes after the user stops
+                    // talking, which makes "did that path work" a twenty-minute
+                    // question every time. This is the same call the alarm
+                    // makes, so what it exercises is the real thing rather than
+                    // a rehearsal — the gates inside `onSweepTimer` still apply,
+                    // including the silence check, and `skip` is there for the
+                    // case where the caller is deliberately testing the path
+                    // with the conversation still warm.
+                    if (conn.remoteSocketAddress?.address?.isLoopbackAddress != true) {
+                        throw IllegalStateException("debug.sweep is loopback only — use adb forward")
+                    }
+                    if (params?.optBoolean("skip", false) == true) {
+                        onSweepForced()
+                        JSONObject().put("started", true).put("forced", true)
+                    } else {
+                        onSweep()
+                        JSONObject().put("started", true).put("forced", false)
+                    }
                 } else {
                     onCommand(method, params)
                 }

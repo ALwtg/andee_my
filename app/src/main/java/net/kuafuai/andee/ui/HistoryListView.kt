@@ -100,6 +100,15 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
     var onSuggestionClick: ((name: String, title: String, example: String) -> Unit)? = null
 
     /**
+     * 继续话题 on a topic card. A turn — so, like a suggestion, it is handed out:
+     * only the service starts turns. See `BodyCoreService.beginTopicContinue`.
+     */
+    var onTopicContinue: ((ChatHistory.Topic) -> Unit)? = null
+
+    /** 对话记录 on a topic card — a fullscreen page, so the card folds first. */
+    var onTopicTranscript: ((ChatHistory.Topic) -> Unit)? = null
+
+    /**
      * The rows themselves.
      *
      * It used to end with a permanent dim line — "点击小球跟我对话" — as a hint
@@ -140,6 +149,22 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
 
     /** Laid rows drawn as re-openable pages; one losing its file forces a relayout. */
     private val laidOpen = HashSet<Long>()
+
+    /**
+     * The topic rows currently in the view tree, by topic id — the
+     * across-refresh ledger [refresh] checks so a topic is drawn once.
+     * [openTopics] is the separate question of which cards have their outputs
+     * list open.
+     *
+     * A folded stretch is drawn as **one row where its messages used to be** —
+     * not at the foot of the list, not in a separate screen. That is the whole
+     * point: the conversation keeps its shape, and the part that is over reads
+     * as over. The rows are still in [ChatHistory] (they are the record, and the
+     * user still scrolls past "we talked about this at 3pm"); this is what
+     * decides which of them are drawn.
+     */
+    private val laidTopics = HashSet<Long>()
+    private val openTopics = HashSet<Long>()
 
     /**
      * Shown only when there is nothing to suggest either — a conversation that
@@ -290,28 +315,62 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
 
         val ids = all.map { it.id }.toSet()
         val open = all.filter { it.page != null }.map { it.id }.toSet()
-        if (laid.any { it !in ids } || laidOpen.any { it !in open }) {
-            // A row we laid out is gone from the history — evicted from the
-            // middle, or the whole list wiped. Cheaper and less error-prone to
-            // start over than to reconcile. This deliberately does not also
-            // require something to have been *added*: 清空聊天记录 removes
-            // every row and adds none, and pairing the two conditions left the
-            // card scrolling a conversation that no longer existed.
+        val topicIds = ChatHistory.topics().map { it.id }.toSet()
+        // The shape changed, do not try to patch it, when:
+        //  * a row we laid out is gone from the history — evicted from the
+        //    middle, or the whole list wiped;
+        //  * a row we laid out as an ordinary message has since been folded into
+        //    a topic. This is the moment of the fold itself: the rows are still
+        //    in the history (so the check above stays quiet) but must leave the
+        //    view, and the topic row has to stand where they were rather than at
+        //    the foot. Topic entries never enter `laid`, so after a rebuild this
+        //    is false until the next fold;
+        //  * a topic we drew is no longer on the list (evicted).
+        // A topic merely *added* with no laid rows under it needs no rebuild.
+        val foldedUnderUs = all.any { it.topicId != null && it.id in laid }
+        if (laid.any { it !in ids } || laidOpen.any { it !in open } || foldedUnderUs ||
+            laidTopics.any { it !in topicIds }
+        ) {
             column.removeAllViews()
             column.addView(empty)
             column.addView(suggest)
             column.addView(live)
             laid.clear()
             laidOpen.clear()
+            laidTopics.clear()
         }
         // Inserted above the live row rather than appended, so a settled entry
         // lands behind the thing that is still in progress.
+        //
+        // A folded stretch contributes exactly one row — the topic — drawn where
+        // its *first* message stood, and its messages are skipped. Drawing them
+        // as well would make the fold a lie; drawing the topic at the foot would
+        // put it out of the part of the conversation it belongs to.
+        //
+        // `laidTopics` is the across-refresh ledger of which topic rows are
+        // already in the view tree; using a *local* set here instead would redraw
+        // every topic on every refresh after a fold, because the view tree is
+        // only cleared on a shape change — a bug caught by the next tap after a
+        // fold stacking a second copy under the first.
         for (e in all) {
+            val t = e.topicId
+            if (t != null) {
+                if (laidTopics.add(t)) {
+                    val topic = ChatHistory.topicById(t) ?: continue
+                    column.addView(buildTopicRow(topic), column.indexOfChild(live))
+                }
+                continue
+            }
             if (laid.add(e.id)) {
                 if (e.page != null) laidOpen.add(e.id)
                 column.addView(buildRow(e), column.indexOfChild(live))
             }
         }
+        // A topic whose rows have all aged out of [MAX_ENTRIES] is never drawn:
+        // the heading stands where its first row stood, and with no rows left
+        // there is no such place — at the foot it would read as a stray card.
+        // It stays reachable through `list_topics`, which is where a finished
+        // conversation belongs once the rows it summarised are gone.
         post { fullScroll(FOCUS_DOWN) }
     }
 
@@ -494,6 +553,170 @@ class HistoryListView(private val context: Context) : ScrollView(context) {
             LinearLayout.LayoutParams(MATCH, WRAP),
         )
         return row
+    }
+
+    /**
+     * One finished topic, standing where its messages stood.
+     *
+     * **Its own kind of card, open by default.** The summary is what is left of
+     * that stretch in the scrollback, so it is shown, not hidden behind a tap; a
+     * folded row the user has to open to learn what it was is a row they stop
+     * opening. It spans the full width (no speaker's shoulder — nobody "said"
+     * it) and is tinted with the accent and edged with it, so it never reads as
+     * one more message.
+     *
+     * Three actions, all handed out: continuing is a turn, which only the service
+     * starts; the transcript is a fullscreen page, which needs the card folded
+     * first; and the outputs list opens in place, each one a page row that
+     * [onPageClick] already knows how to reopen.
+     */
+    private fun buildTopicRow(t: ChatHistory.Topic): View {
+        val accent = Color.parseColor(Glass.ACCENT)
+        fun withAlpha(c: Int, a: Float) = Color.argb((a * 255).toInt(), Color.red(c), Color.green(c), Color.blue(c))
+        val box = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                setColor(withAlpha(accent, 0.10f))
+                setStroke(dp(1), withAlpha(accent, 0.45f))
+            }
+        }
+
+        val head = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(
+            TextView(context).apply {
+                text = lctx.getString(R.string.history_topic_label)
+                textSize = Glass.Type.MICRO
+                letterSpacing = 0.05f
+                setTextColor(accent)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(dp(8), dp(2), dp(8), dp(2))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(withAlpha(accent, 0.18f))
+                }
+            },
+        )
+        head.addView(
+            TextView(context).apply {
+                text = t.title
+                textSize = Glass.Type.BODY
+                setTextColor(Color.parseColor(Glass.TITLE))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(dp(8), 0, dp(8), 0)
+            },
+            LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f),
+        )
+        head.addView(
+            TextView(context).apply {
+                // Counted off the live rows: this row is rebuilt on every
+                // relayout and must not read a file to draw.
+                text = lctx.getString(
+                    R.string.history_topic_meta,
+                    clock.format(Date(t.endedAt)),
+                    ChatHistory.rowCountOf(t.id),
+                )
+                textSize = Glass.Type.MICRO
+                setTextColor(Color.parseColor(Glass.SECONDARY))
+            },
+        )
+        box.addView(head, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        box.addView(
+            TextView(context).apply {
+                text = t.summary
+                textSize = Glass.Type.BODY
+                setTextColor(Color.parseColor(Glass.LABEL))
+                setLineSpacing(dp(3).toFloat(), 1f)
+                setPadding(0, dp(10), 0, 0)
+            },
+            LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT),
+        )
+
+        val outputs = ChatHistory.outputsOf(t.id)
+        val showOutputs = t.id in openTopics && outputs.isNotEmpty()
+        val actions = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, 0)
+        }
+        fun action(label: String, onTap: () -> Unit) = TextView(context).apply {
+            text = label
+            textSize = Glass.Type.CAPTION
+            setTextColor(accent)
+            setPadding(dp(4), dp(8), dp(14), dp(6))
+            isClickable = true
+            setOnClickListener { onTap() }
+        }
+        actions.addView(action(lctx.getString(R.string.history_topic_continue)) { onTopicContinue?.invoke(t) })
+        actions.addView(action(lctx.getString(R.string.history_topic_transcript)) { onTopicTranscript?.invoke(t) })
+        if (outputs.isNotEmpty()) {
+            actions.addView(
+                action(
+                    lctx.getString(
+                        if (showOutputs) R.string.history_topic_outputs_hide else R.string.history_topic_outputs,
+                        outputs.size,
+                    ),
+                ) {
+                    if (!openTopics.add(t.id)) openTopics.remove(t.id)
+                    relayoutAll()
+                },
+            )
+        }
+        box.addView(actions, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        if (showOutputs) {
+            for (p in outputs) {
+                box.addView(
+                    TextView(context).apply {
+                        text = lctx.getString(R.string.history_topic_output_item, p.text, p.version)
+                        textSize = Glass.Type.CAPTION
+                        setTextColor(Color.parseColor(Glass.LABEL))
+                        setPadding(dp(12), dp(9), dp(12), dp(9))
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                        background = RippleDrawable(
+                            ColorStateList.valueOf(ripple()),
+                            Glass.well(context, dp(12)),
+                            null,
+                        )
+                        isClickable = true
+                        setOnClickListener { onPageClick?.invoke(p) }
+                    },
+                    LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) },
+                )
+            }
+        }
+
+        // Full width, and spaced off its neighbours more than two messages are
+        // from each other: a topic is a break in the conversation, and a card
+        // glued to the bubble above it read as part of that bubble.
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply {
+                topMargin = dp(16)
+                bottomMargin = dp(8)
+            }
+            addView(box, LinearLayout.LayoutParams(MATCH, WRAP))
+        }
+    }
+
+    /** Re-lay every row: an outputs list opened or closed, and rows are built once. */
+    private fun relayoutAll() {
+        column.removeAllViews()
+        column.addView(empty)
+        column.addView(suggest)
+        column.addView(live)
+        laid.clear()
+        laidOpen.clear()
+        laidTopics.clear()
+        refresh()
     }
 
     private fun buildRow(e: ChatHistory.Entry): View {

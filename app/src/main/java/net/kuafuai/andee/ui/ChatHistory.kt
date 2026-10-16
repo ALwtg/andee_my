@@ -63,6 +63,11 @@ object ChatHistory {
      * @param version 1-based, within [groupId]. Only ever increases, including
      *   across a [restoreVersion] — going back to an older revision makes a
      *   *new* one, so nothing already written is silently rewritten.
+     * @param topicId the topic this row has been folded into, or null while it
+     *   still stands on its own. Set only by [foldTopic]; the conversation list
+     *   reads it to decide what to collapse. Orthogonal to [groupId]: a page
+     *   drawn while talking about something belongs both to its own artifact
+     *   and to that conversation.
      */
     data class Entry(
         val id: Long,
@@ -73,6 +78,42 @@ object ChatHistory {
         val turn: String? = null,
         val groupId: Long = id,
         val version: Int = 1,
+        val topicId: Long? = null,
+    )
+
+    /**
+     * A stretch of conversation that has finished and been put away.
+     *
+     * **The other half of the 产物 idea, on the time axis.** An artifact groups
+     * the revisions of one *thing*; a topic groups a stretch of *talking*. They
+     * are orthogonal on purpose — a page drawn while planning a trip belongs to
+     * its own artifact and to that conversation at once.
+     *
+     * The point of folding is the context window, not tidiness: a finished
+     * conversation is the most expensive thing in the request and the least
+     * likely to be needed again, so it is replaced by [summary] and the brain
+     * reads the whole thing back with `get_topic` when the user actually
+     * returns to it. `artifact`'s `get_page` is the same trade.
+     *
+     * @param summary what the brain wrote when it folded: where it got to, what
+     *   was left, and **what was left out** — that last part is what keeps the
+     *   read-back door in use instead of merely available. See `TOPIC_RULES`.
+     * @param startedAt/[endedAt] the stretch this covers, which is also how the
+     *   conversation list decides which rows to collapse.
+     * @param parentId the topic this one continues, or null. Continuing a
+     *   finished topic starts a *new* one rather than reopening it — a topic
+     *   that has ended is a fact about the past, and a chain ("we went back to
+     *   the price comparison three times") reads better as three than as one
+     *   endless thread.
+     */
+    data class Topic(
+        val id: Long,
+        val title: String,
+        val summary: String,
+        val startedAt: Long,
+        val endedAt: Long,
+        val createdAt: Long,
+        val parentId: Long? = null,
     )
 
     /**
@@ -116,6 +157,41 @@ object ChatHistory {
     private val lock = Any()
     private val entries = ArrayList<Entry>()
     private var nextId = 1L
+
+    /**
+     * Folded conversations, oldest first.
+     *
+     * Held here rather than in the notebook, and deliberately **not** encrypted:
+     * a topic points at a stretch of [entries], the rows it covers live in this
+     * file, and splitting the two across two stores would guarantee they drift
+     * — the same reasoning that put the artifact `group`/`version` keys in this
+     * file. The text a topic folds is the plaintext conversation that was
+     * already here, so a second layer over the copy would protect nothing the
+     * original did not already expose.
+     */
+    private val topics = ArrayList<Topic>()
+    private var nextTopicId = 1L
+
+    /**
+     * A folded stretch's conversation, verbatim, as the brain will read it back.
+     *
+     * **A snapshot in its own file, not a reference to row ids.** The rows it was
+     * folded from are ordinary [entries] and are subject to [MAX_ENTRIES] — the
+     * oldest are dropped as the conversation grows. Reconstructing the text from
+     * ids would therefore work right up until the day it silently returned half a
+     * conversation, which is the worst possible failure for the feature the
+     * read-back door exists to serve. The file is the record; the rows in the
+     * list are the *view* of it.
+     *
+     * **`files/topics/topic_<id>.txt`, exactly like `files/pages/page_<id>.html`.**
+     * It was briefly going to live inside `chat_history.json` with the rest, and
+     * that was wrong for a measurable reason: that file is rewritten in full on
+     * *every* append, and a folded conversation can be a few hundred KB. One big
+     * blob per topic, written once when it folds and read only when someone asks
+     * for it, is the shape that was already proven here for generated pages.
+     */
+    private fun topicFile(id: Long): File? =
+        appContext?.let { File(File(it.filesDir, "topics").apply { mkdirs() }, "topic_$id.txt") }
 
     /** Notified on every change; the card re-reads [snapshot] and redraws. */
     @Volatile
@@ -265,6 +341,138 @@ object ChatHistory {
         collapseToArtifacts(entries, keepMissing = true)
     }
 
+    // ---- topics: finished stretches of conversation ----
+
+    /** How much of a folded conversation `get_topic` hands over in one go. */
+    const val TOPIC_TEXT_MAX = 40_000
+
+    /** How many folded conversations are kept. Oldest files go first. */
+    private const val MAX_TOPICS = 60
+
+    /** Every folded topic, **newest first** — how `list_topics` and the panel read them. */
+    fun topics(): List<Topic> = synchronized(lock) { topics.sortedByDescending { it.endedAt } }
+
+    /** One topic by id, or null. */
+    fun topicById(id: Long): Topic? = synchronized(lock) { topics.firstOrNull { it.id == id } }
+
+    /**
+     * The verbatim conversation a topic covers, or null when its file is gone.
+     *
+     * Never throws and never guesses: a missing file is reported as missing, the
+     * same way `get_page` reports a page whose bytes the 100-page cap took.
+     * Reconstructing it from the rows still in the list would be worse than
+     * failing — it would hand back a plausible, partial conversation.
+     */
+    fun topicText(id: Long): String? =
+        topicFile(id)?.takeIf { it.exists() }?.let { f -> runCatching { f.readText() }.getOrNull() }
+
+    /**
+     * How many rows carry [topicId] — what the conversation list collapses.
+     *
+     * Read off the live rows rather than stored on the topic, because rows are
+     * dropped by [MAX_ENTRIES] as the conversation grows and a stored count
+     * would drift away from what is actually on screen.
+     */
+    fun rowCountOf(topicId: Long): Int = synchronized(lock) {
+        entries.count { it.topicId == topicId }
+    }
+
+    /** Rows belonging to one topic, oldest first. */
+    fun rowsOf(topicId: Long): List<Entry> = synchronized(lock) {
+        entries.filter { it.topicId == topicId }
+    }
+
+    /**
+     * The artifacts made during a topic, one per artifact, newest first — the
+     * topic card's 产出物 list.
+     *
+     * Each is the artifact's **current** version, wherever it was made: a page
+     * started in this topic and revised later is still this topic's output, and
+     * reopening the version from back then would show the user something they
+     * have since changed. Only artifacts with a file left are listed — a row that
+     * offers to open nothing is worse than a shorter list.
+     */
+    fun outputsOf(topicId: Long): List<Entry> = synchronized(lock) {
+        val groups = entries.filter { it.topicId == topicId && it.role == Role.PAGE }.map { it.groupId }.toSet()
+        collapseToArtifacts(entries.filter { it.groupId in groups }, keepMissing = false)
+    }
+
+    /**
+     * Put a finished stretch of conversation away.
+     *
+     * Marks the rows with [Topic.id] (which is what makes the list collapse
+     * them, and is why the rows are not deleted — the user still scrolls past
+     * "we talked about this at 3pm") and writes the conversation to its own file
+     * so `get_topic` can read it back verbatim later.
+     *
+     * **@param rows the entries this covers, oldest first**, already decided by
+     *   the caller — the device decides *which* rows, the model only decided
+     *   that the stretch had ended. See the topic-folding notes on
+     *   `note.fold`.
+     * **@param text the conversation verbatim**, as the brain will read it
+     *   back. Passed in rather than rebuilt from [rows] because the brain's own
+     *   history is the real one — the rows here are the device's summary view of
+     *   it, with each message already capped at [MAX_TEXT].
+     *
+     * Returns the new topic, or null when there is nothing to fold.
+     */
+    fun foldTopic(
+        title: String,
+        summary: String,
+        rows: List<Entry>,
+        text: String,
+        parentId: Long? = null,
+    ): Topic? {
+        if (rows.isEmpty()) return null
+        val ctx = appContext ?: return null
+        val now = System.currentTimeMillis()
+        val topic = synchronized(lock) {
+            val id = nextTopicId++
+            runCatching {
+                val dir = File(ctx.filesDir, "topics").apply { mkdirs() }
+                File(dir, "topic_$id.txt").writeText(text)
+            }.onFailure {
+                Log.w(TAG, "history: could not archive topic: ${it.message}")
+                return null
+            }
+            val t = Topic(
+                id = id,
+                title = title.trim().ifEmpty { rows.first().text.take(40) },
+                summary = summary.trim(),
+                startedAt = rows.first().ts,
+                endedAt = rows.last().ts,
+                createdAt = now,
+                parentId = parentId,
+            )
+            topics.add(t)
+            // Stamp the rows so the list collapses them and the panel can count.
+            val ids = rows.map { it.id }.toSet()
+            for (i in entries.indices) {
+                if (entries[i].id in ids) entries[i] = entries[i].copy(topicId = id)
+            }
+            evictTopics()
+            save()
+            t
+        }
+        listener?.invoke()
+        return topic
+    }
+
+    /** Caller holds [lock]. Oldest topics — and their files — go first. */
+    private fun evictTopics() {
+        while (topics.size > MAX_TOPICS) {
+            val gone = topics.minByOrNull { it.endedAt } ?: return
+            topics.remove(gone)
+            topicFile(gone.id)?.let { runCatching { it.delete() } }
+            // Its rows stay, but they are no longer covered by anything — read
+            // as "never folded" rather than as a topic id that resolves to
+            // nothing, which the list would render as an empty collapse.
+            for (i in entries.indices) {
+                if (entries[i].topicId == gone.id) entries[i] = entries[i].copy(topicId = null)
+            }
+        }
+    }
+
     /**
      * One line per recent artifact for the per-turn user message; empty when
      * there are none.
@@ -316,6 +524,29 @@ object ChatHistory {
      */
     fun pageById(id: Long): Entry? = synchronized(lock) {
         entries.firstOrNull { it.id == id && it.role == Role.PAGE }
+    }
+
+    /**
+     * One line per recent topic for the per-turn user message; empty when there
+     * are none.
+     *
+     * Same position and same reason as [indexForPrompt]: this list changes the
+     * moment anything folds, and the system prompt is the one place it must never
+     * go. `list_topics` has the full list; this is the newest few, and its whole
+     * job is to make the shelf *visible* — 「上次那个比价」 answered from memory
+     * is the failure, and a model that can see the topic knows to read it back.
+     *
+     * The counts are printed for the reason the version is printed on a page: it
+     * tells the model how much is behind the door before it decides to open it.
+     */
+    fun topicsForPrompt(max: Int = 5): String {
+        val recent = topics().take(max)
+        if (recent.isEmpty()) return ""
+        val fmt = SimpleDateFormat("MM-dd HH:mm", Locale.US)
+        return recent.joinToString("\n") { t ->
+            val rows = rowCountOf(t.id)
+            "- #${t.id} ${t.title} (${fmt.format(Date(t.endedAt))} · $rows msgs)"
+        }
     }
 
     /**
@@ -379,11 +610,17 @@ object ChatHistory {
     fun wipe(context: Context) {
         synchronized(lock) {
             entries.clear()
+            topics.clear()
             nextId = 1L
+            nextTopicId = 1L
         }
         runCatching {
             File(context.filesDir, "chat_history.json").delete()
             File(context.filesDir, "pages").deleteRecursively()
+            // Under the same lock and the same call as the rows: a topic file
+            // that outlived a factory reset would be a conversation the user
+            // asked to be rid of, sitting on disk with nothing pointing at it.
+            File(context.filesDir, "topics").deleteRecursively()
         }.onFailure { Log.w(TAG, "history: wipe failed: ${it.message}") }
         listener?.invoke()
     }
@@ -556,6 +793,18 @@ object ChatHistory {
 
     private fun file(): File? = appContext?.let { File(it.filesDir, "chat_history.json") }
 
+    /**
+     * The shape on disk.
+     *
+     * It used to be a bare array of rows. It is an object with `entries` and
+     * `topics` now, because a topic is not a row and cannot be expressed as one
+     * — but **the bare-array form is still read** ([load] sniffs which it has),
+     * so a device updating from a build that predates topics opens its
+     * conversation instead of an empty one.
+     */
+    private const val KEY_ENTRIES = "entries"
+    private const val KEY_TOPICS = "topics"
+
     /** Caller holds [lock]. */
     private fun save() {
         val f = file() ?: return
@@ -572,9 +821,23 @@ object ChatHistory {
                         .put("turn", e.turn ?: JSONObject.NULL)
                         .put("group", e.groupId)
                         .put("version", e.version)
+                        .put("topic", e.topicId ?: JSONObject.NULL)
                 )
             }
-            f.writeText(arr.toString())
+            val tarr = JSONArray()
+            for (t in topics) {
+                tarr.put(
+                    JSONObject()
+                        .put("id", t.id)
+                        .put("title", t.title)
+                        .put("summary", t.summary)
+                        .put("started", t.startedAt)
+                        .put("ended", t.endedAt)
+                        .put("created", t.createdAt)
+                        .put("parent", t.parentId ?: JSONObject.NULL)
+                )
+            }
+            f.writeText(JSONObject().put(KEY_ENTRIES, arr).put(KEY_TOPICS, tarr).toString())
         }.onFailure { Log.w(TAG, "history: save failed: ${it.message}") }
     }
 
@@ -584,7 +847,15 @@ object ChatHistory {
         if (!f.exists()) return
         runCatching {
             val dir = File(appContext!!.filesDir, "pages")
-            val arr = JSONArray(f.readText())
+            val raw = f.readText().trim()
+            // Two shapes on disk: the bare array everything up to the topics
+            // change wrote, and the `{entries, topics}` object written since.
+            // Sniffed rather than versioned — a device that has never folded
+            // anything has no topics to lose, and rewriting every existing file
+            // just to add an empty list would be a migration for nobody.
+            val bare = if (raw.startsWith("[")) JSONArray(raw) else null
+            val root = if (bare == null) JSONObject(raw) else null
+            val arr = bare ?: root!!.optJSONArray(KEY_ENTRIES) ?: JSONArray()
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 val role = runCatching { Role.valueOf(o.optString("role")) }.getOrNull() ?: continue
@@ -607,14 +878,49 @@ object ChatHistory {
                 // v1, because nothing could revise them back then.
                 val group = if (o.has("group")) o.optLong("group") else id
                 val version = if (o.has("version")) o.optInt("version", 1) else 1
+                // Null and absent are the same thing here and both mean "not
+                // folded", so there is no default to get wrong.
+                val topic = if (o.has("topic")) o.optLong("topic", -1L).takeIf { it > 0 } else null
                 entries.add(
-                    Entry(id, o.optLong("ts"), role, o.optString("text"), page, turn, group, version),
+                    Entry(
+                        id, o.optLong("ts"), role, o.optString("text"), page, turn,
+                        group, version, topic,
+                    ),
                 )
                 if (id >= nextId) nextId = id + 1
+            }
+            val tarr = root?.optJSONArray(KEY_TOPICS) ?: JSONArray()
+            for (i in 0 until tarr.length()) {
+                val o = tarr.optJSONObject(i) ?: continue
+                val tid = o.optLong("id")
+                if (tid <= 0) continue
+                topics.add(
+                    Topic(
+                        id = tid,
+                        title = o.optString("title"),
+                        summary = o.optString("summary"),
+                        startedAt = o.optLong("started"),
+                        endedAt = o.optLong("ended"),
+                        createdAt = o.optLong("created"),
+                        parentId = if (o.has("parent")) o.optLong("parent", -1L).takeIf { it > 0 } else null,
+                    ),
+                )
+                if (tid >= nextTopicId) nextTopicId = tid + 1
+            }
+            // A row may name a topic that is no longer on the list — its file
+            // was deleted, or it was evicted. Clear it here, at load, so the
+            // list never collapses around a heading it cannot draw. Skipping
+            // this would leave a stale id on disk forever, and every open would
+            // have to re-decide the same thing.
+            val live = topics.map { it.id }.toSet()
+            for (i in entries.indices) {
+                val t = entries[i].topicId
+                if (t != null && t !in live) entries[i] = entries[i].copy(topicId = null)
             }
         }.onFailure {
             Log.w(TAG, "history: load failed, starting empty: ${it.message}")
             entries.clear()
+            topics.clear()
         }
     }
 }

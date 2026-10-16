@@ -278,6 +278,18 @@
     <string name="history_role_assistant">Andee · %1$s</string>
     <string name="history_role_error">出错 · %1$s</string>
     <string name="history_role_page_open">界面 · %1$s · 点击重新打开</string>
+    <!-- 话题: a finished stretch of conversation, folded into one card. -->
+    <string name="history_topic_label">话题</string>
+    <string name="history_topic_meta">%1$s · %2$d 条</string>
+    <string name="history_topic_continue">继续话题</string>
+    <string name="history_topic_transcript">对话记录</string>
+    <string name="history_topic_outputs">产出物（%1$d）</string>
+    <string name="history_topic_outputs_hide">收起产出物</string>
+    <string name="history_topic_output_item">%1$s · v%2$d</string>
+    <string name="topic_continue_prompt">继续「%1$s」：接下来想做什么？说出来或打字告诉我</string>
+    <string name="topic_continue_said">继续「%1$s」：%2$s</string>
+    <string name="textpage_topic_head">话题 · %1$s</string>
+    <string name="textpage_topic_gone">这段对话的原文已经清理，只剩话题卡片上的摘要。</string>
     <string name="history_role_page_cleared">界面 · %1$s · 已清理</string>
     <string name="html_default_title">AI 界面</string>
     <string name="textpage_role_you">你</string>
@@ -505,6 +517,7 @@
     <string name="narrate_system">操作系统按键…</string>
     <string name="narrate_show_html">把结果放到屏幕上…</string>
     <string name="narrate_pages">翻一下之前做的东西…</string>
+    <string name="narrate_topics">回想一下之前聊到哪儿了…</string>
     <string name="narrate_camera">看一眼…</string>
     <string name="narrate_dog">动一下腿…</string>
     <!--

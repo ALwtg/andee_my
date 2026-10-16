@@ -1055,6 +1055,100 @@ class CommandDispatcher(
                 }
             }
 
+            // ---- ui.* : the finished conversations, read back ---------------
+            //
+            // The shelf the folded topics are on. Like the page readers above,
+            // these are deliberately outside the `screen.` prefix — reading a
+            // file neither folds the card nor is worth blocking at a lock
+            // screen — and like them they draw nothing.
+            "ui.list_topics" -> {
+                val arr = org.json.JSONArray()
+                for (t in net.kuafuai.andee.ui.ChatHistory.topics()) {
+                    arr.put(
+                        JSONObject()
+                            .put("id", t.id)
+                            .put("title", t.title)
+                            .put("ended", Scheduler.formatLocal(t.endedAt))
+                            .put("messages", net.kuafuai.andee.ui.ChatHistory.rowCountOf(t.id))
+                            .put("available", net.kuafuai.andee.ui.ChatHistory.topicText(t.id) != null),
+                    )
+                }
+                JSONObject()
+                    .put("items", arr)
+                    .put("count", arr.length())
+                    .put(
+                        "note",
+                        when {
+                            arr.length() == 0 ->
+                                "No conversations have been put away yet. Nothing is missing — " +
+                                    "everything you have done together is either in front of you or " +
+                                    "was never folded."
+                            else ->
+                                "Newest first. These are FINISHED conversations, put away to save room; " +
+                                    "the one-line summary in your context is not the whole story. Read " +
+                                    "one back with get_topic before answering a question about a detail."
+                        },
+                    )
+            }
+
+            "ui.get_topic" -> {
+                val id = params?.optLong("id", Long.MIN_VALUE)?.takeIf { it != Long.MIN_VALUE }
+                    ?: throw IllegalArgumentException(
+                        "ui.get_topic requires integer id, from list_topics",
+                    )
+                val topic = net.kuafuai.andee.ui.ChatHistory.topicById(id)
+                val text = net.kuafuai.andee.ui.ChatHistory.topicText(id)
+                when {
+                    // Three failures, and they are different: an id that names
+                    // nothing (invented, or the list is stale), a topic whose file
+                    // is gone, and a topic that exists but was never written. Each
+                    // gets its own sentence because the honest next move differs.
+                    topic == null -> JSONObject()
+                        .put("found", false)
+                        .put(
+                            "note",
+                            "No topic has that id. list_topics shows what there is — take an id from " +
+                                "there, and do not make one up.",
+                        )
+
+                    text == null -> JSONObject()
+                        .put("found", false)
+                        .put("id", topic.id)
+                        .put("title", topic.title)
+                        .put(
+                            "note",
+                            "That topic exists — 「${topic.title}」 — but its text could not be read, " +
+                                "so the details are gone. Say so; do not reconstruct it from the summary " +
+                                "or from impression.",
+                        )
+
+                    else -> {
+                        val cut = text.length > net.kuafuai.andee.ui.ChatHistory.TOPIC_TEXT_MAX
+                        JSONObject()
+                            .put("found", true)
+                            .put("id", topic.id)
+                            .put("title", topic.title)
+                            .put("ended", Scheduler.formatLocal(topic.endedAt))
+                            .put("truncated", cut)
+                            .put(
+                                "text",
+                                if (cut) text.take(net.kuafuai.andee.ui.ChatHistory.TOPIC_TEXT_MAX) else text,
+                            )
+                            .put(
+                                "note",
+                                "The conversation as it happened. This call showed the user nothing." +
+                                    if (cut) {
+                                        " Cut at ${net.kuafuai.andee.ui.ChatHistory.TOPIC_TEXT_MAX} " +
+                                            "characters — what you have is the beginning; say so if the " +
+                                            "answer is not in it."
+                                    } else {
+                                        ""
+                                    },
+                            )
+                    }
+                }
+            }
+
             "screen.tap" -> {
                 passthroughForGesture {
                     requireScreen().tapAim(

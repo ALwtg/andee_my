@@ -1589,6 +1589,85 @@ object ToolSchemas {
                 "filter" to propEnum("Used with list", listOf("pending", "all", "cron")),
             ),
         ),
+        tool(
+            localOnly = true,
+            name = "fold_topic",
+            method = "note.fold",
+            description = """
+        Put a finished topic of this conversation away, so it stops costing context and can be read
+        back later with `get_topic`.
+
+        **Reviews only.** This is offered to the quiet-hour review, and any other turn that calls it is
+        refused — folding is irreversible from your side, and a request is not the moment to spend it.
+        The review's prompt lists the user's turns as U0, U1, …; a normal turn has no such list.
+
+        - `from_turn` / `to_turn`: the first and last U-number of the topic, inclusive, from that list.
+          **Use those numbers.** Do not describe a range of messages and do not count them — everything
+          said between those two turns, yours and the tools', goes with them.
+        - `title`: what it was about, in the user's words where you have them.
+        - `summary`: what it was about / where it got to / how it ended / **what you left out**.
+          The last line is the point. It is what tells future-you that this paragraph is not the whole
+          story, so a question about a detail gets answered by reading the topic back instead of from
+          memory. A summary that reads complete is one whose details are lost.
+
+        The device refuses, with a reason, when: a number is not in the list; `to_turn` is the latest
+        turn (nothing has started after it, so there is no way to tell it ended); something in it is
+        still waiting on an answer; it overlaps a topic already put away; it is too short; or a scene is
+        active. The reason names the condition — do not retry the same numbers.
+
+        Up to three topics per review. They are put away when the review ends, not when you call this.
+    """.trimIndent(),
+            required = listOf("from_turn", "to_turn", "title", "summary"),
+            props = mapOf(
+                "from_turn" to prop("integer", "The U-number of the topic's first turn"),
+                "to_turn" to prop("integer", "The U-number of the topic's last turn; must come before the latest turn"),
+                "title" to prop("string", "What this was about, ≤40 characters"),
+                "summary" to prop("string", "Four lines: what it was / where it got to / how it ended / what you left out"),
+            ),
+        ),
+        tool(
+            localOnly = true,
+            name = "list_topics",
+            method = "ui.list_topics",
+            description = """
+        The conversations that have been finished and put away, newest first.
+
+        A topic is a stretch of talking that ended — not a page (see `list_pages`) and not a way of
+        working (see `list_scenes`). When the user refers to something you did together earlier
+        (「上次那个比价」「我们之前聊的那个」) and it is not in the conversation in front of you, it is
+        probably here: it was folded away to save context, and one line of it is all that is left
+        in front of you.
+
+        Each entry carries the id, the title, when it ended, and how many messages it covers.
+        Use `get_topic` to read one back — **do not answer a question about a folded topic from its
+        one-line summary alone**, and never say it did not happen.
+    """.trimIndent(),
+            required = emptyList(),
+            props = emptyMap<String, JSONObject>(),
+        ),
+        tool(
+            localOnly = true,
+            name = "get_topic",
+            method = "ui.get_topic",
+            description = """
+        Read a folded conversation back, in full, by the id from `list_topics`.
+
+        This is the door out of a summary. A summary says what a topic came to and what it left out;
+        when the user asks about a detail — "which model was cheapest", "what did I say about the
+        budget" — that detail is here and not in the summary. Read it rather than guessing, and
+        rather than telling them it is no longer available.
+
+        The whole back-and-forth comes back as plain text, which may be long. Past
+        ${net.kuafuai.andee.ui.ChatHistory.TOPIC_TEXT_MAX} characters it is cut and `truncated` says so.
+
+        Reading is not showing: nothing appears on screen. If the user should see the conversation,
+        write it into a page with `show_html`.
+    """.trimIndent(),
+            required = listOf("id"),
+            props = mapOf(
+                "id" to prop("integer", "A topic id from list_topics. Do not make one up."),
+            ),
+        ),
 
         // ------------------------------------------------------------------
         // Scenes — `scene.*`, localOnly.

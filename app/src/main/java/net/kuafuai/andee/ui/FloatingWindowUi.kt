@@ -253,6 +253,18 @@ class FloatingWindowUi(
          * name one thing and send another.
          */
         fun onSuggestionClick(name: String, title: String, example: String)
+
+        /**
+         * 继续话题 on a folded topic's card. Handed out because it starts a turn,
+         * and a turn has one way in — see [onSuggestionClick].
+         */
+        fun onTopicContinue(topic: ChatHistory.Topic)
+
+        /**
+         * 对话记录 on a folded topic's card: the conversation, fullscreen. Handed
+         * out for the same reason as [onTextOpen] — the card folds first.
+         */
+        fun onTopicTranscript(topic: ChatHistory.Topic)
     }
 
     private val wm: WindowManager =
@@ -2318,6 +2330,8 @@ class FloatingWindowUi(
             onSuggestionClick = { name, title, example ->
                 listeners.onSuggestionClick(name, title, example)
             }
+            onTopicContinue = { listeners.onTopicContinue(it) }
+            onTopicTranscript = { listeners.onTopicTranscript(it) }
         }
         historyView = history
         root.addView(

@@ -226,6 +226,47 @@ class LocalBrain(
      */
     private var internalFromIndex = -1
 
+    /**
+     * Loop thread only. The topic-folds a review asked for, in the order asked.
+     *
+     * **Recorded during the turn and applied after it, never in the middle.**
+     * Folding rewrites [history] — a stretch of messages is replaced by one
+     * marker — and doing that while a turn is in flight would move every index
+     * the loop is holding: the `tool` messages still to be appended would land
+     * against the wrong `tool_call_id`, which the API answers with a 400 and
+     * the session dies mid-task. So the tool only appends here, and
+     * [applyPendingFolds] runs where the turn is already over. Several are safe
+     * together because each is found by identity, not position — applying one
+     * cannot move another.
+     */
+    private val pendingFolds = mutableListOf<PendingFold>()
+
+    /**
+     * Loop thread only. The user-turn messages the review's prompt numbered as
+     * `U0`, `U1`, …, captured when the prompt was built.
+     *
+     * Message *objects*, not positions. The prompt is built in one task on the
+     * loop thread and its turn runs in a second one, and a user turn queued in
+     * between can `trimHistory()` from the front and shift every index. A
+     * reference cannot move: a turn is found again by identity when the fold is
+     * recorded and again when it is applied, and one that has been trimmed away
+     * is simply not found — a refusal rather than a splice into the wrong place.
+     */
+    private var shownTurns: List<JSONObject> = emptyList()
+
+    /**
+     * What a review asked to fold: the user turn that opens the stretch and the
+     * user turn that opens whatever came after it. The stretch is everything
+     * from the first up to, not including, the second. See [pendingFolds].
+     */
+    private data class PendingFold(
+        val first: JSONObject,
+        val next: JSONObject,
+        val title: String,
+        val summary: String,
+        val text: String,
+    )
+
     /** Loop thread only. */
     private val history = mutableListOf<JSONObject>()
 
@@ -319,9 +360,26 @@ class LocalBrain(
                 busy.get() -> Log.i(TAG, "sweep skipped: a turn is running")
                 history.size < MIN_MESSAGES_TO_REVIEW ->
                     Log.i(TAG, "sweep skipped: only ${history.size} messages to review")
-                else -> launch(SWEEP_INSTRUCTION, TurnKind.SWEEP)
+                else -> launch(sweepInstruction(), TurnKind.SWEEP)
             }
         }
+    }
+
+    /**
+     * The quiet-hour prompt with this conversation's topic candidates folded in.
+     *
+     * Built here rather than kept as one constant because the candidate list is
+     * a fact about the history at this instant — and because it has to be the
+     * *same* list [noteFold] later indexes into. [topicCandidatesForPrompt]
+     * captures it as a side effect for exactly that reason; see [shownTurns].
+     *
+     * When there is nothing to offer, the whole section is left out. A review
+     * told to consider an empty list spends a step reasoning about nothing.
+     */
+    private fun sweepInstruction(): String {
+        val candidates = topicCandidatesForPrompt()
+        if (candidates.isEmpty()) return SWEEP_INSTRUCTION
+        return SWEEP_INSTRUCTION + TOPIC_RULES.format(candidates)
     }
 
     /** Read from any thread. The service asks before queueing a wake-up. */
@@ -367,6 +425,13 @@ class LocalBrain(
                 BrainTrace.clearTurn()
                 busy.set(false)
                 dropUnfinishedHarvest(kind)
+                // After the turn, never during it — see [pendingFolds]. A fold
+                // that succeeded leaves one message where a stretch used to be,
+                // and the splice has to happen when nothing is holding an index
+                // into the old shape. Guarded on the generation like everything
+                // else: a cancelled turn's fold belongs to a conversation that
+                // is no longer the current one.
+                if (gen == generation.get()) applyPendingFolds() else pendingFolds.clear()
                 if (kind == TurnKind.SWEEP) onSweepSpent(turnTokens)
                 if (gen == generation.get()) {
                     drainWakes()
@@ -519,6 +584,10 @@ class LocalBrain(
             // the full list; this is the four or five newest, to make the shelf
             // visible at all.
             val pages = net.kuafuai.andee.ui.ChatHistory.indexForPrompt()
+            // And the conversations that have been put away. Same position, same
+            // reasoning as the three above; the fourth is that this one is about
+            // an ABSENCE — see the note where it is appended.
+            val topics = net.kuafuai.andee.ui.ChatHistory.topicsForPrompt()
             // Photos with no words: there is no sentence of the user's to take
             // the language from, so the bracketed fallback comes back for it.
             val wordless = userText.isEmpty()
@@ -573,6 +642,23 @@ class LocalBrain(
                             "\n\n(pages you have made on this device — §7; the newest few, `#id title (vN)`; " +
                                 "use list_pages for all of them and get_page to read one back before revising " +
                                 "it — reading it back is what files your revision as its next version)\n$pages"
+                        } +
+                        // And the conversations that have been put away. The same
+                        // position and the same reason as the other three, plus
+                        // one of its own: what is NOT here is the point. A topic
+                        // that was folded is gone from this conversation, so a
+                        // model with no index answers 「上次那个比价」 from a
+                        // one-line summary it half-remembers — or says it never
+                        // happened. Seeing the title is what makes it go and read
+                        // the real thing instead.
+                        if (topics.isEmpty()) {
+                            ""
+                        } else {
+                            "\n\n(conversations you have finished and put away; the newest " +
+                                "few, `#id title (date · N msgs)`. These are NOT in front of you and the " +
+                                "summary you may have of one is not the whole story — read it back with " +
+                                "get_topic before answering about a detail, and never say it did not " +
+                                "happen)\n$topics"
                         },
                 )
         }
@@ -719,6 +805,22 @@ class LocalBrain(
                     tc.id,
                     "The arguments were not valid JSON, so I did not run it. Raw: ${tc.argumentsRaw.take(300)}",
                 )
+            // Folding is intercepted here rather than dispatched, and the reason
+            // is that it is the one `note.*` call whose subject is *this*
+            // object's state: it names a stretch of [history] and rewrites it,
+            // and the dispatcher has no history to name or rewrite. Handling it
+            // in [CommandDispatcher] would mean threading a reference to this
+            // brain through the service and back, to reach the two fields —
+            // [shownTurns] and [pendingFolds] — that only exist here.
+            //
+            // The gate comes with it: folding is for reviews only. A live turn
+            // must not fold, because folding is irreversible from the model's
+            // side and a user turn is not the moment to spend it. That check
+            // lives beside the state it protects rather than in the schema,
+            // which is static and cannot tell one turn kind from another.
+            if (ToolSchemas.methodOf(tc.name) == "note.fold" || tc.name == "note.fold") {
+                return toolMessage(tc.id, noteFold(args))
+            }
             // Same two-name translation BodyWsClient does, and the same
             // fallback: an extension registered its tool under one name and
             // that name goes straight through to the dispatcher.
@@ -790,6 +892,241 @@ class LocalBrain(
             .put("role", "tool")
             .put("tool_call_id", id)
             .put("content", content)
+
+    // ------------------------------------------------------------------
+    // topics: putting a finished stretch of conversation away
+    // ------------------------------------------------------------------
+
+    /**
+     * The user's turns, numbered, for the review prompt — or empty when there is
+     * nothing a fold could be made of.
+     *
+     * The numbers are the whole interface: the model names a first and a last
+     * turn and that is all it says about *where*. [shownTurns] is captured at
+     * the same instant so `U3` in the prompt and index 3 there are the same
+     * message. Long silences are marked between the lines as a hint — a person
+     * who walked away for an hour probably came back to something else — but a
+     * change of subject one minute later is just as foldable.
+     */
+    private fun topicCandidatesForPrompt(): String {
+        val idx = TopicSplitter.userTurns(history)
+        shownTurns = idx.map { history[it] }
+        // One turn has nothing after it, so nothing in it can be shown to be over.
+        if (idx.size < 2) return ""
+        val fmt = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.US)
+        val sb = StringBuilder()
+        for ((n, i) in idx.withIndex()) {
+            val m = history[i]
+            if (n > 0 && TopicSplitter.isSeam(history[idx[n - 1]], m)) {
+                sb.append("   — a long silence here —\n")
+            }
+            val at = TopicSplitter.stampOf(m)
+            val said = TopicSplitter.anchorText(m).replace('\n', ' ').take(60)
+            sb.append("- U").append(n).append("  ")
+                .append(if (at > 0) fmt.format(java.util.Date(at)) else "     ?     ")
+                .append("  ").append(said)
+            if (n == idx.size - 1) sb.append("   (the latest — a topic must end before this)")
+            sb.append('\n')
+        }
+        return sb.toString().trimEnd()
+    }
+
+    /**
+     * Handle `note.fold`: a review saying "turns U[from]..U[to] were one topic,
+     * and it is over — put it away".
+     *
+     * Returns the JSON the model reads, and **every refusal says which gate it
+     * hit**. A review told "no" with no reason tries again next time with the
+     * same input and gets the same answer, and there is nobody watching to
+     * notice the loop.
+     *
+     * The gates are mechanical on purpose. `TOPIC_RULES` asks the model to judge
+     * whether a stretch has ended; these are the half that does not depend on it
+     * agreeing:
+     *
+     *  1. **Only the quiet-hour review may fold** — not a user turn, and not the
+     *     harvest, which is silent too but is writing a summary, was never shown
+     *     the turn list, and rewrites [history] itself.
+     *  2. **Both numbers come from the list shown**, and the stretch is then found
+     *     in [history] by the identity of those messages, so nothing that moved
+     *     the indices in between can point the fold at the wrong place.
+     *  3. **Some turn must come after it.** This is "another topic has started
+     *     since" as arithmetic: the latest turn has nothing after it, so nothing
+     *     shows that it ended. Without this the review would in time fold the
+     *     conversation it is standing in.
+     *  4. **Nothing in it may be still waiting** — an unanswered tool call means
+     *     the stretch was interrupted, not finished.
+     *  5. **It must not already be folded, in this review or an earlier one.**
+     *  6. **No scene may be active.** While the user is in a scene they are, by
+     *     definition, doing one thing.
+     */
+    private fun noteFold(args: JSONObject): String {
+        fun no(reason: String) = JSONObject().put("folded", false).put("reason", reason).toString()
+        if (currentKind != TurnKind.SWEEP) {
+            return no("Only the quiet-hour review puts topics away; this turn is not one. Do not try again — just carry on.")
+        }
+        if (net.kuafuai.andee.config.VoiceConfig.activeScene(appContext) != null) {
+            return no("A scene is active, so this is all one piece of work. Nothing to fold.")
+        }
+        if (pendingFolds.size >= MAX_FOLDS_PER_REVIEW) {
+            return no("That is $MAX_FOLDS_PER_REVIEW topics for this review already. Leave the rest for next time.")
+        }
+        val a = args.optInt("from_turn", -1)
+        val b = args.optInt("to_turn", -1)
+        val last = shownTurns.size - 1
+        if (a !in 0..last || b !in 0..last) {
+            return no("U$a..U$b is not in the turn list you were given (U0..U$last). Use numbers from that list; do not invent one.")
+        }
+        if (b < a) return no("to_turn ($b) comes before from_turn ($a).")
+        if (b >= last) {
+            return no(
+                "U$b is the latest turn — nothing has started after it, so there is no way to tell this topic " +
+                    "ended. A topic must end before the latest turn; leave it for a later review.",
+            )
+        }
+        val first = shownTurns[a]
+        val next = shownTurns[b + 1]
+        val from = history.indexOfFirst { it === first }
+        val until = history.indexOfFirst { it === next }
+        if (from < 1 || until <= from) {
+            return no("Those turns are no longer in the conversation, so there is nothing left to put away.")
+        }
+        if (history.subList(from, until).any { isFoldMarker(it) }) {
+            return no("Part of U$a..U$b was already put away in an earlier review. Fold only turns that are still here.")
+        }
+        val clash = pendingFolds.any { p ->
+            val pf = history.indexOfFirst { it === p.first }
+            val pu = history.indexOfFirst { it === p.next }
+            from < pu && pf < until
+        }
+        if (clash) return no("U$a..U$b overlaps a topic you already put away in this review.")
+        if (until - from < TopicSplitter.MIN_SEGMENT_MESSAGES) {
+            return no("U$a..U$b is too short to be worth putting away. Leave it.")
+        }
+        if (TopicSplitter.hasDanglingCall(history, from, until)) {
+            return no("Something in U$a..U$b is still waiting on an answer, so it was interrupted rather than finished. Leave it.")
+        }
+        val title = args.optString("title").trim()
+        val summary = args.optString("summary").trim()
+        if (title.isEmpty() || summary.isEmpty()) return no("A topic needs both a title and a summary.")
+        pendingFolds += PendingFold(
+            first = first,
+            next = next,
+            title = title,
+            summary = summary.take(MAX_TOPIC_SUMMARY_CHARS),
+            text = renderTopicText(history, from, until),
+        )
+        return JSONObject()
+            .put("folded", true)
+            .put("turns", "U$a..U$b")
+            .put("title", title)
+            .put("note", "It goes away when this review ends. Do not fold these turns again.")
+            .toString()
+    }
+
+    /** The one-line stand-in [applyPendingFolds] leaves where a topic was. */
+    private fun isFoldMarker(m: JSONObject): Boolean =
+        m.optString("role") == "assistant" &&
+            (m.opt("content") as? String)?.startsWith(FOLD_MARKER_PREFIX) == true
+
+    /** Every fold the review asked for, oldest request first. See [applyOneFold]. */
+    private fun applyPendingFolds() {
+        val folds = pendingFolds.toList()
+        pendingFolds.clear()
+        for (f in folds) applyOneFold(f)
+        shownTurns = emptyList()
+    }
+
+    /**
+     * Put away one stretch, and swap it in [history] for a marker that says
+     * where it went.
+     *
+     * Runs after the turn is over — see [pendingFolds]. The two halves are
+     * different jobs and both are needed:
+     *
+     *  * **[ChatHistory.foldTopic]** is the device's record: it marks the rows so
+     *    the conversation list collapses them, and writes the verbatim text to
+     *    its own file so `get_topic` can read it back later.
+     *  * **the swap here** is the context's saving: the stretch is the most
+     *    expensive thing in the request and the least likely to be needed again,
+     *    so it becomes one line saying what it was and how to get it back.
+     *
+     * Both ends are found again by identity. **Which device rows the stretch
+     * covers is anchored on the same two user sentences** — see
+     * [TopicSplitter.locateRows]; the clock only breaks ties, because the
+     * brain's `[now …]` is to the minute while a row's `ts` is milliseconds.
+     */
+    private fun applyOneFold(fold: PendingFold) {
+        val from = history.indexOfFirst { it === fold.first }
+        val until = history.indexOfFirst { it === fold.next }
+        if (from < 1 || until <= from) {
+            Log.w(TAG, "fold of 「${fold.title}」 finished with no live range; dropped")
+            return
+        }
+        val firstSaid = TopicSplitter.anchorText(fold.first)
+        val nextSaid = TopicSplitter.anchorText(fold.next)
+        val all = net.kuafuai.andee.ui.ChatHistory.snapshot()
+        val keys = all.map {
+            TopicSplitter.RowKey(
+                isUser = it.role == net.kuafuai.andee.ui.ChatHistory.Role.USER,
+                text = it.text,
+                ts = it.ts,
+            )
+        }
+        val range = TopicSplitter.locateRows(
+            keys,
+            firstSaid, TopicSplitter.stampOf(fold.first),
+            nextSaid, TopicSplitter.stampOf(fold.next),
+        )
+        val rows = range?.let { all.subList(it.first, it.last + 1) }.orEmpty()
+        if (rows.isEmpty() || rows.any { it.topicId != null }) {
+            Log.w(
+                TAG,
+                "fold of 「${fold.title}」 could not be matched to the device rows " +
+                    "(first=${firstSaid.take(20)}, next=${nextSaid.take(20)}, rows=${rows.size}); kept as it was",
+            )
+            return
+        }
+        // Written first, and the swap happens only if it landed: a marker saying
+        // "you can read this back" over a topic that was never written is worse
+        // than not folding, because nothing will ever notice the difference.
+        val topic = runCatching {
+            net.kuafuai.andee.ui.ChatHistory.foldTopic(
+                title = fold.title,
+                summary = fold.summary,
+                rows = rows,
+                text = fold.text,
+                parentId = null,
+            )
+        }.getOrNull()
+        if (topic == null) {
+            Log.w(TAG, "fold produced no topic; the conversation is kept as it was")
+            return
+        }
+        val marker = JSONObject()
+            .put("role", "assistant")
+            .put(
+                "content",
+                "$FOLD_MARKER_PREFIX「${topic.title}」 (topic #${topic.id}). It is finished and has been put " +
+                    "away; the back-and-forth is not in front of you any more. What it came to: " +
+                    "${topic.summary} If you need the details, read it back with `get_topic` — do " +
+                    "not answer about it from this summary alone, and do not say it never happened.)",
+            )
+        val saved = until - from
+        val kept = ArrayList<JSONObject>(history.size - saved + 1)
+        kept.addAll(history.subList(0, from))
+        kept.add(marker)
+        kept.addAll(history.subList(until, history.size))
+        history.clear()
+        history.addAll(kept)
+        // The image tracking lists hold references to messages that are gone —
+        // the same cleanup [applyHarvest] does, for the same reason: a stale
+        // entry would later make [trimImages] drop a live message.
+        imageMessages.retainAll { m -> history.any { it === m } }
+        photoMessages.retainAll { m -> history.any { it === m } }
+        if (internalFromIndex > until) internalFromIndex -= (saved - 1)
+        Log.i(TAG, "topic put away: 「${topic.title}」 — $saved msgs, ${rows.size} rows → 1 marker, history now ${history.size}")
+    }
 
     // ------------------------------------------------------------------
     // images
@@ -1155,6 +1492,8 @@ class LocalBrain(
         toolName == "show_html" -> AppLocale.str(appContext, R.string.narrate_show_html)
         toolName == "list_pages" || toolName == "get_page" ->
             AppLocale.str(appContext, R.string.narrate_pages)
+        toolName == "get_topic" || toolName == "list_topics" ->
+            AppLocale.str(appContext, R.string.narrate_topics)
         toolName == "camera_turn" -> AppLocale.str(appContext, R.string.narrate_camera)
         toolName.startsWith("dog_") -> AppLocale.str(appContext, R.string.narrate_dog)
         toolName == "market_search" -> AppLocale.str(appContext, R.string.narrate_market_search)
@@ -1260,6 +1599,45 @@ class LocalBrain(
 
 If this conversation genuinely produced nothing new, record nothing — ending empty-handed is allowed. Forcing one in just dirties the notebook."""
 
+        /**
+         * Putting finished topics away. Appended to the sweep only — a harvest
+         * already replaces what it folds, so it has nothing to add here.
+         *
+         * **The model marks the topics; the device only offers the places they
+         * can start and end** — the user's turns, numbered. A topic change one
+         * minute later is as foldable as one after an hour, which is what the
+         * gap-only version could not do and why it looked broken on the tablet.
+         *
+         * The latest turn can never be inside a fold, since nothing has started
+         * after it. Folding is therefore always a little behind the
+         * conversation, and that is the design rather than a delay to tune away.
+         * See [noteFold] for the mechanical half.
+         */
+        private const val TOPIC_RULES = """
+
+PUTTING FINISHED TOPICS AWAY — the user's turns in this conversation, numbered:
+%s
+
+A conversation often holds several topics: he had you build a timer, then asked about the weather, then about a trip.
+A topic that is clearly over is worth putting away: it stops costing room, and it can be read back word for word later.
+Decide where each topic begins and ends, and for each one that is finished call `fold_topic` with:
+- `from_turn` / `to_turn` — the first and the last U-number of that topic (inclusive). Use the numbers above;
+  everything you and the tools said in between goes with them.
+- `title` — what it was about, in his words where you have them. 「番茄钟」「三款扫地机器人比价」, not 「用户询问产品信息」.
+- `summary` — four short lines, and the last one is not optional:
+    What it was about / where it got to / how it ended / **what you have left out**.
+  The last line is the door: it tells future-you the summary is not the whole story, so a question about
+  a detail gets answered by reading it back with `get_topic` instead of from this paragraph.
+
+Fold a topic when:
+- the subject clearly CHANGED after it — a different request, not a follow-up to the same one
+  (「做个番茄钟」→「改好看点」 is ONE topic; 「做个番茄钟」→「今天天气怎么样」 is two);
+- and nothing in it is still hanging — an unanswered question, a request you did not finish.
+
+Never fold the latest turn: nothing has started after it, so you cannot tell it is over.
+When unsure whether something is finished, leave it — leaving it costs a little room, folding something live loses it.
+Up to three topics per review. If `fold_topic` refuses, the reason names the condition; do not retry the same numbers."""
+
         /** The quiet-hour review. Fired by [Scheduler.armSweepIn]. */
         private const val SWEEP_INSTRUCTION =
             "(to yourself · this conversation has been quiet for a while, the user has probably gone)\n" +
@@ -1282,7 +1660,17 @@ If this conversation genuinely produced nothing new, record nothing — ending e
                 "write \"what future-you must know in order to take over\".\n" +
                 "Finish items 1-6 first, and write that summary last."
 
+        /** How long a topic summary may be. Long enough to carry "where it got to". */
+        private const val MAX_TOPIC_SUMMARY_CHARS = 1200
+
+        /** See [noteFold]: enough to tidy a long morning, few enough to read. */
+        private const val MAX_FOLDS_PER_REVIEW = 3
+
+        /** How the stand-in for a folded topic begins; see [isFoldMarker]. */
+        private const val FOLD_MARKER_PREFIX = "(earlier in this conversation — "
+
         private const val DEFAULT_TOOL_TIMEOUT_MS = 60_000L
+
         private const val TIMEOUT_SLACK_MS = 10_000L
     }
 }

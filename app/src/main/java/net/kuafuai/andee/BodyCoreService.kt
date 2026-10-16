@@ -100,6 +100,13 @@ class BodyCoreService : Service() {
      */
     private var pendingArtifact: net.kuafuai.andee.ui.ChatHistory.Entry? = null
 
+    /**
+     * The folded topic the user just tapped 继续话题 on, waiting for them to say
+     * where to take it. Same lifetime as [pendingArtifact], and the two exclude
+     * each other: whichever was tapped last is what the next words are about.
+     */
+    private var pendingTopic: net.kuafuai.andee.ui.ChatHistory.Topic? = null
+
     private lateinit var audio: AudioIO
     private lateinit var asr: AsrController
     private lateinit var tts: TtsController
@@ -413,6 +420,16 @@ class BodyCoreService : Service() {
                     AppLocale.str(this@BodyCoreService, R.string.suggestion_turn, title, example),
                     "suggested",
                 )
+            }
+
+            override fun onTopicContinue(topic: net.kuafuai.andee.ui.ChatHistory.Topic) {
+                beginTopicContinue(topic)
+            }
+
+            /** Same path as [onTextOpen]: write a page, open it over a folded card. */
+            override fun onTopicTranscript(topic: net.kuafuai.andee.ui.ChatHistory.Topic) {
+                val file = net.kuafuai.andee.ui.TextPage.writeTopic(this@BodyCoreService, topic) ?: return
+                openPageFrom(topic.title, file)
             }
         })
         // Before the card is built: FloatingWindowUi.build() reads the log to
@@ -1002,6 +1019,8 @@ class BodyCoreService : Service() {
         // the brain gets that plus the page it is about.
         val editing = pendingArtifact
         pendingArtifact = null
+        val continuing = pendingTopic
+        pendingTopic = null
         // Tell the dispatcher which artifact this turn is about, before the
         // brain can call `show_html` inside it. The panel's 继续修改 is the one
         // turn that starts out already knowing, and without this the revised
@@ -1009,8 +1028,17 @@ class BodyCoreService : Service() {
         // grouping exists to fix. A turn from speech or typing passes null,
         // which is what stops the previous turn's target leaking into this one.
         dispatcher.beginTurn(editing?.groupId)
-        val forBrain = editing?.let { artifactEditQuery(it, said) } ?: said
-        val row = if (editing != null) AppLocale.str(this, R.string.artifacts_edit_said, editing.text, said) else said
+        val row = when {
+            editing != null -> AppLocale.str(this, R.string.artifacts_edit_said, editing.text, said)
+            continuing != null -> AppLocale.str(this, R.string.topic_continue_said, continuing.title, said)
+            else -> said
+        }
+        // The brain's message opens with the row's own words: a later topic fold
+        // finds this turn's row by matching that opening line, and a brain text
+        // that began differently from its row could never be put away.
+        val forBrain = editing?.let { artifactEditQuery(it, row) }
+            ?: continuing?.let { topicContinueQuery(it, row) }
+            ?: said
         net.kuafuai.andee.ui.ChatHistory.addUser(
             if (images.isEmpty()) row
             else "${AppLocale.str(this, R.string.input_photos_row, images.size)} $row".trim(),
@@ -1116,12 +1144,15 @@ class BodyCoreService : Service() {
      * place, because the alternative is ✕完成 silently throwing them out of the
      * assistant.
      */
-    private fun openPageFrom(entry: net.kuafuai.andee.ui.ChatHistory.Entry, file: java.io.File) {
+    private fun openPageFrom(entry: net.kuafuai.andee.ui.ChatHistory.Entry, file: java.io.File) =
+        openPageFrom(entry.text, file)
+
+    private fun openPageFrom(title: String, file: java.io.File) {
         val wasFullscreen = !window.isCompact()
         dispatcher.compactForUser()
         // The ball hangs off the ledge rather than sitting on the page.
         window.setPagePerched(true)
-        net.kuafuai.andee.ui.HtmlActivity.showFile(this, file, entry.text.take(24)) {
+        net.kuafuai.andee.ui.HtmlActivity.showFile(this, file, title.take(24)) {
             window.setPagePerched(false)
             if (wasFullscreen) dispatcher.expand()
         }
@@ -2146,11 +2177,66 @@ class BodyCoreService : Service() {
     private fun beginArtifactEdit(e: net.kuafuai.andee.ui.ChatHistory.Entry) {
         if (e.page == null) return
         pendingArtifact = e
+        pendingTopic = null
         window.setSubtitle(
             AppLocale.str(this, R.string.artifacts_edit_prompt, e.text),
             FloatingWindowUi.SubtitleKind.FINAL,
         )
         if (!net.kuafuai.andee.ui.TextInputActivity.isShowing) toggleTyping()
+    }
+
+    /**
+     * 继续话题: remember which topic, then ask where to take it — the same shape
+     * as [beginArtifactEdit], for the same reason: until the user says what
+     * they want there is nothing to ask the brain.
+     */
+    private fun beginTopicContinue(t: net.kuafuai.andee.ui.ChatHistory.Topic) {
+        pendingTopic = t
+        pendingArtifact = null
+        window.setSubtitle(
+            AppLocale.str(this, R.string.topic_continue_prompt, t.title),
+            FloatingWindowUi.SubtitleKind.FINAL,
+        )
+        if (!net.kuafuai.andee.ui.TextInputActivity.isShowing) toggleTyping()
+    }
+
+    /**
+     * What the brain is given for a 继续话题: the user's words, which topic,
+     * and the topic's archived conversation inlined.
+     *
+     * Inlined rather than left to `get_topic` because the whole point of the
+     * tap is "pick up where we left off", and a model that answers from the
+     * one-line marker before thinking to read the topic back is exactly the
+     * failure the read-back exists to prevent. Capped like `get_topic`.
+     *
+     * The products are listed by title and id so a "change that timer" lands
+     * on the existing page (`get_page` → `show_html revise`) instead of a new one.
+     */
+    private fun topicContinueQuery(t: net.kuafuai.andee.ui.ChatHistory.Topic, row: String): String {
+        val cap = net.kuafuai.andee.ui.ChatHistory.TOPIC_TEXT_MAX
+        val text = net.kuafuai.andee.ui.ChatHistory.topicText(t.id)
+        val outputs = net.kuafuai.andee.ui.ChatHistory.outputsOf(t.id)
+        return buildString {
+            append(row)
+            append("\n\n(I picked this from a finished topic in our conversation, topic #")
+            append(t.id).append(" 「").append(t.title)
+            append("」, and want to carry on with it. What it came to: ").append(t.summary)
+            if (outputs.isNotEmpty()) {
+                append("\nPages made in it: ")
+                append(outputs.joinToString("; ") { "#${it.groupId} ${it.text} (v${it.version})" })
+                append(". To change one, get_page it and send the revision with show_html.")
+            }
+            if (text == null) {
+                append("\nIts full text is no longer stored — work from the summary and say so if a detail is missing.)")
+            } else {
+                val cut = text.length > cap
+                append("\nThe conversation as it happened follows")
+                if (cut) append(" — cut at $cap characters, the beginning only")
+                append(".)\n\n<<<TOPIC CONVERSATION>>>\n")
+                append(if (cut) text.take(cap) else text)
+                append("\n<<<END TOPIC CONVERSATION>>>")
+            }
+        }
     }
 
     /**
@@ -2268,9 +2354,10 @@ class BodyCoreService : Service() {
             return
         }
         acceptBrainOutput = false
-        // A 继续修改 the user walked away from must not attach itself to
-        // whatever they ask next.
+        // A 继续修改 / 继续话题 the user walked away from must not attach itself
+        // to whatever they ask next.
         pendingArtifact = null
+        pendingTopic = null
         tts.stopSpeaking()
         if (asr.isActive()) asr.stop()
         // Task over from the device's point of view: whatever the brain had
@@ -2314,6 +2401,11 @@ class BodyCoreService : Service() {
                     dispatcher.dispatch(method, params, driving = false)
                 },
                 onSay = { text -> ui.post { submitUserTurn(text, "debug.say") } },
+                // The review path, reachable on demand. Twenty minutes of
+                // waiting to find out whether it worked is long enough that the
+                // path went unexercised; this runs the same code the alarm does.
+                onSweep = { ui.post { onSweepTimer() } },
+                onSweepForced = { ui.post { localBrain?.runSweep() } },
             )
             srv.start()
             wsServer = srv

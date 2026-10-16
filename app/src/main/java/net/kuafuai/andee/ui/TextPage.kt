@@ -70,8 +70,46 @@ object TextPage {
         return "$who · $when_"
     }
 
+    /**
+     * A folded topic's conversation as one page — 对话记录 on the topic card.
+     *
+     * Built from the device's own rows, which are what the user saw and said,
+     * rather than from the brain's archived text, which carries tool chatter and
+     * reads like a log. Rows age out under the history cap, though, so when none
+     * are left the archived text is shown instead; it is still the conversation.
+     */
+    fun writeTopic(context: Context, topic: ChatHistory.Topic): File? = runCatching {
+        val lctx = AppLocale.wrap(context)
+        val fmt = SimpleDateFormat("MM-dd HH:mm", AppLocale.localeOf(context))
+        val rows = ChatHistory.rowsOf(topic.id)
+        val cards = if (rows.isNotEmpty()) {
+            rows.joinToString("\n") { e ->
+                val who = when (e.role) {
+                    ChatHistory.Role.USER -> lctx.getString(R.string.textpage_role_you)
+                    ChatHistory.Role.ASSISTANT -> lctx.getString(R.string.textpage_role_assistant)
+                    ChatHistory.Role.ERROR -> lctx.getString(R.string.textpage_role_error)
+                    ChatHistory.Role.PAGE -> lctx.getString(R.string.textpage_role_page)
+                }
+                val cls = if (e.role == ChatHistory.Role.USER) "card mine" else "card"
+                "    <p class=\"who\">${esc(who)} · ${esc(fmt.format(Date(e.ts)))}</p>\n" +
+                    "    <div class=\"$cls\">\n${body(e.text)}\n    </div>"
+            }
+        } else {
+            val text = ChatHistory.topicText(topic.id) ?: lctx.getString(R.string.textpage_topic_gone)
+            "    <div class=\"card\">\n${body(text)}\n    </div>"
+        }
+        val head = lctx.getString(R.string.textpage_topic_head, topic.title)
+        File(dir(context), "topic_${topic.id}.html").also { it.writeText(page(head, cards)) }
+    }.getOrElse {
+        Log.w(TAG, "topic page: could not write: ${it.message}")
+        null
+    }
+
     /** The whole document. Exposed for the tests that read it back. */
-    fun html(who: String, text: String): String = """
+    fun html(who: String, text: String): String =
+        page(who, "    <div class=\"card\">\n${body(text)}\n    </div>")
+
+    private fun page(head: String, content: String): String = """
 <!doctype html>
 <html><head>
 <meta charset="utf-8">
@@ -83,18 +121,18 @@ object TextPage {
   /* 88px of top padding clears the ✕完成 pill the page floats there. */
   .wrap { padding:88px 20px 40px; }
   .who { margin:0 0 16px; font-size:13px; color:#94A3B8; }
+  .card + .who { margin-top:20px; }
   .card { background:#1E293B; border:1px solid rgba(148,163,184,.18);
     border-radius:14px; padding:20px; }
+  .card.mine { background:#1E2B45; }
   p { margin:0 0 16px; word-break:break-word; }
   p:last-child { margin-bottom:0; }
   p.gap { margin:0; height:8px; }
 </style>
 </head><body>
   <div class="wrap">
-    <p class="who">${esc(who)}</p>
-    <div class="card">
-${body(text)}
-    </div>
+    <p class="who">${esc(head)}</p>
+$content
   </div>
 </body></html>
 """.trimIndent()
