@@ -365,6 +365,16 @@ The debug build is signed with the standard Android debug certificate and instal
 the APK is **per-ABI** (`splits` in `app/build.gradle`), so pick the one that matches the device —  
 `arm64-v8a` for anything bought in the last several years.
 
+**Keep your signing key out of git — including this repository's forks.** Android lets an APK replace  
+an installed one only when the signatures match, and that is the only thing standing between your users  
+and a fake "update". Whoever holds the key can ship an APK that installs over theirs and inherits  
+everything: the accessibility service stays enabled, the `WRITE_SECURE_SETTINGS` grant stays, and the  
+vault, notebook and conversation are its to read. A leaked key cannot be taken back without every user  
+uninstalling. Keep it in your build machine's secret storage and point `signingConfig` at it through  
+environment variables. A side effect worth knowing: the debug keystore is generated per machine, so an  
+APK built on one machine cannot be installed over one built on another (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`)  
+— uninstall first, or give local builds a different `applicationId`; do not share the key to get around it.
+
 **If the build does not work, the answer is almost always the JDK.** Full from-scratch setup — the  
 JDK traps, the Android SDK two different ways (including a command-line-only path for CI), and a table  
 of every error you are likely to hit — is in **[Provisioning](#provisioning)** below. Permissions are  
