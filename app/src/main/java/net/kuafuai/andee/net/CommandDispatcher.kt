@@ -781,6 +781,13 @@ class CommandDispatcher(
                 net.kuafuai.andee.ui.CardUi.ask(question, buttons, timeoutMs, captureSpeech = true) { r ->
                     answer = r; latch.countDown()
                 }
+                // The question and the answer are part of the conversation, so
+                // they go in the scrollback like any other exchange. Without this
+                // the card came and went and the list showed the brain acting on
+                // a choice nobody could see being made.
+                net.kuafuai.andee.ui.ChatHistory.addAssistant(
+                    net.kuafuai.andee.brain.SpeechMood.parse(question).text,
+                )
                 // The card is up in the user's hands, but they may be looking
                 // anywhere else — the ball is a voice-first device, so the
                 // question is spoken as well as shown. The service applies the
@@ -790,6 +797,11 @@ class CommandDispatcher(
                 sayAloud(question, true)
                 latch.await(timeoutMs + 3000, java.util.concurrent.TimeUnit.MILLISECONDS)
                 val r = answer ?: net.kuafuai.andee.ui.CardUi.Result(null, "no_answer")
+                // A timeout or a superseded card is no answer, and writing one
+                // would put words in the user's mouth.
+                (r.button ?: r.heard)?.takeIf { it.isNotBlank() }?.let {
+                    net.kuafuai.andee.ui.ChatHistory.addUser(it)
+                }
                 org.json.JSONObject()
                     .put("button", r.button)
                     .put("how", r.how)
