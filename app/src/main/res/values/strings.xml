@@ -554,6 +554,7 @@
     <string name="check_title_voice_host">语音服务可达</string>
     <string name="check_title_wake">唤醒词</string>
     <string name="check_title_battery">后台运行</string>
+    <string name="check_title_auto_start">自启动</string>
     <string name="check_title_disk">存储空间</string>
 
     <string name="check_detail_accessibility_on">已开启，球和屏幕操作都在跑。</string>
@@ -607,6 +608,8 @@
     <string name="check_detail_wake_off">还没录。自己选个词（例如「嘿 Andee」）录 3 遍就能喊醒。不录也能用，只是得点球。</string>
     <string name="check_detail_battery_on">已在白名单，待办闹钟不会被推迟。</string>
     <string name="check_detail_battery_off">不在电池优化白名单里。点右边「去开启」，系统会问「是否忽略电池优化？」，选「忽略」就好。\n厂商自己的「应用启动管理 / 后台运行」是另一套，在那里怎么改这项都是红的。息屏后待办提醒会晚到，唤醒词也会停。</string>
+    <string name="check_detail_auto_start_on">已允许。进程被系统杀掉后能自己拉回来。</string>
+    <string name="check_detail_auto_start_off">没开。小米的省电策略会定时杀掉后台进程，没开自启动就拉不回来，表现就是「用一会儿自己关掉」。点右边去开启。</string>
     <string name="check_detail_disk_ok">剩余 %1$d MB。</string>
     <string name="check_detail_disk_low">只剩 %1$d MB，再占下去会开始丢截图和页面。</string>
     <string name="check_detail_disk_full">只剩 %1$d MB，基本写不进东西了。</string>

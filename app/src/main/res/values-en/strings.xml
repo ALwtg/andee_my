@@ -469,6 +469,7 @@
     <string name="check_title_voice_host">Voice service</string>
     <string name="check_title_wake">Wake phrase</string>
     <string name="check_title_battery">Background running</string>
+    <string name="check_title_auto_start">Auto-start</string>
     <string name="check_title_disk">Storage</string>
 
     <string name="check_detail_accessibility_on">On. The ball and every screen action are running.</string>
@@ -523,6 +524,8 @@
     <string name="check_detail_wake_off">Not taught yet. Pick a phrase (e.g. “Hey Andee”) and say it 3 times to wake me by voice. Everything still works without it, you just tap the ball to talk.</string>
     <string name="check_detail_battery_on">Exempt, so pending reminders are not delayed.</string>
     <string name="check_detail_battery_off">Not exempt from battery optimisation. Tap “Open settings” — the system asks “Ignore battery optimisations?”; take the button that ignores them.\nThe vendor’s own “App launch / background running” controls are a separate system; changing them leaves this row red. With the screen off a pending reminder may arrive late, and the wake phrase stops listening.</string>
+    <string name="check_detail_auto_start_on">Allowed. The process can bring itself back after the system kills it.</string>
+    <string name="check_detail_auto_start_off">Off. Xiaomi’s power policy reaps background processes on a timer, and without auto-start the assistant cannot come back after that — it looks like it just closes by itself. Tap to enable.</string>
     <string name="check_detail_disk_ok">%1$d MB free.</string>
     <string name="check_detail_disk_low">Only %1$d MB left; screenshots and pages will start going missing.</string>
     <string name="check_detail_disk_full">Only %1$d MB left — almost nothing can be written.</string>

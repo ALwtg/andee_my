@@ -2,6 +2,7 @@ package net.kuafuai.andee.device
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.AppOpsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -148,6 +149,18 @@ object SelfCheck {
              * because the same action is the right door in both states.
              */
             @StringRes val label: Int = 0,
+            /**
+             * An explicit component, as `"package/package.Class"`, for a screen
+             * that has no action — a vendor's own settings page. When set it
+             * takes precedence over [action]: the intent targets the component
+             * directly, and [action] is kept only as a harmless label.
+             *
+             * Exists for one row: MIUI/HyperOS's auto-start manager, which is a
+             * plain activity inside `com.miui.securitycenter` and reachable no
+             * other way. `action` must still be non-null, so callers pass
+             * `Intent.ACTION_MAIN` as the placeholder.
+             */
+            val component: String? = null,
         ) : Fix
 
         /**
@@ -247,6 +260,7 @@ object SelfCheck {
             voiceReach(context, probe, online),
             wakePhrase(context),
             background(context),
+            autoStart(context),
             storage(context),
         )
     }
@@ -1031,6 +1045,120 @@ object SelfCheck {
     }
 
     /**
+     * Whether the vendor will let this app come back after it is killed.
+     *
+     * MIUI/HyperOS keeps its own "auto-start" switch, separate from the AOSP
+     * battery-optimisation whitelist [background] reads. That switch is the
+     * gate on `AutoPowerKill`: Xiaomi's power policy reaps background processes
+     * on a timer — measured at roughly one kill every 40–60 minutes, even as a
+     * foreground service with a notification and even while on the AOSP
+     * whitelist — and after a kill, `START_STICKY` cannot bring it back unless
+     * auto-start is granted. The user's symptom for all of that is one
+     * sentence: "it closes by itself after a while".
+     *
+     * The switch lives in AppOps as a vendor op, `OP_AUTO_START = 10008`, and
+     * is read through the `checkOpNoThrow(int, int, String)` overload, which is
+     * `@hide` and therefore reached by reflection. `MODE_ALLOWED` means on;
+     * anything else means the process cannot self-revive.
+     *
+     * Only ever asked on a Xiaomi-family device — see [isXiaomi] — because on
+     * every other ROM the op does not exist and a reading of it is noise. The
+     * row is therefore absent rather than "not applicable": `run` builds the
+     * list with `listOfNotNull`, and a null here is the same shape as the
+     * API-gated [postNotifications] row.
+     *
+     * [Level.WARN], not FAIL: with auto-start off the app is fully alive *right
+     * now* — it is the future that degrades, which is exactly the WARN contract.
+     */
+    private fun autoStart(context: Context): Finding? {
+        if (!isXiaomi()) return null
+        val on = autoStartAllowed(context)
+        return Finding(
+            id = "auto_start",
+            title = R.string.check_title_auto_start,
+            level = if (on) Level.OK else Level.WARN,
+            detail = if (on) R.string.check_detail_auto_start_on
+            else R.string.check_detail_auto_start_off,
+            fix = if (on) Fix.Nothing else autoStartFix(context),
+        )
+    }
+
+    /**
+     * A Xiaomi-family ROM, the only place [autoStart] means anything.
+     *
+     * Matched on brand words rather than on the MIUI build property because
+     * the property is read through a hidden API and the words are free.
+     * Xiaomi covers Redmi and POCO, whose devices ship the same power policy
+     * and the same AppOps op.
+     */
+    private fun isXiaomi(): Boolean {
+        val words = "${Build.MANUFACTURER} ${Build.BRAND}".lowercase()
+        return words.contains("xiaomi") || words.contains("redmi") || words.contains("poco")
+    }
+
+    /**
+     * The live read of `OP_AUTO_START`.
+     *
+     * Reflection rather than the public `checkOpNoThrow(String, …)` because the
+     * op has no name this app can spell: it is a vendor extension with only a
+     * numeric code. The hidden `checkOpNoThrow(int, int, String)` overload is
+     * what the platform itself uses for unnamed ops, and it is present across
+     * the API levels this app ships to. Any failure answers false — "not
+     * allowed" — which is the safe reading for a row whose whole job is to
+     * catch a missing grant.
+     */
+    private fun autoStartAllowed(context: Context): Boolean {
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager
+            ?: return false
+        return runCatching {
+            val m = AppOpsManager::class.java.getMethod(
+                "checkOpNoThrow",
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+                String::class.java,
+            )
+            val mode = m.invoke(
+                appOps,
+                MIUI_OP_AUTO_START,
+                context.applicationInfo.uid,
+                context.packageName,
+            ) as Int
+            mode == AppOpsManager.MODE_ALLOWED
+        }.getOrDefault(false)
+    }
+
+    /**
+     * The door to the auto-start switch, by the component that resolves first.
+     *
+     * The manager is a plain activity in `com.miui.securitycenter`, reachable
+     * no other way, and MIUI has renamed the activity across versions — so the
+     * candidate list is probed like [listenerSettings] and falls back to the
+     * app's own details page, which on HyperOS is where the switch lives when
+     * the dedicated manager is absent. An action is still required by
+     * [Fix.Screen]; `ACTION_MAIN` is the placeholder, and [component] wins.
+     */
+    private fun autoStartFix(context: Context): Fix {
+        val candidates = listOf(
+            "com.miui.securitycenter/com.miui.permcenter.autostart.AutoStartManagementActivity",
+            "com.miui.securitycenter/com.miui.permcenter.selfmanagement.AutoStartManagementActivity",
+        )
+        val pm = context.packageManager
+        val component = candidates.firstOrNull { c ->
+            val cn = ComponentName.unflattenFromString(c) ?: return@firstOrNull false
+            // getActivityInfo throws NameNotFoundException when the activity is
+            // absent, so success *is* the answer — there is no null to test.
+            runCatching { pm.getActivityInfo(cn, 0) }.isSuccess
+        }
+        if (component != null) {
+            return Fix.Screen(Intent.ACTION_MAIN, component = component)
+        }
+        return Fix.Screen(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            "package:${context.packageName}",
+        )
+    }
+
+    /**
      * Room to write.
      *
      * Pages, screenshots, the grounding log and the notebook all land in
@@ -1371,4 +1499,11 @@ object SelfCheck {
     private const val MODEL_SAMPLE = 8
     private const val DISK_WARN_MB = 500L
     private const val DISK_FAIL_MB = 100L
+
+    /**
+     * MIUI/HyperOS's `OP_AUTO_START` AppOps code — the vendor op behind the
+     * "auto-start" switch. See [autoStart] for why it has a number but no
+     * name, and why it is read through reflection.
+     */
+    private const val MIUI_OP_AUTO_START = 10008
 }

@@ -1,5 +1,6 @@
 package net.kuafuai.andee.ui
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -928,6 +929,7 @@ class SelfCheckUi(
      */
     private fun intentFor(fix: SelfCheck.Fix): Intent = when (fix) {
         is SelfCheck.Fix.Screen -> Intent(fix.action).apply {
+            fix.component?.let { component = ComponentName.unflattenFromString(it) }
             fix.data?.let { data = Uri.parse(it) }
             fix.extras.forEach { (name, value) -> putExtra(name, value) }
         }
