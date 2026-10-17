@@ -355,6 +355,12 @@ class LocalBrain(
      */
     fun runSweep() {
         loop.execute {
+            // [history] is in-memory and dies with the process, so after a kill
+            // the sweep has nothing to review — the "recover the sweep" path
+            // would trigger and then skip on "0 messages". Rebuild the dialogue
+            // from the persisted scrollback first; a fresh conversation with no
+            // rows still comes back empty and hits the usual gate below.
+            if (history.isEmpty()) rebuildHistoryFromScrollback()
             when {
                 cfg.apiKey.isEmpty() -> Log.i(TAG, "sweep skipped: no API key")
                 busy.get() -> Log.i(TAG, "sweep skipped: a turn is running")
@@ -363,6 +369,44 @@ class LocalBrain(
                 else -> launch(sweepInstruction(), TurnKind.SWEEP)
             }
         }
+    }
+
+    /**
+     * Rebuild the dialogue half of [history] from the persisted scrollback.
+     *
+     * The sweep reviews "this conversation", but the only record that survives
+     * a killed process is [net.kuafuai.andee.ui.ChatHistory] — [history] itself
+     * is a memory-only list. This walks the rows and rebuilds the two roles the
+     * sweep cares about (the person's words and the assistant's), each user
+     * message re-stamped with the row's own clock so [TopicSplitter] can still
+     * find the turns and their silences. Pages and errors are skipped: they are
+     * artifacts, not conversation.
+     *
+     * Capped at the tail so a weeks-old scrollback does not blow the context
+     * window — the sweep is about what was *just* said, and the rest is the
+     * notebook's business. Caller runs on the loop thread, so touching
+     * [history] here is safe.
+     */
+    private fun rebuildHistoryFromScrollback() {
+        val rows = net.kuafuai.andee.ui.ChatHistory.snapshot()
+            .filter {
+                it.role == net.kuafuai.andee.ui.ChatHistory.Role.USER ||
+                    it.role == net.kuafuai.andee.ui.ChatHistory.Role.ASSISTANT
+            }
+            .filter { it.text.isNotBlank() }
+            .takeLast(REBUILD_MAX_MESSAGES)
+        if (rows.isEmpty()) return
+        history += JSONObject().put("role", "system").put("content", systemPrompt())
+        val fmt = SimpleDateFormat("yyyy-MM-dd EEE HH:mm", AppLocale.localeOf(appContext))
+        for (r in rows) {
+            history += if (r.role == net.kuafuai.andee.ui.ChatHistory.Role.USER) {
+                JSONObject().put("role", "user")
+                    .put("content", "[now ${fmt.format(Date(r.ts))}] ${r.text}")
+            } else {
+                JSONObject().put("role", "assistant").put("content", r.text)
+            }
+        }
+        Log.i(TAG, "sweep rebuilt ${rows.size} messages from the scrollback")
     }
 
     /**
@@ -1566,6 +1610,14 @@ class LocalBrain(
 
         /** A conversation shorter than this has nothing to review. */
         private const val MIN_MESSAGES_TO_REVIEW = 6
+
+        /**
+         * How much of the persisted scrollback a post-restart sweep rebuilds.
+         * The sweep is about the conversation that just went quiet, so the tail
+         * is enough; anything older is the notebook's business, not a context
+         * window to re-fill.
+         */
+        private const val REBUILD_MAX_MESSAGES = 40
 
         /** Caps what a silent turn leaves behind in the history. */
         private const val MAX_INTERNAL_NOTE_CHARS = 900

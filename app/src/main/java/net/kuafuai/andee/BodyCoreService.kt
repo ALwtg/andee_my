@@ -2634,6 +2634,10 @@ class BodyCoreService : Service() {
         // here, on the first start that can hear about it. This runs in hub
         // mode too — see the early return above.
         catchUpPromises()
+        // The sweep is the other thing that only fires if the service is alive
+        // when its timer lands, so a process killed mid-quiet leaves a
+        // conversation that was never looked back at. Recover it here.
+        catchUpSweep()
     }
 
     private fun stopBrain() {
@@ -2690,6 +2694,45 @@ class BodyCoreService : Service() {
             return
         }
         brain.runSweep()
+    }
+
+    /**
+     * Recover the quiet-hour sweep after the process was gone.
+     *
+     * The sweep timer is an AlarmManager alarm, so it survives a killed process
+     * — but when it lands, [AlarmReceiver] finds no service and drops it, and
+     * after a reboot the timer is not re-armed at all. The result is a
+     * conversation that was finished but never looked back at. This is the
+     * repair, run once on [startBrain]:
+     *
+     *  * no recent activity → nothing to review, out;
+     *  * the quiet window has not elapsed → wait out the remainder, exactly as
+     *    a live timer would have;
+     *  * the window has elapsed but [Notebook.lastSweepAt] is *after* the last
+     *    activity → already swept, out;
+     *  * otherwise the last words were never swept → [onSweepTimer], which
+     *    re-checks the budget and runs (or, if the brain is busy or the history
+     *    too short, declines — its own refusal is not a lost sweep, because the
+     *    next start asks again).
+     *
+     * [Notebook.lastSweepAt] is the load-bearing fact: it is written only by
+     * [Notebook.noteSweep], i.e. only when a sweep turn actually completed, so
+     * comparing it against [Notebook.lastActivityAt] is the difference between
+     * "already reviewed" and "died before it could".
+     */
+    private fun catchUpSweep() {
+        val sweep = net.kuafuai.andee.config.VoiceConfig.sweepConfig(this)
+        if (!sweep.enabled) return
+        val last = net.kuafuai.andee.config.Notebook.lastActivityAt(this)
+        if (last <= 0L) return
+        val quietMs = sweep.quietMinutes * 60_000L
+        val idle = System.currentTimeMillis() - last
+        if (idle < quietMs) {
+            net.kuafuai.andee.config.Scheduler.armSweepIn(this, quietMs - idle)
+            return
+        }
+        if (last <= net.kuafuai.andee.config.Notebook.lastSweepAt(this)) return
+        onSweepTimer()
     }
 
     /**

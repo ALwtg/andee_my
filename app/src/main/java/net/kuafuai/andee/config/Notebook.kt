@@ -54,6 +54,7 @@ object Notebook {
     private const val KEY_BLOB = "book"
     private const val KEY_ALIAS = "body_notebook_key"
     private const val KEY_LAST_ACTIVITY = "last_activity_at"
+    private const val KEY_LAST_SWEEP = "last_sweep_at"
     private const val KEY_SWEEP_DAY = "sweep_day"
     private const val KEY_SWEEP_COUNT = "sweep_count"
     private const val KEY_SWEEP_TOKENS = "sweep_tokens"
@@ -806,6 +807,14 @@ object Notebook {
 
     fun lastActivityAt(context: Context): Long = metaPrefs(context).getLong(KEY_LAST_ACTIVITY, 0L)
 
+    /**
+     * When the quiet-hour sweep last actually ran. Written by [noteSweep], so it
+     * is the one fact that separates "the user spoke and the sweep already
+     * looked back at it" from "the user spoke and the process died before the
+     * sweep could". See `BodyCoreService.catchUpSweep`.
+     */
+    fun lastSweepAt(context: Context): Long = metaPrefs(context).getLong(KEY_LAST_SWEEP, 0L)
+
     private fun today(): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
@@ -830,6 +839,7 @@ object Notebook {
             .putString(KEY_SWEEP_DAY, day)
             .putInt(KEY_SWEEP_COUNT, count + 1)
             .putInt(KEY_SWEEP_TOKENS, toks + tokens)
+            .putLong(KEY_LAST_SWEEP, System.currentTimeMillis())
             .apply()
     }
 
