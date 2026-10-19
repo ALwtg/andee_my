@@ -102,12 +102,19 @@ class TapMarkerUi(private val context: Context) {
                 or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 // Without this the box is clamped inside the display and a tap
                 // near an edge would be marked somewhere it did not happen.
-                or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = 0; y = 0
             alpha = 0f
+            // p.x/p.y are display pixels (the gesture's own), so the window must not
+            // be offset by the system bars: by default an API 30+ window fits them,
+            // and the mark was drawn a status bar's height below the real tap.
+            fitInsetsTypes = 0
+            layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
         return try {
             v.hideFromAccessibility()
