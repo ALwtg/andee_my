@@ -91,7 +91,26 @@ object A11yIme {
             info.imeOptions and EditorInfo.IME_MASK_ACTION
         }
         if (action == 0 || action == EditorInfo.IME_ACTION_NONE) return false
+        // The editor's own "Enter must not act" — WeChat's comment box declares
+        // DONE with this flag and sends only from its button. Firing DONE there
+        // reports success and sends nothing.
+        if (info.actionId == 0 && info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION != 0) return false
         return runCatching { conn.performEditorAction(action); true }.getOrDefault(false)
+    }
+
+    /** An editor is focused and bound to our input connection right now. */
+    fun editing(service: AccessibilityService): Boolean = connection(service) != null
+
+    /**
+     * The focused editor says Enter must not act (`IME_FLAG_NO_ENTER_ACTION`) and
+     * names no custom action — it sends only from its own button. On such a field
+     * `ACTION_IME_ENTER` still answers true while doing nothing (WeChat's comment
+     * box, measured 2026-10-19).
+     */
+    fun sendsOnlyFromButton(service: AccessibilityService): Boolean {
+        if (connection(service) == null) return false
+        val info = runCatching { service.inputMethod?.currentInputEditorInfo }.getOrNull() ?: return false
+        return info.actionId == 0 && info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION != 0
     }
 
     // ---- internals ----

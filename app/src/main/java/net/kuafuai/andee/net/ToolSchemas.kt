@@ -271,20 +271,21 @@ object ToolSchemas {
         tool(
             name = "swipe_by_coordinates",
             method = "screen.swipe",
-            description = "Swipe from one point to another: scroll lists, page carousels, drag things. To scroll a list DOWN (see more content below), swipe from a point near the BOTTOM UP to a point near the TOP — fingers move opposite to content. All coordinates are RELATIVE 0-1000 like tap_by_coordinates. Duration controls speed: shorter = faster fling.",
+            description = "Swipe from one point to another: scroll lists, page carousels, drag things. To scroll a list DOWN (see more content below), swipe from a point near the BOTTOM UP to a point near the TOP — fingers move opposite to content. All coordinates are RELATIVE 0-1000 like tap_by_coordinates.\n\nBy default the finger stops at the end point before lifting, so the list moves about as far as the finger did and then stays put — no momentum. That makes the distance the control: to bring something 300 units further up into view, swipe 300 units. Set fling=true only to travel far (jump many screens through a long feed); a fling coasts on unpredictably, so take a fresh look afterwards rather than assuming where it stopped.",
             required = listOf("x1", "y1", "x2", "y2"),
             props = mapOf(
                 "x1" to prop("integer", "Start X, 0 (left) to 1000 (right)."),
                 "y1" to prop("integer", "Start Y, 0 (top) to 1000 (bottom)."),
                 "x2" to prop("integer", "End X, 0 (left) to 1000 (right)."),
                 "y2" to prop("integer", "End Y, 0 (top) to 1000 (bottom)."),
-                "duration_ms" to prop("integer", "How long the swipe takes, in ms. Default 300.", default = 300),
+                "duration_ms" to prop("integer", "How long the finger takes to travel, in ms. Default 300.", default = 300),
+                "fling" to prop("boolean", "Lift while still moving, so the list keeps coasting. Default false.", default = false),
             ),
         ),
         tool(
             name = "type_text",
             method = "screen.type",
-            description = "Type text into the CURRENTLY FOCUSED input field (tap the field first — by e-number — then call this as the very next action; the keyboard opens by itself, do not re-tap the field). Existing content is REPLACED, not appended. Does not press Enter/Send — use submit_input for that.",
+            description = "Type text into the CURRENTLY FOCUSED input field (tap the field first — by e-number — then call this as the very next action; the keyboard opens by itself, do not re-tap the field). Existing content is REPLACED, not appended. Does not press Enter/Send — use submit_input for that.\n\nWhen a tap opened an input bar by itself — a reply/comment box sliding up with the keyboard (WeChat Moments 评论, a chat's reply bar) — the field is ALREADY focused: call this straight away, without tapping the field. On an app that hides its element tree this matters double: the input strip above the keyboard is thin and sits right on top of the post or message below it, so a tap aimed at it by grid cell lands on that content instead and opens it. This tool does not need the tree — it types through the editor's own input connection — so `performed: true` with the text read back is proof it went into the box.",
             required = listOf("text"),
             props = mapOf(
                 "text" to prop("string", "The text to enter."),
@@ -293,7 +294,7 @@ object ToolSchemas {
         tool(
             name = "submit_input",
             method = "screen.submit_input",
-            description = "Submit the currently focused input by firing its IME action (Enter / Send / Search / Next / Done — whichever the field was set up for). Typical uses: send a chat message after type_text, run a search. Use this instead of trying to press a keyboard Enter key — Android delivers 'Enter/Send' through this action, not a raw keystroke.",
+            description = "Submit the currently focused input by firing its IME action (Enter / Send / Search / Next / Done — whichever the field was set up for). Typical uses: send a chat message after type_text, run a search. Use this instead of trying to press a keyboard Enter key — Android delivers 'Enter/Send' through this action, not a raw keystroke.\n\nIt works only when the field itself declares a send/search action; many comment and reply boxes do not and send only from their own button (WeChat's comment box is one — this errors there, and that is the answer, not a fault). In that case tap the app's Send/发送 button — and on an app that hides its tree, zoom_screen_region on that button FIRST and tap with on=\"zoom\": the button sits in a thin strip right on top of the content below, and the device refuses a plain grid-cell tap right after typing there.",
             required = emptyList(),
             props = emptyMap(),
         ),
@@ -325,9 +326,17 @@ object ToolSchemas {
         right on a grid line; this view is centred on the aim, so they are
         never cut in half.
 
-        The other form is x/y marking the region's CENTER in the usual
-        0-1000 space plus w/h for its size (try 200x300 for one control,
-        400x600 for a card) — a plain magnified look, no crosshair.
+        The other form is x/y marking the region's CENTER plus w/h for its
+        size (try 200x300 for one control, 400x600 for a card) — a plain
+        magnified look, no crosshair. All four are 0-1000 of the WHOLE SCREEN,
+        never pixels of an image you were shown: a screenshot arrives
+        downscaled (often ~576 wide as you see it), so a position measured in
+        its pixels is the wrong number here. Read the position off the grid
+        instead — cell D is 375-500 across, row 7 is 500-583 down, each column
+        125 wide and each row ~83 tall — or simply use the cell form above,
+        which needs no numbers at all. Every zoom reports the screen rectangle
+        it actually showed (`region`); if that is not where you meant to look,
+        your numbers were in the wrong space.
 
         This image is a magnified region, and it carries the SAME 8x12 grid in
         LOWERCASE (a1..h12), labels at each cell's centre, so a label read off
@@ -346,10 +355,10 @@ object ToolSchemas {
             props = mapOf(
                 "cell" to prop("string", "Grid cell of the full screenshot you are about to tap, e.g. \"D7\". Replaces x/y/w/h."),
                 "part" to propEnum("Which third of that cell — the same part you would tap. Omit for the centre.", ScreenController.PARTS),
-                "x" to prop("integer", "Region center X, 0 (left) to 1000 (right). Use instead of cell."),
-                "y" to prop("integer", "Region center Y, 0 (top) to 1000 (bottom). Use instead of cell."),
-                "w" to prop("integer", "Region width in 0-1000 units, e.g. 200."),
-                "h" to prop("integer", "Region height in 0-1000 units, e.g. 300."),
+                "x" to prop("integer", "Region center X, 0 (left) to 1000 (right) of the whole screen — not image pixels. Use instead of cell."),
+                "y" to prop("integer", "Region center Y, 0 (top) to 1000 (bottom) of the whole screen — not image pixels. Use instead of cell."),
+                "w" to prop("integer", "Region width in screen 0-1000 units, e.g. 200."),
+                "h" to prop("integer", "Region height in screen 0-1000 units, e.g. 300."),
             ),
         ),
         tool(
@@ -417,6 +426,14 @@ object ToolSchemas {
         pixel location) and after a tap that seemed to do nothing — a ring
         sitting beside the button is a different problem from a ring on a
         button that did not respond.
+
+        YOUR OWN BALL IS NEVER IN A SCREENSHOT. The device hides its floating
+        ball and every card of its own for the instant of capture, and moves
+        the ball aside when a tap would land under it. So a round shape, a
+        face or a blue character in the picture belongs to the app — an
+        avatar, a sticker, an article's cover image — and is never you, and
+        never something covering a button. If a button seems hidden, scroll
+        it into a clearer spot; do not route around the ball.
     """.trimIndent(),
             required = emptyList(),
             props = emptyMap(),

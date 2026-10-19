@@ -197,6 +197,14 @@ class ScreenController(
     @Volatile
     private var zoomAtMs = 0L
 
+    /**
+     * Set when [typeText] puts text into an editor on a tree-blind app; cleared by
+     * the next tap. While set, a tap that was not aimed off a fresh zoom is
+     * refused — see [requireAimedSend].
+     */
+    @Volatile
+    private var typedBlindAt = 0L
+
     private class Aim(val nx: Int, val ny: Int, val label: String)
 
     private fun cellLabel(col: Int, row: Int): String = "${('A' + col)}${row + 1}"
@@ -309,6 +317,7 @@ class ScreenController(
 
     fun tapAim(on: String?, x: Int?, y: Int?, cell: String?, part: String?): JSONObject {
         val a = resolveAim(on, x, y, cell, part)
+        requireAimedSend(on, cell)
         val s = if (treeBlind()) snapToShape(a.nx, a.ny) else null
         val nx = s?.nx ?: a.nx
         val ny = s?.ny ?: a.ny
@@ -327,6 +336,39 @@ class ScreenController(
     }
 
     private class Snap(val nx: Int, val ny: Int, val moved: Boolean, val distPx: Int, val signature: FloatArray?)
+
+    /**
+     * The tap after typing on a tree-blind app is almost always "send", and its
+     * button sits in a strip a few dozen px tall directly on top of the content it
+     * replies to — on WeChat Moments a grid-cell guess landed on the shared article
+     * below in two runs out of two, opening it and leaving the comment unsent. A
+     * zoom taken after the typing is the only image that shows the strip at a size
+     * a model can hit, so until a zoom-aimed tap lands, every other tap is refused
+     * with that instruction. Expires after [SEND_AIM_WINDOW_MS] so a task that typed
+     * and moved on is not haunted by it.
+     */
+    private fun requireAimedSend(on: String?, cell: String?) {
+        val typed = typedBlindAt
+        if (typed == 0L) return
+        typedBlindAt = 0L
+        if (SystemClock.uptimeMillis() - typed > SEND_AIM_WINDOW_MS) return
+        // The box is gone (sent, dismissed, app left): nothing to protect.
+        if (!A11yIme.editing(service)) return
+        val fromZoom = on?.trim()?.lowercase() == "zoom" ||
+            (on.isNullOrBlank() && cell != null && cell.any { it.isLetter() } &&
+                cell.trim().all { it.isLowerCase() || !it.isLetter() })
+        if (fromZoom && zoomAtMs > typed) return
+        // Stays armed until a zoom-aimed tap clears it, or the next blind tap sails through.
+        typedBlindAt = typed
+        throw IllegalStateException(
+            "refused: you just typed into a box on an app that hides its tree, and this tap " +
+                "was not aimed off a fresh zoom. The Send button and the input sit in a thin " +
+                "strip right on top of the post/message below — a grid-cell tap here lands on " +
+                "that content and opens it, losing the send. NEXT: zoom_screen_region on the " +
+                "Send button (cell + part), then tap with on=\"zoom\" from THAT image. If you " +
+                "meant to tap something other than Send, the same applies: zoom first."
+        )
+    }
 
     /** A tree of a handful of nodes says nothing about what is on screen — see [BLIND_TREE_NODES]. */
     private fun treeBlind(): Boolean {
@@ -635,7 +677,7 @@ class ScreenController(
         return out
     }
 
-    fun swipeNorm(nx1: Int, ny1: Int, nx2: Int, ny2: Int, durationMs: Long): JSONObject {
+    fun swipeNorm(nx1: Int, ny1: Int, nx2: Int, ny2: Int, durationMs: Long, fling: Boolean): JSONObject {
         requireNorm(nx1, "x1"); requireNorm(ny1, "y1")
         requireNorm(nx2, "x2"); requireNorm(ny2, "y2")
         // Not a sample, but it moves everything on screen: without it the
@@ -646,6 +688,7 @@ class ScreenController(
             nx1.toPixel(screenW), ny1.toPixel(screenH),
             nx2.toPixel(screenW), ny2.toPixel(screenH),
             durationMs,
+            fling,
         )
     }
 
@@ -1222,20 +1265,47 @@ class ScreenController(
         }
     }
 
-    fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long): JSONObject {
+    /**
+     * Unless [fling], the finger holds still at the end before lifting. A stroke
+     * that lifts while moving hands the list its full release velocity, and a
+     * 400 ms swipe over 40% of the screen coasted the WeChat feed several screens
+     * past the post being aimed at (measured 2026-10-19). Held, the content moves
+     * about as far as the finger did. The hold is a continued stroke rather than
+     * a longer duration because release velocity is distance/duration — slowing
+     * the stroke shrinks the coast but never removes it.
+     */
+    fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long, fling: Boolean): JSONObject {
         val path = Path().apply {
             moveTo(x1.toFloat(), y1.toFloat())
             lineTo(x2.toFloat(), y2.toFloat())
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
         val target = android.graphics.Rect(
             minOf(x1, x2) - 4, minOf(y1, y2) - 4,
             maxOf(x1, x2) + 4, maxOf(y1, y2) + 4,
         )
         val result = guardedGesture(target) {
-            runGesture(GestureDescription.Builder().addStroke(stroke).build(), durationMs + 2000)
+            if (fling) {
+                val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
+                runGesture(GestureDescription.Builder().addStroke(stroke).build(), durationMs + 2000)
+            } else {
+                val move = GestureDescription.StrokeDescription(path, 0L, durationMs, true)
+                val moved = runGesture(GestureDescription.Builder().addStroke(move).build(), durationMs + 2000)
+                if (moved.optBoolean("completed")) {
+                    val still = Path().apply { moveTo(x2.toFloat(), y2.toFloat()) }
+                    // A cancelled hold still leaves the list where the finger put it:
+                    // ACTION_CANCEL ends a scroll without a fling.
+                    runGesture(
+                        GestureDescription.Builder()
+                            .addStroke(move.continueStroke(still, 0L, SWIPE_HOLD_MS, false))
+                            .build(),
+                        SWIPE_HOLD_MS + 2000,
+                    )
+                }
+                moved
+            }
         }
         return result.put("from", "$x1,$y1").put("to", "$x2,$y2").put("duration_ms", durationMs)
+            .put("fling", fling)
     }
 
     fun longPress(x: Int, y: Int, durationMs: Long): JSONObject {
@@ -1303,10 +1373,28 @@ class ScreenController(
             root.recycle()
         }
         if (focused == null) {
+            // A withheld tree has no focus node to find, but an editor bound to our
+            // input connection is still there to type into.
+            if (A11yIme.editing(service)) {
+                typeViaA11yIme(text, secret)?.let { return markBlindTyping(it) }
+            }
             throw IllegalStateException("no input focus (tap into an input field first)")
         }
         runCatching { if (focused !== root) focused.recycle() }
-        return typeViaA11yIme(text, secret) ?: typeViaAdbKeyboard(text, secret)
+        return markBlindTyping(typeViaA11yIme(text, secret) ?: typeViaAdbKeyboard(text, secret))
+    }
+
+    private fun markBlindTyping(r: JSONObject): JSONObject {
+        if (r.optBoolean("performed") && treeBlind()) {
+            typedBlindAt = SystemClock.uptimeMillis()
+            r.put(
+                "next",
+                "Text is in the box. To send: if a Send/发送 button is visible, zoom_screen_region on it " +
+                    "first and tap with on=\"zoom\" — a plain grid-cell tap is refused here, because this " +
+                    "strip sits on top of the content below and a missed tap opens that instead.",
+            )
+        }
+        return r
     }
 
     /**
@@ -1520,6 +1608,32 @@ class ScreenController(
      * When `id` is null we use the currently focused input.
      */
     fun submitInput(id: String?): JSONObject {
+        if (id == null && A11yIme.sendsOnlyFromButton(service)) {
+            throw IllegalStateException(
+                "this field has no keyboard send action — it sends only from its own Send/发送 " +
+                    "button. Tap that button" +
+                    (if (treeBlind()) ": zoom_screen_region on it first and tap with on=\"zoom\"." else ".")
+            )
+        }
+        // An app that withholds its tree (WeChat on the Honor phone) has no focus
+        // node to find, yet its editor is still bound to our input connection —
+        // type_text reaches it that way. Ask the editor for its own action before
+        // calling that a failure.
+        if (id == null) {
+            val r = service.rootInActiveWindow
+            val focus = r?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            focus?.recycle()
+            r?.recycle()
+            if (focus == null) {
+                if (A11yIme.editorAction(service)) {
+                    return JSONObject().put("performed", true).put("via", A11yIme.VIA)
+                }
+                throw IllegalStateException(
+                    "no input focus, and the focused editor (if any) declares no Send/Search action — " +
+                        "tap into the field first, or tap the app's own send button"
+                )
+            }
+        }
         val root = service.rootInActiveWindow ?: throw IllegalStateException("no active window")
         try {
             val target: AccessibilityNodeInfo = if (id != null) {
@@ -1565,6 +1679,8 @@ class ScreenController(
      *   caller that can't be the user, is also the one that never passes it.
      */
     fun globalAction(action: String, actor: String = "brain"): JSONObject {
+        // Leaving the screen ends whatever was being typed into.
+        typedBlindAt = 0L
         val code = when (action.lowercase()) {
             "back" -> AccessibilityService.GLOBAL_ACTION_BACK
             "home" -> AccessibilityService.GLOBAL_ACTION_HOME
@@ -1729,7 +1845,9 @@ class ScreenController(
                             "first send the same cell and part to zoom_screen_region: it " +
                             "shows a red crosshair where the tap would land, so you can " +
                             "confirm it or re-aim off the magnified image. The grid lines " +
-                            "and labels are drawn by the device and are not part of the app.",
+                            "and labels are drawn by the device and are not part of the app. " +
+                            "Your own floating ball is hidden for every capture, so nothing " +
+                            "round or blue in this picture is you or is covering a button.",
                     )
                 }
                 // Piggyback the element list. The brain's known failure mode
@@ -3056,6 +3174,12 @@ class ScreenController(
 
         /** The relative coordinate space the brain speaks: 0..1000 both axes. */
         private const val NORM_MAX = 1000
+
+        /** How long after blind typing the zoom-before-send rule holds — see [requireAimedSend]. */
+        private const val SEND_AIM_WINDOW_MS = 120_000L
+
+        /** How long a non-fling swipe holds at its end point — see [swipe]. */
+        private const val SWIPE_HOLD_MS = 150L
 
         /**
          * Screenshot long side after downscale (generic_bridge value).
