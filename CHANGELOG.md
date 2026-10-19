@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`10` / `"0.5.1"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`11` / `"0.5.2"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -27,6 +27,57 @@ anything not built at a tag, identify it by the short commit hash it was built f
 hash into `versionName` at build time would close this hole; it is not implemented yet.)
 
 ## [Unreleased]
+
+## [0.5.2] - 2026-10-19
+
+**Two fixes from watching it work on an app that hides its element tree, and a new hero image.** The
+fixes are the substance: commenting on a WeChat Moments post took **64 steps and 341 seconds**, and the
+same task now takes **20 steps and 58 seconds**, sent on the first tap. The version number is `0.5.2`
+rather than `0.6.0` because the one `feat` commit in this delta is the README's cover art, not a
+capability — nothing a user can do changed by it.
+
+### Fixed
+
+- **A swipe no longer coasts past what the model aimed at.** `swipe_by_coordinates` lifted the finger
+  while it was still moving, so the list flung several screens beyond the target and the model lost its
+  place — the largest single cost in the 64-step measurement. The stroke now **holds at its end point
+  before lifting** (`SWIPE_HOLD_MS`), and `ACTION_CANCEL` ends a scroll without a fling, so the list
+  moves about as far as the finger did and **the distance becomes the control**. A new `fling` parameter
+  (default `false`) keeps the old behaviour for long jumps, and its tool text says to take a fresh look
+  afterwards rather than assume where it stopped.
+- **The tap right after blind typing is refused unless it came from a zoom.** On an app that withholds
+  its tree, the reply box is a thin strip directly on top of the post below it, so a grid-cell tap aimed
+  at it landed on that post and opened it — **twice out of two** on the same Moments reply box. After a
+  `type_text` on such an app, only a tap carrying `on="zoom"` is accepted, with an error that says why;
+  leaving the box clears the rule. Zoom-then-tap is how the same comment now sends on the first attempt.
+- **`submit_input` no longer reports success on a box that cannot be submitted that way.** WeChat's
+  comment box declares `IME_FLAG_NO_ENTER_ACTION` and sends only from its own button; firing the IME
+  action there answered "done" while sending nothing. It now says it cannot, and names the app's own
+  send button. `type_text` and `submit_input` also work when the tree has no focus node but the input
+  connection is bound.
+- **The tap ring is drawn where the tap landed.** The marker window is positioned in display pixels, but
+  an API 30+ overlay fits the system-bar insets by default, so its frame began below the status bar and
+  **every ring sat that far under the real tap**. It now carries the same `FLAG_LAYOUT_IN_SCREEN` /
+  `fitInsetsTypes = 0` / cutout mode the ball window already had. The caption's 0-1000 numbers were
+  always right.
+
+### Changed
+
+- **The tool text now corrects three things models kept getting wrong.** `zoom_screen_region`'s `x/y/w/h`
+  are **0-1000 of the whole screen, never pixels of an image** — a screenshot arrives downscaled (often
+  ~576 px wide as the model sees it), and every zoom now reports the rectangle it actually showed so a
+  model can notice it was in the wrong space. `type_text`'s text states that a box which opened with the
+  keyboard is **already focused** and should be typed into without a preliminary tap. `take_screenshot`'s
+  text states that **the assistant's own ball is never in a capture** — the device hides its overlays for
+  the instant of capture — because a model that saw a round blue shape blamed it for covering a button
+  and tried to route around it.
+- **The README's first image is now a phone with the character sitting on it** rather than a floating
+  head. `images/brand/andee-device.png` is the new hero art and `tools/make_social_preview.py` places it
+  at 720 px wide, bottom-right, keeping 60 px of white padding with a 40 px analytic edge ramp; the mood
+  strip narrows to 512/88 so the phone's left corner clears the last cell, and the text-to-art gap check
+  now measures the character's left edge instead of a hard-coded offset. All four generated images were
+  regenerated; **the round avatar is byte-identical**, because it still uses the head-only asset. The
+  character in this render has a body; the app still draws a floating sphere.
 
 ## [0.5.1] - 2026-10-19
 
