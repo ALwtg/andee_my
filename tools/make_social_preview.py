@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 """README 封面（1200×630）、GitHub 社交预览（1280×640）与方形组织头像（512×512）。
 
-素材只有一份：`images/brand/andee-head.png`（白底 + 橙粉光晕 + 蓝色头部）。
-头部抠图和光晕补底在 `andee_head.py`，和启动图标共用同一套，所以封面上的角色
-和桌面图标是**同一张画**，不是"看起来像"。
+两份素材，各管一件事：
+
+  * 封面/社交预览的右侧主图 = `images/brand/andee-device.png`：一台躺着的手机，
+    角色坐在屏幕上 —— 讲的是"住进设备"，不是"一颗悬着的头"。
+  * 方形头像 = `images/brand/andee-head.png`：圆形裁切下只放得下头。
+    头部抠图和光晕补底在 `andee_head.py`，和启动图标共用同一套。
 
 ## 构图
 
-  * 底是纯白（源图四角就是 #FDFDFD），角色连同自带的光晕一起贴上去，
-    光晕与白底在边缘处自然融掉 —— 所以不抠光晕，贴整张。
-  * 文字深色，左对齐；角色在右。文字右缘到角色**头部**左缘的间距会量出来，
-    小于 40px 就告警（标语长了 20px 悄悄压到头上，只有肉眼看得出）。
+  * 底是纯白（#FDFDFD）。主图自带白边，**不抠图**：按内容框裁掉多余白边，
+    再用一圈解析斜坡（`edge_ramp`）把最外 40px 淡成透明。光晕本来就在白边上，
+    淡出看不出来；硬切会在光晕里留一条横向接缝（第一版就是这么翻车的，
+    原因是"填满整块再模糊"等于没羽化）。
+  * 文字深色，左对齐；主图在右下。文字右缘到**角色**左缘（蓝通道差 > 80 的
+    最左列）的间距会量出来，小于 40px 就告警。
+  * 底部那行五张表情收窄到 512px（原来是 604），否则手机左端会压到最后一格。
   * 头像是圆形裁切（GitHub 组织头像就是圆的）：脚本量角色最远点到圆心的
     距离，越界就告警。
 
@@ -42,22 +48,26 @@ W, H = 1280, 640
 COVER = (1200, 630)
 AVATAR = 512
 
-# 角色整图（含光晕）在 1280×640 画布上的落位：整图边长与中心。
-ART_SIDE = 760
-ART_CX, ART_CY = 952.0, 322.0
-# 头部本身的直径（量出来的 693px）按同比例缩放后的值，用于文字间距自检。
-HEAD_W_SRC = 693.0
+# 右侧主图（手机 + 坐在屏幕上的角色）的落位。它自带白边，所以按**内容框**裁，
+# DEV_PAD 是留给斜坡的白边宽度：斜坡全落在这圈白里，角色和手机一个像素都不透明。
+DEVICE_SRC = REPO / "images" / "brand" / "andee-device.png"
+DEV_W = 720                       # 落到画布上的宽度（裁切后）
+DEV_RIGHT, DEV_BOTTOM = 1232, 636  # 右下角锚点
+DEV_TRIM = 30                     # 判"内容"的阈值：与白底的最大通道差
+DEV_PAD = 60                      # 内容框外保留的白边
+DEV_RAMP = 40                     # 淡出斜坡的宽度（画到画布上的像素）
+DEV_BLUE = 80                     # 角色判据：B − R > 80（手机是中性色，不会被算进来）
 
 # 文字基线（比原来整体上移 60px，给最下面那条表情行让位）
 Y_EYEBROW, Y_TITLE, Y_TAG = 118, 244, 304
 Y_RULE, Y_FOOT = 388, 430
 
 # 最下面那条「一张插画 + 一个字」的行：五张横向排开，标签居中在每张下面。
-# 宽度锁在左栏里（96 → 700），所以它不会碰到右边那颗头。
+# 宽度锁在左栏里（96 → 608），这样右侧主图（手机左端在 ~518）不会压到最后一格。
 # 插画是 App 的手势情绪（WINK / WAVE / PROTECT / REST 那批带道具的），
 # 网页渲染器 ball.js 画不出它们，所以这里用的是真图，不是渲出来的。
-FLOW_W = 604
-FLOW_IMG = 104
+FLOW_W = 512
+FLOW_IMG = 88
 FLOW_TOP = 486
 FLOW_LABEL_DY = 26
 FLOW_FONT = 15
@@ -88,10 +98,40 @@ ZH = {
 }
 
 
-def art_layer(side: int):
-    """整张角色图（带光晕）缩到 side×side。"""
-    im = Image.open(head.SRC).convert("RGB")
-    return im.resize((side, side), Image.LANCZOS)
+def content_box(rgb: np.ndarray):
+    """与白底差得够多的最外一圈像素（光晕也算内容，所以框左边通常是光晕而非手机）。"""
+    d = (255 - rgb).max(axis=2)
+    ys, xs = np.nonzero(d > DEV_TRIM)
+    return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+
+
+def edge_ramp(w: int, h: int, ramp: int) -> Image.Image:
+    """四边向内 ramp 像素的平滑斜坡：边上 alpha=0，ramp 以内 alpha=255。
+
+    必须写成"从边算距离"，不能写成"填满再高斯模糊" —— 填满之后模糊出来还是
+    一张全白的掩膜，等于没羽化，光晕会被画布边缘硬切出一条接缝。
+    """
+    x = np.arange(w)[None, :]
+    y = np.arange(h)[:, None]
+    d = np.minimum(np.minimum(x, w - 1 - x), np.minimum(y, h - 1 - y)).astype(np.float64)
+    t = np.clip(d / max(1, ramp), 0, 1)
+    return Image.fromarray(((t * t * (3 - 2 * t)) * 255).astype(np.uint8), "L")
+
+
+def device_layer():
+    """右侧主图：裁掉多余白边 → 缩到 DEV_W → 四边淡出。返回 (图, 角色左缘x)。"""
+    src = Image.open(DEVICE_SRC).convert("RGB")
+    rgb = np.asarray(src).astype(np.int16)
+    x0, y0, x1, y1 = content_box(rgb)
+    char_x0 = int(np.nonzero(((rgb[:, :, 2] - rgb[:, :, 0]) > DEV_BLUE).any(axis=0))[0].min())
+    box = (max(0, x0 - DEV_PAD), max(0, y0 - DEV_PAD),
+           min(src.size[0], x1 + DEV_PAD), min(src.size[1], y1 + DEV_PAD))
+    art = src.crop(box)
+    s = DEV_W / art.size[0]
+    art = art.resize((int(round(art.size[0] * s)), int(round(art.size[1] * s))), Image.LANCZOS)
+    out = art.convert("RGBA")
+    out.putalpha(edge_ramp(*art.size, max(2, int(round(DEV_RAMP * s)))))
+    return out, (char_x0 - box[0]) * s
 
 
 def build_svg(copy: dict) -> str:
@@ -223,20 +263,19 @@ def flow_layer(copy: dict):
 
 def compose(copy, name, tmp, size=None):
     base = Image.new("RGB", (W, H), (253, 253, 253)).convert("RGBA")
-    art = art_layer(ART_SIDE).convert("RGBA")
-    left, top = int(ART_CX - ART_SIDE / 2), int(ART_CY - ART_SIDE / 2)
-    base.alpha_composite(art, (left, top)) if left >= 0 and top >= 0 else base.paste(art, (left, top))
+    layer, char_left = device_layer()
+    left, top = DEV_RIGHT - layer.size[0], DEV_BOTTOM - layer.size[1]
+    base.alpha_composite(layer, (left, top))
     for im, xy in flow_layer(copy):
         base.alpha_composite(im, xy)
     text_layer = render_text_layer(build_svg(copy), tmp)
     base.alpha_composite(Image.open(text_layer).convert("RGBA"))
     final = base.convert("RGB")
 
-    s = ART_SIDE / 1254.0
-    head_left = left + 277 * s
+    char_x = left + char_left          # 角色最左列在画布上的 x
     over = text_right_edge(text_layer)
-    gap = head_left - over
-    print(f"  文字右缘 {over} / 头部左缘 {head_left:.0f} / 间距 {gap:.0f}px"
+    gap = char_x - over
+    print(f"  文字右缘 {over} / 角色左缘 {char_x:.0f} / 间距 {gap:.0f}px"
           + ("   ⚠ 太挤" if gap < 40 else ""))
 
     if size and size != (W, H):
