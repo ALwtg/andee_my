@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`9` / `"0.5.0"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`10` / `"0.5.1"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -27,6 +27,49 @@ anything not built at a tag, identify it by the short commit hash it was built f
 hash into `versionName` at build time would close this hole; it is not implemented yet.)
 
 ## [Unreleased]
+
+## [0.5.1] - 2026-10-19
+
+**Two ways the assistant could quietly lose the ability to keep working, both fixed.** One, its
+nightly review died with the process and never came back; the other, Xiaomi's power policy was
+reaping it in the background with no way for the user to see why. The version number is
+**a deliberate departure from the policy below**: both commits are `feat`, and the policy would have
+made this `0.6.0`, but neither adds a capability — they restore two things that were already supposed
+to happen, and a user who upgrades is not getting a new feature so much as getting the existing ones
+to survive a night. Nothing in the wire contract or an existing configuration breaks.
+
+### Fixed
+
+- **The quiet-hour review survives the process being killed, and is re-armed after a reboot.** The
+  sweep is an `AlarmManager` alarm, so it outlives the process — but when it landed there was often
+  no service left to run it, and a reboot did not re-arm it at all. Worse, the review reads the
+  conversation from memory, which dies with the process, so even a recovered sweep found **"0 messages
+  to review"** and did nothing. Two halves: `Notebook.last_sweep_at`, written only by the sweep itself,
+  is the one fact that separates *"already reviewed"* from *"died before it could"*; and
+  `rebuildHistoryFromScrollback` rebuilds the dialogue from the persisted scrollback — user and
+  assistant rows, each re-stamped with its own clock — when the in-memory history is empty. On start
+  the service catches up: it waits out a quiet window that has not finished, skips a stretch that was
+  already swept, and otherwise runs the review it missed. Measured on a device: a sweep after a restart
+  listed the four prior turns and completed.
+- **A Xiaomi-family device now has a self-check row for auto-start, which is what actually keeps it
+  alive there.** MIUI reaps background processes on a timer (measured at one kill every 40–60 minutes
+  on the maintainer's tablet), and without the auto-start grant `START_STICKY` cannot bring the process
+  back — the symptom a user reports is *"it closes by itself after a while"*, with nothing anywhere
+  saying why. The new row reads the vendor AppOps op (`OP_AUTO_START = 10008`, by reflection, since it
+  has a number but no name this app can spell) and offers a one-tap door to MIUI's auto-start manager,
+  probing the known components in order because MIUI has renamed that activity across versions. It is
+  **`WARN`, not `FAIL`**: with auto-start off the app is fully alive right now — it is the *future*
+  that degrades, which is exactly what `WARN` is for. The row **only exists on Xiaomi, Redmi and POCO**
+  (matched on brand words, since the MIUI build property would need a hidden API and the words are
+  free), because on every other ROM it would be a switch that does nothing. `Fix.Screen` gained an
+  optional `component` for the vendor screen that has no action to name.
+
+### Changed
+
+- **`CLAUDE.md`'s self-check section no longer claims a count.** It said "Seven things in the design
+  are load-bearing" and had listed fifteen for some releases; the sentence now says "a number of"
+  instead, on the same reasoning the versioning policy above records — a count written into prose goes
+  stale, and this one already had.
 
 ## [0.5.0] - 2026-10-16
 
