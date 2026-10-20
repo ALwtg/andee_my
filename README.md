@@ -31,6 +31,10 @@
   <a href="./README.zh-CN.md"><img alt="Chinese" src="https://img.shields.io/badge/Chinese-d9d9d9"></a>  
 </p>
 
+<p align="center">
+  <a href="https://trendshift.io/repositories/304932?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-304932" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/304932/daily?language=Kotlin" alt="kuafuai%2Fandee | Trendshift" width="250" height="55"/></a>
+</p>
+
 <h1 align="center">Andee</h1>
 
 <h3 align="center">It becomes the soul of the device.</h3>
