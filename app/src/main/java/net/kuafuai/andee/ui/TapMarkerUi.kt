@@ -385,13 +385,18 @@ class TapMarkerUi(private val context: Context) {
             val pad = 10f * d
             val w = lw + gap + nw
             val h = 22f * d
-            val top = cy + CHIP_TOP_DP * d
+            // ABOVE the ring, not below it. Below is where the next target is:
+            // in a list, the row under the one just tapped, and on a 3.1x screen
+            // the chip hung 103-172 px down — right over it. Above is the row
+            // already dealt with, and the shot is taken immediately after the
+            // tap, so nothing there is still being aimed at.
+            val top = cy - CHIP_TOP_DP * d - h
 
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 1.5f * d
             paint.color = ACCENT
             paint.alpha = (110 * life).toInt()
-            canvas.drawLine(cx, cy + (RING_DP + 4f) * d, cx, top, paint)
+            canvas.drawLine(cx, cy - (RING_DP + 4f) * d, cx, top + h, paint)
 
             chip.set(cx - w / 2 - pad, top, cx + w / 2 + pad, top + h)
             val rad = h / 2f
@@ -425,7 +430,23 @@ class TapMarkerUi(private val context: Context) {
         }
 
         companion object {
-            private val ACCENT = Color.parseColor("#2DE2FF")
+            /**
+             * The device's own ink, and it has to stay one colour everywhere it
+             * appears: this ring, the brackets, the pulse and the coordinate
+             * chip, plus [net.kuafuai.andee.screen.ScreenController]'s zoom
+             * crosshair.
+             *
+             * Magenta, because every other obvious colour is already taken by
+             * something the brain must NOT confuse it with. It was cyan until
+             * 2026-10-20 — and the aim-grid text tells the brain that "nothing
+             * round and blue in this picture is you", which is exactly what the
+             * ring was: the one piece of evidence about where the tap landed,
+             * described as something to ignore. Red is every unread badge in
+             * every Chinese app (a red crosshair beside WeChat's red dot got
+             * read as "just a hint, not something I can open"). Green is
+             * WeChat's accent. Magenta is none of them.
+             */
+            private val ACCENT = Color.parseColor("#E000FF")
             private val CHIP_BG = Color.parseColor("#0B1220")
             private val CHIP_EDGE = Color.WHITE
 

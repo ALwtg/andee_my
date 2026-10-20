@@ -1190,7 +1190,8 @@ class CommandDispatcher(
                 val y2 = params.getInt("y2")
                 val dur = params.optLong("duration_ms", 300L)
                 val fling = params.optBoolean("fling", false)
-                passthroughForGesture { requireScreen().swipeNorm(x1, y1, x2, y2, dur, fling) }
+                val screens = params.optInt("screens", 0).takeIf { it > 0 }
+                passthroughForGesture { requireScreen().swipeNorm(x1, y1, x2, y2, dur, fling, screens) }
             }
 
             "screen.long_press" -> {

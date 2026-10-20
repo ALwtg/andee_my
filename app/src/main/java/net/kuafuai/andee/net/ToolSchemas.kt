@@ -201,9 +201,11 @@ object ToolSchemas {
         1. **By grid cell + part** (preferred whenever you are looking at an
            image): {"cell": "D7", "part": "bottom-right"}. The cell is one of
            the aim grid drawn on the screenshot you were shown, columns A-H
-           left to right, rows 1-12 top to bottom, and each label is printed at
-           the CENTRE of its cell. Pick the cell the target sits IN — not the
-           label nearest to it. Then `part` says which third of that cell the
+           left to right, rows 1-12 top to bottom. The letters are printed
+           along the TOP edge and the numbers down the LEFT edge, like a map's
+           rulers — nothing is printed inside a cell, so the target is never
+           covered. Follow the target's column up and its row left. Then `part`
+           says which third of that cell the
            target is in, across and down: top-left, top, top-right, left,
            center, right, bottom-left, bottom, bottom-right (omit it for the
            centre). The device converts both to pixels itself; there is no
@@ -212,12 +214,17 @@ object ToolSchemas {
            If the target straddles two cells, pick the one holding most of it.
            For anything not clearly bigger than a cell (an icon, a ✕ close
            button, a small chip), CHECK FIRST: zoom_screen_region with the
-           same cell and part shows a red crosshair exactly where this tap
+           same cell and part shows a magenta crosshair exactly where this tap
            would land. On target → send this tap with the same arguments.
            Off target → aim off that magnified image: its labels are
            LOWERCASE and you must say so — {"cell": "d7", "part": "left",
            "on": "zoom"}. A lowercase label sent as if it were a full-screen
            cell will be about 120 units off.
+           **On an app that hides its tree (get_screen_element came back empty
+           / withheld — WeChat often does), zooming first is not optional**:
+           a tap or long-press is refused unless its point lies inside a zoom
+           taken after your last gesture. So the rhythm there is always
+           zoom → tap, one zoom per screen.
 
         2. **By coordinate** {"x": …, "y": …} — RELATIVE 0-1000 integers
            ((0,0) top-left, (1000,1000) bottom-right; the device converts to real
@@ -239,7 +246,7 @@ object ToolSchemas {
             required = emptyList(),
             props = mapOf(
                 "cell" to prop("string", "Grid cell of the image you aimed from, e.g. \"D7\" on a full screenshot or \"d7\" on a magnified one."),
-                "part" to propEnum("Which third of that cell the target is in. Omit for the centre.", ScreenController.PARTS),
+                "part" to propEnum("Which part of that cell the target is in — one of nine thirds or, vertically, upper/lower between top/bottom. Omit for the centre.", ScreenController.PARTS),
                 "x" to prop("integer", "X, 0 (left edge) to 1000 (right edge) — of the screen, or of the zoom image when on=\"zoom\"."),
                 "y" to prop("integer", "Y, 0 (top edge) to 1000 (bottom edge) — of the screen, or of the zoom image when on=\"zoom\"."),
                 "on" to propEnum("Which image x/y (or a lowercase cell) were read off. \"screen\" is the default.", listOf("screen", "zoom")),
@@ -261,7 +268,7 @@ object ToolSchemas {
             required = emptyList(),
             props = mapOf(
                 "cell" to prop("string", "Grid cell of the image you aimed from, e.g. \"D7\" on a full screenshot or \"d7\" on a magnified one."),
-                "part" to propEnum("Which third of that cell the target is in. Omit for the centre.", ScreenController.PARTS),
+                "part" to propEnum("Which part of that cell the target is in — one of nine thirds or, vertically, upper/lower between top/bottom. Omit for the centre.", ScreenController.PARTS),
                 "x" to prop("integer", "X, 0 (left edge) to 1000 (right edge) — of the screen, or of the zoom image when on=\"zoom\"."),
                 "y" to prop("integer", "Y, 0 (top edge) to 1000 (bottom edge) — of the screen, or of the zoom image when on=\"zoom\"."),
                 "on" to propEnum("Which image x/y (or a lowercase cell) were read off. \"screen\" is the default.", listOf("screen", "zoom")),
@@ -271,7 +278,7 @@ object ToolSchemas {
         tool(
             name = "swipe_by_coordinates",
             method = "screen.swipe",
-            description = "Swipe from one point to another: scroll lists, page carousels, drag things. To scroll a list DOWN (see more content below), swipe from a point near the BOTTOM UP to a point near the TOP — fingers move opposite to content. All coordinates are RELATIVE 0-1000 like tap_by_coordinates.\n\nBy default the finger stops at the end point before lifting, so the list moves about as far as the finger did and then stays put — no momentum. That makes the distance the control: to bring something 300 units further up into view, swipe 300 units. Set fling=true only to travel far (jump many screens through a long feed); a fling coasts on unpredictably, so take a fresh look afterwards rather than assuming where it stopped.",
+            description = "Swipe from one point to another: scroll lists, page carousels, drag things. To scroll a list DOWN (see more content below), swipe from a point near the BOTTOM UP to a point near the TOP — fingers move opposite to content. All coordinates are RELATIVE 0-1000 like tap_by_coordinates.\n\nBy default the finger stops at the end point before lifting, so the list moves about as far as the finger did and then stays put — no momentum. That makes the distance the control: to bring something 300 units further up into view, swipe 300 units.\n\n**To travel several screens, use `screens` — not `fling`.** {\"x1\":500,\"y1\":800,\"x2\":500,\"y2\":200,\"screens\":3} repeats one full-travel swipe three times, stops early if the list runs out, and answers with `screens_moved` — a NUMBER you can count with. That number is what lets you know where you are and how to come back; three screens down stays three screens down. `fling` gives you no such number: the system decides how far it coasts, so all you learn is \"something moved\". It also refuses the 7th same-direction fling in a row, because chaining them is how a long list becomes a maze (measured: 21 flings hunting one old post, never once the right place). Use fling only where a gesture has to be inertial — a carousel, a canvas — and look at the return before flinging again.",
             required = listOf("x1", "y1", "x2", "y2"),
             props = mapOf(
                 "x1" to prop("integer", "Start X, 0 (left) to 1000 (right)."),
@@ -279,7 +286,8 @@ object ToolSchemas {
                 "x2" to prop("integer", "End X, 0 (left) to 1000 (right)."),
                 "y2" to prop("integer", "End Y, 0 (top) to 1000 (bottom)."),
                 "duration_ms" to prop("integer", "How long the finger takes to travel, in ms. Default 300.", default = 300),
-                "fling" to prop("boolean", "Lift while still moving, so the list keeps coasting. Default false.", default = false),
+                "screens" to prop("integer", "How many full finger-travels to repeat in ONE call (1..10). Stops early at the end of the list and reports screens_moved. Use this instead of fling whenever you want to go further than one screen."),
+                "fling" to prop("boolean", "Lift while still moving so the list coasts. Distance is the system's to decide and is not reported — prefer `screens`. Default false.", default = false),
             ),
         ),
         tool(
@@ -354,7 +362,7 @@ object ToolSchemas {
             required = emptyList(),
             props = mapOf(
                 "cell" to prop("string", "Grid cell of the full screenshot you are about to tap, e.g. \"D7\". Replaces x/y/w/h."),
-                "part" to propEnum("Which third of that cell — the same part you would tap. Omit for the centre.", ScreenController.PARTS),
+                "part" to propEnum("Which part of that cell — the same part you would tap. Omit for the centre.", ScreenController.PARTS),
                 "x" to prop("integer", "Region center X, 0 (left) to 1000 (right) of the whole screen — not image pixels. Use instead of cell."),
                 "y" to prop("integer", "Region center Y, 0 (top) to 1000 (bottom) of the whole screen — not image pixels. Use instead of cell."),
                 "w" to prop("integer", "Region width in screen 0-1000 units, e.g. 200."),
@@ -369,14 +377,15 @@ object ToolSchemas {
         (downscaled to 1280 on the long side — proportions preserved).
 
         Every screenshot taken with accessibility on arrives with an 8x12 AIM
-        GRID drawn on it, labelled A1 (top-left) to H12 (bottom-right), each
-        label printed at the CENTRE of its cell. This is the device's way of
+        GRID drawn on it, labelled A1 (top-left) to H12 (bottom-right): letters
+        along the top edge, numbers down the left edge, nothing inside a cell.
+        This is the device's way of
         taking the arithmetic out of aiming: read the cell the target sits in
         and which third of it, and pass them straight to tap_by_coordinates as
         {"cell": "D7", "part": "bottom-right"} — no pixel measuring, no
         rescaling, nothing to get wrong. For anything not clearly bigger than a
         cell, first pass the same cell and part to zoom_screen_region: it shows
-        a red crosshair where the tap would land, so you can confirm or re-aim
+        a magenta crosshair where the tap would land, so you can confirm or re-aim
         off the magnified image (its grid is lowercase, and a lowercase label
         means "this was read off the zoom").
 
@@ -417,7 +426,7 @@ object ToolSchemas {
         step. After tapping from a screenshot, verify the outcome (fresh
         screenshot or get_screen_element) before assuming it worked.
 
-        A cyan ring with a small caption like "tap 500,500" or "hold 240,880"
+        A magenta ring with a small caption like "tap 500,500" or "hold 240,880"
         is NOT part of the app — it is where YOUR last tap / long-press
         actually landed, drawn by the device and kept on screen for a few
         seconds. Likewise the grid lines and their A1..H12 labels. Read the

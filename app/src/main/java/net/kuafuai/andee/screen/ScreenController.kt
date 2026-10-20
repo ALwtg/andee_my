@@ -133,6 +133,7 @@ class ScreenController(
         requireNorm(nx, "x"); requireNorm(ny, "y")
         val w = screenW; val h = screenH
         val px = nx.toPixel(w); val py = ny.toPixel(h)
+        guardPopup(px, py, nx, ny)
         // Logged at the four norm/eid entry points rather than in [tap], even
         // though TapMarkerUi is hooked there and treats every path alike. It
         // can afford to — a ring is a ring. Here the distinction is the whole
@@ -149,11 +150,123 @@ class ScreenController(
         requireNorm(nx, "x"); requireNorm(ny, "y")
         val w = screenW; val h = screenH
         val px = nx.toPixel(w); val py = ny.toPixel(h)
+        guardPopup(px, py, nx, ny)
         guardRepetition(px, py) {
             GroundingLog.noteTapCoord(nx, ny, px, py, w, h, hold = true, refused = true, pkg = lastPkg())
         }
         GroundingLog.noteTapCoord(nx, ny, px, py, w, h, hold = true, refused = false, pkg = lastPkg())
         return longPress(px, py, durationMs).put("norm", "$nx,$ny")
+    }
+
+    // ---- the popup guard ---------------------------------------------------
+    //
+    // A popup menu is the one place on a blind screen where a small aim error
+    // is not merely a wasted tap. Its items sit a few dozen pixels apart and
+    // one of them is routinely irreversible — 删除, 撤回, 清空, 不再关注 — so
+    // "aim again" is not a recovery, it is the damage.
+    //
+    // Measured 2026-10-20, WeChat Moments, tree withheld: reaching for the
+    // 「··」 menu the brain landed on its own comment first, got the
+    // 复制/删除 pair, aimed at 评论, and hit 删除. It reported deleting a
+    // comment it had written the day before. (The comment survived — the tap
+    // did something else — but nothing in the software had prevented it.)
+    //
+    // No OCR is involved and none is needed. A menu is a WINDOW, and window
+    // bounds are readable even when every node inside is withheld: a small,
+    // non-active, application-type window covering the point is a popup. That
+    // is the whole test. What it buys is the requirement, not the judgement:
+    // the point must have been inside a zoom taken in the last [ZOOM_CONFIRM_MS],
+    // because a magnified look is the only way this brain can tell 评论 from
+    // 删除 before it commits.
+    //
+    // Deliberately not limited to blind trees. An app that gives us e-numbers
+    // is one where the brain taps by eid and never reaches this function, so
+    // the only coordinate taps that arrive here are ones where the aim is its
+    // own — which is exactly the case that needs a second look.
+
+    /** A small floating window of the app, under the point, or null. */
+    private fun popupAt(px: Int, py: Int): Rect? = popups().firstOrNull { it.contains(px, py) }
+
+    /** Every small floating window of another app on screen — menus, bubbles, sheets. */
+    private fun popups(): List<Rect> {
+        val windows = runCatching { service.windows }.getOrNull() ?: return emptyList()
+        val screenArea = screenW.toLong() * screenH
+        val out = mutableListOf<Rect>()
+        val r = Rect()
+        for (win in windows) {
+            val type = runCatching { win.type }.getOrNull() ?: continue
+            // IMEs, status/navigation bars and our own overlay are not menus.
+            if (type != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION) continue
+            val root = runCatching { rootOf(win) }.getOrNull()
+            val pkg = runCatching { root?.packageName?.toString() }.getOrNull().orEmpty()
+            runCatching { root?.recycle() }
+            if (pkg == service.packageName) continue
+            // NOT filtered on isActive: a popup takes focus, so "the active
+            // window" is exactly what a menu is. Measured 2026-10-20 — the
+            // first cut skipped active windows and the guard never fired on
+            // WeChat's chat-list long-press menu, which is focused. Size is
+            // what separates a menu from the app: a main window covers the
+            // screen, a popup does not.
+            if (!runCatching { win.getBoundsInScreen(r); true }.getOrDefault(false)) continue
+            if (r.width() <= 0 || r.height() <= 0) continue
+            val area = r.width().toLong() * r.height()
+            // A menu is a fragment of the screen, not most of it.
+            if (area > screenArea * 45 / 100) continue
+            if (r.height() > screenH * 6 / 10) continue
+            out += Rect(r)
+        }
+        return out
+    }
+
+    /**
+     * Say whether a menu is open, so the brain does not have to judge it from
+     * pixels. Measured 2026-10-20 on WeChat Moments: the 「··」 menu is its own
+     * window even with the tree withheld, and the brain, unable to tell open
+     * from closed off a picture, reopened the same menu six times. The window
+     * is NOT focused, which is also why `back` leaves the page instead of
+     * closing it — said here because this is where the brain decides.
+     */
+    private fun putPopups(out: JSONObject) {
+        val list = runCatching { popups() }.getOrDefault(emptyList())
+        out.put("popup_open", list.isNotEmpty())
+        if (list.isEmpty()) return
+        val arr = org.json.JSONArray()
+        for (p in list) {
+            arr.put(
+                org.json.JSONArray()
+                    .put(p.left * NORM_MAX / screenW).put(p.top * NORM_MAX / screenH)
+                    .put(p.right * NORM_MAX / screenW).put(p.bottom * NORM_MAX / screenH)
+            )
+        }
+        out.put("popups", arr).put(
+            "popup_note",
+            "A popup (menu / bubble) is open, at popups = [left, top, right, bottom] in 0-1000. " +
+                "To close it, tap the button that opened it again; `back` usually goes to the " +
+                "page underneath and leaves it."
+        )
+    }
+
+    /** Was (nx,ny) covered by a zoom taken recently enough to still be true? */
+    private fun zoomConfirms(nx: Int, ny: Int): Boolean {
+        val z = zoomRegion ?: return false
+        if (SystemClock.uptimeMillis() - zoomAtMs > ZOOM_CONFIRM_MS) return false
+        return nx >= z[0] && nx <= z[2] && ny >= z[1] && ny <= z[3]
+    }
+
+    private fun guardPopup(px: Int, py: Int, nx: Int, ny: Int) {
+        val box = popupAt(px, py) ?: return
+        if (zoomConfirms(nx, ny)) return
+        val where = "${box.left},${box.top} to ${box.right},${box.bottom}"
+        throw IllegalStateException(
+            "Refused: that point is inside a popup ($where px). Nothing in it is readable " +
+                "through accessibility, its items sit a few dozen pixels apart, and one of " +
+                "them is usually irreversible — 删除 / 撤回 / 清空 / 不再关注. A tap aimed at " +
+                "评论 can land on 删除, and that cannot be undone, so this one is NOT fired " +
+                "blind. Look first: call zoom_screen_region on this point, read the items in " +
+                "the magnified image, then send the same tap with on=\"zoom\" (or a lowercase " +
+                "cell). A zoom that covers this point, taken within " +
+                "${ZOOM_CONFIRM_MS / 1000} s, is what unlocks it."
+        )
     }
 
     // ---- the aim grid, and the two ways to name a point --------------------
@@ -205,6 +318,10 @@ class ScreenController(
     @Volatile
     private var typedBlindAt = 0L
 
+    /** Last injected gesture or global action — a zoom older than this shows a screen that is gone. */
+    @Volatile
+    private var screenMovedAtMs = 0L
+
     private class Aim(val nx: Int, val ny: Int, val label: String)
 
     private fun cellLabel(col: Int, row: Int): String = "${('A' + col)}${row + 1}"
@@ -214,17 +331,17 @@ class ScreenController(
      * image it was read off. `fx`/`fy` are 0..2; (1, 1) is the cell's centre.
      */
     private fun cellPoint(col: Int, row: Int, fx: Int, fy: Int): IntArray = intArrayOf(
-        ((col * 3 + fx) * 2 + 1) * NORM_MAX / (2 * GRID_COLS * 3),
-        ((row * 3 + fy) * 2 + 1) * NORM_MAX / (2 * GRID_ROWS * 3),
+        ((col * PART_COLS + fx) * 2 + 1) * NORM_MAX / (2 * GRID_COLS * PART_COLS),
+        ((row * PART_ROWS + fy) * 2 + 1) * NORM_MAX / (2 * GRID_ROWS * PART_ROWS),
     )
 
-    /** `part` → which third of the cell, as (fx, fy); null means the centre. */
+    /** `part` → which subdivision of the cell, as (fx, fy); null means the centre. */
     private fun parsePart(part: String?): IntArray {
-        if (part.isNullOrBlank()) return intArrayOf(1, 1)
+        if (part.isNullOrBlank()) return intArrayOf(1, MID_ROW)
         val p = part.trim().lowercase().replace('_', '-').replace(' ', '-')
         return PART_THIRDS[p] ?: throw IllegalArgumentException(
             "unknown part=\"$part\" — expected one of ${PARTS.joinToString()} " +
-                "(which third of the cell the target is in; omit it for the centre)"
+                "(which part of the cell the target is in; omit it for the centre)"
         )
     }
 
@@ -315,10 +432,41 @@ class ScreenController(
         return Aim(s[0], s[1], "zoom $x,$y")
     }
 
+    /**
+     * On an app that withholds its tree, a coordinate tap must land inside a
+     * zoom taken since the screen last moved.
+     *
+     * Measured 2026-10-20 on WeChat 8.0.79 (HONOR AMM-AN00, tree withheld):
+     * taps aimed off a zoom changed the screen 33 times in 41; taps aimed off
+     * the full screenshot 124 in 211, and the misses were the expensive kind —
+     * a profile page, a 关注 instead of 谢谢, a 删除 instead of 评论. On a phone
+     * the shot is downscaled to ~0.48× and a 「··」 is about 30 px in it, which
+     * is below what this brain can place a point on. Only the region's
+     * geometry is checked, so a zoom aimed at one cell then a tap named off
+     * the full screen still passes if it falls inside the magnified area.
+     */
+    private fun requireZoomedOnBlind(a: Aim) {
+        val z = zoomRegion
+        val fresh = z != null && zoomAtMs > screenMovedAtMs &&
+            SystemClock.uptimeMillis() - zoomAtMs <= ZOOM_CONFIRM_MS
+        if (fresh && a.nx in z!![0]..z[2] && a.ny in z[1]..z[3]) return
+        throw IllegalStateException(
+            "refused: this app hides its contents from accessibility, so this tap would be " +
+                "aimed by eye off a downscaled screenshot — where small buttons are a few dozen " +
+                "pixels and a near miss opens a profile, follows someone or deletes something. " +
+                (if (z != null && zoomAtMs <= screenMovedAtMs) "Your last zoom predates the last gesture, so it no longer shows this screen. " else "") +
+                "NEXT: zoom_screen_region on the target (same cell + part), check the crosshair, " +
+                "then tap with on=\"zoom\" from THAT image. One zoom per screen: any tap, swipe " +
+                "or back makes the next tap need a fresh one."
+        )
+    }
+
     fun tapAim(on: String?, x: Int?, y: Int?, cell: String?, part: String?): JSONObject {
         val a = resolveAim(on, x, y, cell, part)
+        val blind = treeBlind()
+        if (blind) requireZoomedOnBlind(a)
         requireAimedSend(on, cell)
-        val s = if (treeBlind()) snapToShape(a.nx, a.ny) else null
+        val s = if (blind) snapToShape(a.nx, a.ny) else null
         val nx = s?.nx ?: a.nx
         val ny = s?.ny ?: a.ny
         val r = tapNorm(nx, ny, s?.signature).put("aimed_at", a.label)
@@ -528,6 +676,7 @@ class ScreenController(
         on: String?, x: Int?, y: Int?, cell: String?, part: String?, durationMs: Long,
     ): JSONObject {
         val a = resolveAim(on, x, y, cell, part)
+        if (treeBlind()) requireZoomedOnBlind(a)
         return longPressNorm(a.nx, a.ny, durationMs).put("aimed_at", a.label)
     }
 
@@ -568,9 +717,9 @@ class ScreenController(
      * to sit on: a white document, a night-mode chat, a photo. One colour
      * alone disappears on half the things this device looks at, and a grid you
      * cannot see is worse than no grid, because the model will still aim by it.
-     * The **labels are not faint**: they are the thing being read, so they get
-     * a dark halo of their own and enough alpha to survive a white page. They
-     * sit at the cell's centre, which is also the `part` = center point.
+     * The **labels are not faint**: they are the thing being read, so they sit
+     * on dark pills. They are rulers — letters along the top edge, numbers down
+     * the left — and never inside a cell, where they covered the target.
      *
      * Same grid, same size, on every image — and on a zoom it is *lowercase*,
      * which is the whole disambiguation: a label read off a magnified region
@@ -598,19 +747,25 @@ class ScreenController(
                 color = Color.WHITE
                 strokeWidth = r * 0.30f
             }
-            val red = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                color = Color.rgb(255, 30, 60)
+                // Magenta, not red. WeChat (and every Chinese super-app) marks
+                // an unread message with a small red dot, and a red crosshair
+                // landing next to one is indistinguishable from it — measured
+                // 2026-10-20: the brain read the mark as "just a hint badge,
+                // not something I can open" and went looking for another
+                // entrance. Nothing in these apps is magenta.
+                color = CROSSHAIR
                 strokeWidth = r * 0.14f
             }
-            for (p in listOf(halo, red)) {
+            for (p in listOf(halo, ink)) {
                 canvas.drawCircle(x, y, r, p)
                 canvas.drawLine(x - r * 1.8f, y, x - r * 0.4f, y, p)
                 canvas.drawLine(x + r * 0.4f, y, x + r * 1.8f, y, p)
                 canvas.drawLine(x, y - r * 1.8f, x, y - r * 0.4f, p)
                 canvas.drawLine(x, y + r * 0.4f, x, y + r * 1.8f, p)
             }
-            canvas.drawCircle(x, y, r * 0.08f, red.apply { style = Paint.Style.FILL })
+            canvas.drawCircle(x, y, r * 0.08f, ink.apply { style = Paint.Style.FILL })
         }
     }
 
@@ -653,43 +808,113 @@ class ScreenController(
                 typeface = Typeface.DEFAULT_BOLD
                 textAlign = Paint.Align.CENTER
             }
+            val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                color = Color.BLACK
+                alpha = 150
+            }
+            val pill = android.graphics.RectF()
+            fun mark(label: String, cx: Float, baseline: Float) {
+                val half = text.measureText(label) / 2f
+                pill.set(cx - half - textSize * 0.25f, baseline - textSize * 1.02f, cx + half + textSize * 0.25f, baseline + textSize * 0.30f)
+                canvas.drawRoundRect(pill, textSize * 0.3f, textSize * 0.3f, pillPaint)
+                text.style = Paint.Style.FILL
+                text.color = Color.WHITE
+                text.alpha = 235
+                canvas.drawText(label, cx, baseline, text)
+            }
+            // Rulers on the top and left edges only, never inside a cell.
+            // A label at a cell's centre sat on whatever that cell held, and
+            // on WeChat Moments the 「··」 button is exactly at column H's
+            // centre — measured 2026-10-20, the H7 label covered it entirely,
+            // so the one target of the task was invisible in the image the
+            // brain aimed from. Not the right or bottom edge either: that is
+            // where 「··」 and the send button live.
+            val top = textSize * 1.25f
+            for (col in 0 until GRID_COLS) {
+                val l = ('A' + col).toString()
+                mark(if (zoom) l.lowercase() else l, (col + 0.5f) * cw, top)
+            }
             for (row in 0 until GRID_ROWS) {
-                for (col in 0 until GRID_COLS) {
-                    val raw = cellLabel(col, row)
-                    val label = if (zoom) raw.lowercase() else raw
-                    // Dead centre of the cell. In a corner the label sat nearer
-                    // to three neighbours than to most of its own cell, and a
-                    // model reads "the label closest to the target".
-                    val tx = (col + 0.5f) * cw
-                    val ty = (row + 0.5f) * ch + textSize * 0.35f
-                    text.style = Paint.Style.STROKE
-                    text.strokeWidth = textSize * 0.18f
-                    text.color = Color.BLACK
-                    text.alpha = 165
-                    canvas.drawText(label, tx, ty, text)
-                    text.style = Paint.Style.FILL
-                    text.color = Color.WHITE
-                    text.alpha = 175
-                    canvas.drawText(label, tx, ty, text)
-                }
+                val l = (row + 1).toString()
+                val half = text.measureText(l) / 2f
+                mark(l, half + textSize * 0.35f, (row + 0.5f) * ch + textSize * 0.35f)
             }
         }.onFailure { Log.w("Body", "aim grid: could not draw: ${it.message}") }
         return out
     }
 
-    fun swipeNorm(nx1: Int, ny1: Int, nx2: Int, ny2: Int, durationMs: Long, fling: Boolean): JSONObject {
+    fun swipeNorm(
+        nx1: Int, ny1: Int, nx2: Int, ny2: Int,
+        durationMs: Long, fling: Boolean, screens: Int? = null,
+    ): JSONObject {
         requireNorm(nx1, "x1"); requireNorm(ny1, "y1")
         requireNorm(nx2, "x2"); requireNorm(ny2, "y2")
         // Not a sample, but it moves everything on screen: without it the
         // offline pairing would read a post-scroll retry as a correction of a
         // pre-scroll miss, at a point that no longer means the same thing.
         GroundingLog.noteSwipe(nx1, ny1, nx2, ny2, durationMs, actor = "brain")
-        return swipe(
-            nx1.toPixel(screenW), ny1.toPixel(screenH),
-            nx2.toPixel(screenW), ny2.toPixel(screenH),
-            durationMs,
-            fling,
-        )
+        val px1 = nx1.toPixel(screenW); val py1 = ny1.toPixel(screenH)
+        val px2 = nx2.toPixel(screenW); val py2 = ny2.toPixel(screenH)
+        if (screens != null) return swipeScreens(px1, py1, px2, py2, durationMs, screens)
+        return swipe(px1, py1, px2, py2, durationMs, fling)
+    }
+
+    /**
+     * N deterministic swipes of one finger-travel each, stopping early when the
+     * list stops moving.
+     *
+     * This exists because a fling is the wrong tool for an agent and the right
+     * tool for a thumb. A fling's landing distance is decided by the system's
+     * velocity integration, so the one thing the brain needs afterwards — "how
+     * far did I move?" — is exactly what it cannot have. Measured 2026-10-20:
+     * 21 flings hunting one old post, no position ever established.
+     *
+     * One full-travel swipe, by contrast, moves the list about as far as the
+     * finger did, every time. N of them move it N times that far, which makes
+     * distance something the brain can COUNT: "three screens down from the top"
+     * is a place, and a place can be returned to. The early stop is the second
+     * half of it — a list that has nowhere left to go says so instead of
+     * swallowing the gesture.
+     */
+    private fun swipeScreens(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long, screens: Int): JSONObject {
+        val n = screens.coerceIn(1, MAX_SCREENS)
+        var moved = 0
+        var stoppedAtEnd = false
+        for (i in 0 until n) {
+            val before = screenFingerprint()
+            val beforePx = if (before.optBoolean("blind")) pixelSignature() else null
+            swipe(x1, y1, x2, y2, durationMs, fling = false)
+            try { Thread.sleep(SCREEN_SETTLE_MS) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+            val after = screenFingerprint()
+            var changed = before.optString("pkg") != after.optString("pkg") ||
+                before.optInt("sig") != after.optInt("sig")
+            if (!changed && beforePx != null) {
+                pixelSignature()?.let { if (pixelsMoved(beforePx, it)) changed = true }
+            }
+            if (!changed) { stoppedAtEnd = true; break }
+            moved++
+        }
+        val out = JSONObject()
+            .put("from", "$x1,$y1").put("to", "$x2,$y2")
+            .put("duration_ms", durationMs).put("fling", false)
+            .put("screens_moved", moved)
+            .put("requested", n)
+        if (stoppedAtEnd) {
+            out.put(
+                "list_end",
+                "true — the screen stopped moving after $moved of $n swipes, so this list is at " +
+                    "its end in that direction. More swipes the same way will do nothing.",
+            )
+        } else {
+            out.put(
+                "position_hint",
+                "You moved $moved screen${if (moved == 1) "" else "s"} at one full finger-travel " +
+                    "each. Count from where you started: that is how you get back, and how you " +
+                    "know you have passed something.",
+            )
+        }
+        return out
     }
 
     // ---- stuck-loop guard (per-location counting) --------------------------
@@ -709,6 +934,11 @@ class ScreenController(
     private val loopLock = Any()
     private val loopSpots = HashMap<String, Int>()   // "x,y" bucket -> count
     private var lastLoopSweep = 0L
+
+    /** Consecutive same-direction flings — see [guardFlingStreak]. */
+    private var flingStreak = 0
+    private var flingStreakAt = 0L
+    private var flingStreakDown = false
 
     /** Set by [dumpUiTree]; read by [lastPkg]. Written and read off-thread. */
     @Volatile private var lastDumpPkg: String? = null
@@ -945,6 +1175,7 @@ class ScreenController(
         marker?.mark(x, y, net.kuafuai.andee.ui.TapMarkerUi.Kind.TAP)
         result.put("x", x).put("y", y)
         attachEffectSnapshot(result, before, beforePx)
+        putPopups(result)
         return result
     }
 
@@ -963,7 +1194,18 @@ class ScreenController(
      */
     private fun screenFingerprint(): JSONObject {
         val root = runCatching { activeRoot() }.getOrNull()
+            // No active window at all — a full-screen video surface is the
+            // usual cause (WeChat's 视频号 playback page answers null here,
+            // measured 2026-10-20). Marked blind for the same reason a
+            // withheld root is: an empty answer is identical before and after
+            // any gesture, so the tree cannot say whether one landed and the
+            // caller must fall back to [pixelSignature]. Without this flag the
+            // fingerprint read as pkg="" / sig=0 / not blind, which skipped
+            // the pixel comparison entirely and left `screen_changed` false
+            // for every tap on that page — 50 of them in one task, each of
+            // which had in fact changed the screen.
             ?: return JSONObject().put("pkg", "").put("sig", 0)
+                .put("blind", true).put("no_root", true)
         return try {
             val f = FingerprintStats()
             val budget = WalkBudget(FINGERPRINT_BUDGET_MS)
@@ -1086,38 +1328,58 @@ class ScreenController(
     }
 
     private fun <T> captureFrame(transform: (Bitmap) -> T): T? {
-        awaitCaptureGap()
-        val latch = CountDownLatch(1)
-        var out: T? = null
-        val executor = Executors.newSingleThreadExecutor()
-        try {
-            service.takeScreenshot(
-                Display.DEFAULT_DISPLAY,
-                executor,
-                object : AccessibilityService.TakeScreenshotCallback {
-                    override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
-                        val hb = screenshot.hardwareBuffer
-                        try {
-                            Bitmap.wrapHardwareBuffer(hb, screenshot.colorSpace)?.let { out = transform(it) }
-                        } catch (t: Throwable) {
-                            Log.w("Body", "captureFrame: ${t.message}")
-                        } finally {
-                            hb.close()
+        // Two attempts, because this call is allowed to fail transiently:
+        // takeScreenshot is rate-limited by the system (roughly one per
+        // [CAPTURE_GAP_MS]) and answers ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT
+        // when it judges the gap too small. [awaitCaptureGap] approximates that
+        // allowance from captures issued here, and the system's own accounting
+        // is stricter than the approximation — so a failure is not a bug, it is
+        // a delay. One retry converts it into one. It mattered: measured
+        // 2026-10-20, the after-frame of a tap was lost this way, which left
+        // `screen_changed` false on a screen that had changed completely — and
+        // the response then told the brain "the screen did NOT react".
+        repeat(2) { attempt ->
+            awaitCaptureGap()
+            var errCode = 0
+            val latch = CountDownLatch(1)
+            var out: T? = null
+            val executor = Executors.newSingleThreadExecutor()
+            try {
+                service.takeScreenshot(
+                    Display.DEFAULT_DISPLAY,
+                    executor,
+                    object : AccessibilityService.TakeScreenshotCallback {
+                        override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                            val hb = screenshot.hardwareBuffer
+                            try {
+                                Bitmap.wrapHardwareBuffer(hb, screenshot.colorSpace)?.let { out = transform(it) }
+                            } catch (t: Throwable) {
+                                errCode = -2
+                                Log.w("Body", "captureFrame: ${t.message}")
+                            } finally {
+                                hb.close()
+                                latch.countDown()
+                            }
+                        }
+
+                        override fun onFailure(errorCode: Int) {
+                            errCode = errorCode
                             latch.countDown()
                         }
-                    }
-
-                    override fun onFailure(errorCode: Int) {
-                        latch.countDown()
-                    }
-                },
-            )
-            latch.await(3, TimeUnit.SECONDS)
-        } finally {
-            lastCaptureAt.set(SystemClock.uptimeMillis())
-            executor.shutdown()
+                    },
+                )
+                if (!latch.await(3, TimeUnit.SECONDS) && errCode == 0) errCode = -3
+            } finally {
+                lastCaptureAt.set(SystemClock.uptimeMillis())
+                executor.shutdown()
+            }
+            if (out != null) return out
+            // Silent until now, which is why a lost after-frame was invisible
+            // in the field: no log, no field in the response, just `false`.
+            Log.w("Body", "captureFrame: no frame, attempt ${attempt + 1}, code $errCode")
+            if (attempt == 0) runCatching { Thread.sleep(CAPTURE_GAP_MS) }
         }
-        return out
+        return null
     }
 
     /**
@@ -1151,18 +1413,52 @@ class ScreenController(
         val after = screenFingerprint()
         var changed = before.optString("pkg") != after.optString("pkg") ||
             before.optInt("sig") != after.optInt("sig")
+        // Was there ever a second opinion? "No change" is an answer only when
+        // something compared the screen; a before-frame whose after-frame never
+        // arrived is not. Measured 2026-10-20: on WeChat 视频号 the after-frame
+        // was silently lost, `changed` stayed false, and the response told the
+        // brain "the screen did NOT react" about a page it had just turned —
+        // the single most expensive lie this tool can tell.
+        var pixelTold = false
         if (!changed && beforePx != null) {
             // Measured 2026-10-08 on a withheld WeChat: every tap that opened a
             // page came back `false`, and the brain re-aimed at a screen that
             // had already moved on — most of what looked like bad aim.
             val afterPx = pixelSignature()
-            if (afterPx != null && pixelsMoved(beforePx, afterPx)) changed = true
-            result.put(
+            if (afterPx != null) {
+                pixelTold = true
+                if (pixelsMoved(beforePx, afterPx)) changed = true
+            }
+        }
+        val blindTree = before.optBoolean("blind") || after.optBoolean("blind")
+        when {
+            !changed && pixelTold -> result.put(
                 "screen_changed_note",
-                "This app hides its contents from accessibility, so screen_changed was judged " +
-                    "from the pixels. A playing video or animation also counts as a change — " +
-                    "confirm from the attached screenshot.",
+                if (before.optBoolean("no_root") || after.optBoolean("no_root")) {
+                    // Same mechanism, different cause: there is no window at
+                    // all on a full-screen video page, not a withheld one.
+                    "This screen hands accessibility no window at all — a full-screen video page " +
+                        "is the usual reason — so screen_changed was judged from the pixels. A " +
+                        "playing video or an animation also counts as a change, so confirm from " +
+                        "the attached screenshot rather than trusting the flag on its own."
+                } else {
+                    "This app hides its contents from accessibility, so screen_changed was judged " +
+                        "from the pixels. A playing video or animation also counts as a change — " +
+                        "confirm from the attached screenshot."
+                },
             )
+
+            !changed && blindTree ->
+                // Blind tree AND no second opinion: nothing on this device
+                // observed the screen before or after. `false` is then an
+                // absence of evidence, not a finding.
+                result.put(
+                    "screen_changed_note",
+                    "Nothing on this device read the screen before or after this tap, so " +
+                        "screen_changed:false here means UNKNOWN, not 'it missed'. Judge from the " +
+                        "attached image: if it is not the screen you aimed from, the tap landed " +
+                        "and you should carry on from what you see.",
+                )
         }
         result.put("screen_changed", changed)
         if (before.optBoolean("cut") || after.optBoolean("cut")) {
@@ -1222,14 +1518,33 @@ class ScreenController(
                 }
             }
         } else {
+            // Does the device actually know this tap missed? Only when the
+            // fingerprint had something to compare (a real tree) or the pixel
+            // comparison ran. A blind tree with no before-frame is the one case
+            // where it does not — and there, "the screen did NOT react" reads
+            // as a measurement that was never taken. Measured 2026-10-20 on a
+            // 视频号 page: that sentence, repeated while the page was in fact
+            // changing under every tap, sent the brain into re-aim → stuck-loop
+            // guard → back out → re-enter, which is what the user watched.
+            val told = !before.optBoolean("blind") || pixelTold
             result.put(
-                "same_spot_hint",
-                "the screen did NOT react to this tap. miss_shot shows where the ring " +
-                    "landed — the tapped point, magnified with its surroundings. Its grid " +
-                    "is lowercase (a1..h12) because it is a zoom, so a cell read off it is " +
-                    "aimed with {\"cell\": \"d7\", \"part\": \"…\", \"on\": \"zoom\"}, which " +
-                    "the device converts for you. Aim the retry from that image, not from " +
-                    "the previous full screenshot.",
+                if (told) "same_spot_hint" else "unknown_spot_hint",
+                if (told) {
+                    "the screen did NOT react to this tap. miss_shot shows where the ring " +
+                        "landed — the tapped point, magnified with its surroundings. Its grid " +
+                        "is lowercase (a1..h12) because it is a zoom, so a cell read off it is " +
+                        "aimed with {\"cell\": \"d7\", \"part\": \"…\", \"on\": \"zoom\"}, which " +
+                        "the device converts for you. Aim the retry from that image, not from " +
+                        "the previous full screenshot."
+                } else {
+                    "I could not tell whether that tap landed. miss_shot shows where the ring " +
+                        "landed, magnified — but treat it as a place, not as a verdict: this " +
+                        "screen gave the accessibility layer nothing to compare and the " +
+                        "pixel check did not run either. If the image is not the screen you " +
+                        "aimed from, the tap DID work; carry on from what you see instead of " +
+                        "aiming again, and never back out and re-enter the app to " +
+                        "\"start over\" — that only returns you to this same page."
+                },
             )
             runCatching {
                 if (tapX > 0 || tapY > 0) {
@@ -1275,10 +1590,19 @@ class ScreenController(
      * the stroke shrinks the coast but never removes it.
      */
     fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long, fling: Boolean): JSONObject {
+        if (fling) guardFlingStreak(y2 > y1) else synchronized(loopLock) { flingStreak = 0 }
         val path = Path().apply {
             moveTo(x1.toFloat(), y1.toFloat())
             lineTo(x2.toFloat(), y2.toFloat())
         }
+        // A fling is the one gesture whose landing the brain cannot predict, so
+        // it is the one that has to report where it ended up. Measured
+        // 2026-10-20: hunting a post from 105 days ago, the brain flung the
+        // WeChat timeline 21 times and never learned anything from any of them
+        // — top, bottom, top again — because the reply said only "swiped".
+        // Chained flings without a look are how a list becomes a maze.
+        val before = if (fling) screenFingerprint() else null
+        val beforePx = if (fling && before?.optBoolean("blind") == true) pixelSignature() else null
         val target = android.graphics.Rect(
             minOf(x1, x2) - 4, minOf(y1, y2) - 4,
             maxOf(x1, x2) + 4, maxOf(y1, y2) + 4,
@@ -1304,8 +1628,84 @@ class ScreenController(
                 moved
             }
         }
+        if (fling && before != null) attachFlingSnapshot(result, before, beforePx)
         return result.put("from", "$x1,$y1").put("to", "$x2,$y2").put("duration_ms", durationMs)
             .put("fling", fling)
+    }
+
+    /**
+     * Where a fling ended up, in the only terms a blind screen allows: whether
+     * anything moved, the picture if it did, and a plain word about the case
+     * that matters — a fling that moves nothing means the list is at its end.
+     *
+     * No claim about HOW FAR it went: without a scroll offset or a tree there
+     * is nothing to measure it against, and a number invented from the finger's
+     * distance would be wrong exactly when the fling coasted. What the picture
+     * does buy is recognition: the brain can see the post it just passed, or
+     * see that it is looking at the same three posts as last time.
+     */
+    private fun attachFlingSnapshot(result: JSONObject, before: JSONObject, beforePx: FloatArray?) {
+        try {
+            // A fling keeps coasting after the finger lifts; 700 ms caught it
+            // mid-coast and made the signature disagree with itself.
+            Thread.sleep(FLING_SETTLE_MS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        val after = screenFingerprint()
+        var changed = before.optString("pkg") != after.optString("pkg") ||
+            before.optInt("sig") != after.optInt("sig")
+        if (!changed && beforePx != null) {
+            pixelSignature()?.let { if (pixelsMoved(beforePx, it)) changed = true }
+        }
+        result.put("screen_changed", changed)
+        if (changed) {
+            runCatching { result.put("after_shot", guardedShot { screenshot("fling_after") }) }
+        } else {
+            result.put(
+                "fling_note",
+                "Nothing on screen moved. On a list that means you are already at its " +
+                    "end in that direction — flinging the same way again will keep doing " +
+                    "nothing. If you are hunting one particular old item, stop scrolling " +
+                    "and use the app's search instead.",
+            )
+        }
+    }
+
+    /**
+     * Chained flings in one direction, with no look in between, are the shape of
+     * "lost in a long list": the gesture is cheap, it lands somewhere the brain
+     * is not told about, and nothing about repeating it adds information.
+     *
+     * Deliberately generous — 6 in a row is someone browsing a feed, and
+     * browsing is legitimate. The 7th in the same direction within
+     * [FLING_STREAK_WINDOW_MS] is refused, and the error says what to do
+     * instead. The streak is reset by a fling the other way or by a deliberate
+     * scroll ([swipe] without fling), which is what a brain that is reading the
+     * screen actually does between jumps.
+     */
+    private fun guardFlingStreak(downward: Boolean) {
+        val now = SystemClock.uptimeMillis()
+        synchronized(loopLock) {
+            if (now - flingStreakAt > FLING_STREAK_WINDOW_MS || flingStreakDown != downward) {
+                flingStreak = 0
+            }
+            flingStreak++
+            flingStreakAt = now
+            flingStreakDown = downward
+            if (flingStreak > FLING_MAX_STREAK) {
+                throw IllegalStateException(
+                    "Refused: this is the ${flingStreak}th fling in the same direction without " +
+                        "reading the screen in between. A fling lands where it lands and tells " +
+                        "you nothing about where you are, so repeating it is how a long list " +
+                        "turns into a maze — 21 of these in one task is the record. Do one of " +
+                        "these instead: take_screenshot and look at where you actually are; " +
+                        "swipe without fling (which moves about as far as your finger did); or, " +
+                        "if you are looking for ONE specific old item, use the app's search " +
+                        "rather than scrolling for it.",
+                )
+            }
+        }
     }
 
     fun longPress(x: Int, y: Int, durationMs: Long): JSONObject {
@@ -1315,6 +1715,9 @@ class ScreenController(
             runGesture(GestureDescription.Builder().addStroke(stroke).build(), durationMs + 2000)
         }
         marker?.mark(x, y, net.kuafuai.andee.ui.TapMarkerUi.Kind.HOLD)
+        // A long-press menu appears a beat after the finger lifts.
+        Thread.sleep(POPUP_SETTLE_MS)
+        putPopups(result)
         return result.put("x", x).put("y", y).put("duration_ms", durationMs)
     }
 
@@ -1681,6 +2084,7 @@ class ScreenController(
     fun globalAction(action: String, actor: String = "brain"): JSONObject {
         // Leaving the screen ends whatever was being typed into.
         typedBlindAt = 0L
+        screenMovedAtMs = SystemClock.uptimeMillis()
         val code = when (action.lowercase()) {
             "back" -> AccessibilityService.GLOBAL_ACTION_BACK
             "home" -> AccessibilityService.GLOBAL_ACTION_HOME
@@ -1705,6 +2109,10 @@ class ScreenController(
      *   cell labels would put two contradictory grids on one image.
      */
     fun screenshot(reason: String = "tool", grid: Boolean = true): JSONObject {
+        // Only a screenshot the brain ASKED for clears the fling streak. Every
+        // internal capture (tap_after, fling_after, miss_shot) goes through
+        // here too, and counting those would make the streak unbuildable.
+        if (reason == "tool") synchronized(loopLock) { flingStreak = 0 }
         // Settle before capture: images loading and lists settling MOVE the
         // things a screenshot is about to be used to aim at — a shot taken
         // mid-settle gives the brain targets that have already shifted by
@@ -1834,8 +2242,10 @@ class ScreenController(
                         "aim_grid",
                         "This image carries an 8x12 aim grid, labelled A1 (top-left) to " +
                             "${'A' + GRID_COLS - 1}$GRID_ROWS (bottom-right), a letter per " +
-                            "column and a number per row; each label is printed at the " +
-                            "CENTRE of its cell. To tap something, name the cell it sits in " +
+                            "column and a number per row. The letters run along the TOP edge " +
+                            "and the numbers down the LEFT edge, like a map's rulers; nothing " +
+                            "is printed inside a cell. To tap something, follow its column up " +
+                            "to the letter and its row left to the number, name that cell " +
                             "plus which third of that cell it is in — {\"cell\": \"D7\", " +
                             "\"part\": \"bottom-right\"} on tap_by_coordinates / " +
                             "long_press_by_coordinates (part is one of " +
@@ -1843,12 +2253,16 @@ class ScreenController(
                             "device converts it to the right pixels itself. For anything " +
                             "not clearly bigger than a cell (an icon, a ✕ close button), " +
                             "first send the same cell and part to zoom_screen_region: it " +
-                            "shows a red crosshair where the tap would land, so you can " +
-                            "confirm it or re-aim off the magnified image. The grid lines " +
-                            "and labels are drawn by the device and are not part of the app. " +
-                            "Your own floating ball is hidden for every capture, so nothing " +
-                            "round or blue in this picture is you or is covering a button.",
+                            "shows a magenta crosshair where the tap would land, so you can " +
+                            "confirm it or re-aim off the magnified image. The grid lines, " +
+                            "the labels and anything MAGENTA are drawn by the device and are " +
+                            "not part of the app: the magenta ring with a \"tap …\" chip marks " +
+                            "where your last gesture landed, and the magenta crosshair marks " +
+                            "where the next one would. Your own floating ball is hidden for " +
+                            "every capture. Everything else in the picture — including " +
+                            "anything round, blue or red — is the app.",
                     )
+                    if (reason == "tool") putPopups(it)
                 }
                 // Piggyback the element list. The brain's known failure mode
                 // (measured, 2026-09-20): it takes a screenshot, measures a
@@ -1998,13 +2412,22 @@ class ScreenController(
                     "zoom_hint",
                     "This image is a MAGNIFIED REGION, and its grid is lowercase " +
                         "(a1..h12) so a label can never be confused with a cell of the " +
-                        "full screen. Each label is printed at the CENTRE of its cell. " +
+                        "full screen. Letters run along its top edge and numbers down its " +
+                        "left edge; nothing is printed inside a cell. " +
                         "Name one of these labels, plus which third of it the target is " +
                         "in — {\"cell\": \"d7\", \"part\": \"top-left\", \"on\": \"zoom\"} " +
                         "on tap_by_coordinates / long_press_by_coordinates — and the " +
                         "device converts it for you; no arithmetic, and none of the " +
-                        "scale_x/scale_y math is needed. Pick the cell the target sits " +
-                        "IN, not the label nearest it.")
+                        "scale_x/scale_y math is needed." +
+                        // The one mis-read this image invites: a small red dot in
+                        // the app (an unread badge) versus our own mark. Said
+                        // explicitly because it happened (2026-10-20).
+                        " The magenta circle-and-cross IS DEVICE-DRAWN: it is where " +
+                        "this tap would land, not app content, and nothing in this " +
+                        "picture is ever a reason to dismiss the app's own red badge — " +
+                        "a red dot in the app usually marks the very button you are " +
+                        "aiming at.",
+                )
         } finally {
             bmp.recycle()
         }
@@ -2062,6 +2485,11 @@ class ScreenController(
         withShot: Boolean = ToolSchemas.UI_TREE_WITH_SHOT_DEFAULT,
         capture: (String) -> JSONObject = { screenshot(it) },
     ): JSONObject {
+        // Asking for the tree is the deliberate act of looking. It — and
+        // screenshot() — are what clear the fling streak; the shot attached to
+        // a fling itself does not, or the streak could never grow. See
+        // [guardFlingStreak].
+        synchronized(loopLock) { flingStreak = 0 }
         val ts = System.currentTimeMillis()
         val budget = WalkBudget(TREE_BUDGET_MS)
         val firstStart = SystemClock.uptimeMillis()
@@ -2917,6 +3345,7 @@ class ScreenController(
     }
 
     private fun runGesture(gesture: GestureDescription, timeoutMs: Long): JSONObject {
+        screenMovedAtMs = SystemClock.uptimeMillis()
         val latch = CountDownLatch(1)
         var completed = false
         val ok = service.dispatchGesture(
@@ -3200,25 +3629,86 @@ class ScreenController(
         /** How long a zoom image stays usable as an aiming reference. */
         private const val ZOOM_STALE_MS = 180_000L
 
-        /** The nine thirds of a cell a tap may name, in reading order. */
+        /**
+         * How long a zoom keeps the popup guard unlocked.
+         *
+         * Shorter than [ZOOM_STALE_MS] on purpose: a menu can be dismissed and
+         * another one opened in the same place, and the zoom that proved this
+         * one said "评论" is not evidence about the next. A minute is long
+         * enough to look, read and tap; long enough to outlive the popup it
+         * describes is the failure this is meant to stop.
+         */
+        private const val ZOOM_CONFIRM_MS = 60_000L
+
+        private const val POPUP_SETTLE_MS = 300L
+
+        /**
+         * Colour of the zoom crosshair. Magenta on purpose — see [drawCrosshair].
+         *
+         * The candidates it is avoiding are all taken: red is every unread
+         * badge in every Chinese app, green is WeChat's own accent, and blue /
+         * cyan is what [net.kuafuai.andee.ui.TapMarkerUi]'s ring and the ball
+         * already are (the brain is told to ignore anything round and blue).
+         * Magenta appears in none of them.
+         */
+        private val CROSSHAIR = Color.rgb(224, 0, 255)
+
+        /**
+         * The cell's subdivisions a tap may name, in reading order: 3 columns by
+         * **5 rows**.
+         *
+         * Both numbers are a measurement, not a taste. On a 1200x2664 screen a
+         * cell is 150x222 px, so one *third* of it vertically is 74 px — taller
+         * than the things these taps are aimed at. Measured 2026-10-20 in
+         * WeChat's 视频号 点赞 list: the 「谢谢」 button is ~100x50 px, its row's
+         * name is 200 px above it and holds 20x the tappable area, so a single
+         * step of 74 px was enough to miss the button and hit the name — which
+         * opens a profile card. A fifth is 44 px, inside the button with room.
+         *
+         * Columns stay at three: 50 px per step against a target ~100 px wide
+         * was never the problem, and going to five columns there would double
+         * the vocabulary for nothing.
+         */
+        private const val PART_COLS = 3
+        private const val PART_ROWS = 5
+
+        /** The middle row of the subdivision, used when `part` is omitted. */
+        private const val MID_ROW = PART_ROWS / 2
+
+        /** Every subdivision of a cell a tap may name, in reading order. */
         val PARTS = listOf(
             "top-left", "top", "top-right",
-            "left", "center", "right",
+            "upper-left", "upper", "upper-right",
+            "center-left", "center", "center-right",
+            "lower-left", "lower", "lower-right",
             "bottom-left", "bottom", "bottom-right",
         )
 
         // Aliases are the names a model reaches for when it is not looking at
-        // the schema — a Chinese answer says 右下, not bottom-right.
+        // the schema — a Chinese answer says 右下, not bottom-right. The
+        // nine-name grid the vocabulary used before still parses: 上/中/下 and
+        // their corners map to the outer rows, so an old payload aims where it
+        // used to.
         private val PART_THIRDS: Map<String, IntArray> = buildMap {
-            PARTS.forEachIndexed { i, p -> put(p, intArrayOf(i % 3, i / 3)) }
+            PARTS.forEachIndexed { i, p -> put(p, intArrayOf(i % PART_COLS, i / PART_COLS)) }
+            // Row 0 / middle / last, as the old thirds meant them.
+            put("left", intArrayOf(0, MID_ROW)); put("right", intArrayOf(2, MID_ROW))
             listOf("左上", "上", "右上", "左", "中", "右", "左下", "下", "右下")
-                .forEachIndexed { i, p -> put(p, intArrayOf(i % 3, i / 3)) }
-            put("centre", intArrayOf(1, 1)); put("middle", intArrayOf(1, 1))
-            put("中间", intArrayOf(1, 1)); put("中心", intArrayOf(1, 1))
-            put("top-center", intArrayOf(1, 0)); put("bottom-center", intArrayOf(1, 2))
-            put("center-left", intArrayOf(0, 1)); put("center-right", intArrayOf(2, 1))
+                .forEachIndexed { i, p ->
+                    val fy = when (i / 3) {
+                        0 -> 0
+                        1 -> MID_ROW
+                        else -> PART_ROWS - 1
+                    }
+                    put(p, intArrayOf(i % 3, fy))
+                }
+            put("centre", intArrayOf(1, MID_ROW)); put("middle", intArrayOf(1, MID_ROW))
+            put("中间", intArrayOf(1, MID_ROW)); put("中心", intArrayOf(1, MID_ROW))
+            put("top-center", intArrayOf(1, 0)); put("bottom-center", intArrayOf(1, PART_ROWS - 1))
+            put("center-left", intArrayOf(0, MID_ROW)); put("center-right", intArrayOf(2, MID_ROW))
             put("left-top", intArrayOf(0, 0)); put("right-top", intArrayOf(2, 0))
-            put("left-bottom", intArrayOf(0, 2)); put("right-bottom", intArrayOf(2, 2))
+            put("left-bottom", intArrayOf(0, PART_ROWS - 1))
+            put("right-bottom", intArrayOf(2, PART_ROWS - 1))
         }
 
         /**
@@ -3240,20 +3730,50 @@ class ScreenController(
          */
         private const val MAX_INDENT = 10
 
-        /** Gestures closer than this count as "the same spot" — catches
-         *  re-tap-with-jitter, not just exact duplicates. */
-        private const val LOOP_RADIUS_PX = 120
+        /**
+         * Gestures closer than this count as "the same spot".
+         *
+         * 120 px, not 40: at 120 the bucket was WIDER than the thing being
+         * aimed at, so a deliberate "20 px left of where I last aimed" landed in
+         * the same bucket as the miss it was correcting — and the correction
+         * that is supposed to converge got refused as a loop. Measured
+         * 2026-10-20 in WeChat's 视频号 点赞 list: a 50 px-tall 「谢谢」 button
+         * cannot contain two 120 px buckets, so the guard fired 10 times in one
+         * task while the brain was doing exactly the right thing. 40 px keeps
+         * "same spot" meaning the same spot, and still catches a jittered
+         * retry of one target.
+         */
+        private const val LOOP_RADIUS_PX = 40
 
-        /** Allowed same-spot attempts before the guard fires. 3 means the
-         *  4th is refused. */
-        private const val LOOP_MAX_TRIES = 3
+        /**
+         * Allowed same-spot attempts before the guard fires. 6 means the 7th is
+         * refused — enough room for aim, observe, adjust, which is the loop a
+         * blind tap needs; a real dead loop still trips it well inside the
+         * window.
+         */
+        private const val LOOP_MAX_TRIES = 6
 
         /** Same-spot counter window; older than this is a fresh task. */
         private const val LOOP_WINDOW_MS = 300_000L
 
+        /** Consecutive same-direction flings allowed before the streak is cut. */
+        private const val FLING_MAX_STREAK = 6
+
+        /** Streak window; longer than a browse, shorter than a task. */
+        private const val FLING_STREAK_WINDOW_MS = 120_000L
+
+        /** How long a fling is given to coast before the screen is fingerprinted. */
+        private const val FLING_SETTLE_MS = 900L
+
+        /** Ceiling on `screens` — one call moving more than this is a runaway. */
+        private const val MAX_SCREENS = 10
+
+        /** Beat between the determinate swipes of one [swipeScreens] call. */
+        private const val SCREEN_SETTLE_MS = 380L
+
         private const val LOOP_HELP =
-            "Stuck-loop guard: this same screen area has been touched more than " +
-                "3 times within 5 minutes. The gesture was NOT executed. " +
+            "Stuck-loop guard: this exact spot has been touched more than " +
+                "6 times within 5 minutes. The gesture was NOT executed. " +
                 "Do not retry the same tap. Take a fresh screenshot or get_screen_element, " +
                 "pick a genuinely different approach, and if the goal still cannot " +
                 "be reached, stop and ask the user for help instead of continuing."
