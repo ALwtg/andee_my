@@ -1,6 +1,5 @@
 package net.kuafuai.andee.brain
 
-import android.util.Log
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -236,7 +235,6 @@ class LlmClient(
     fun cancel() {
         val c = current ?: return
         runCatching { c.cancel() }
-        Log.i(TAG, "in-flight completion cancelled")
     }
 
     private fun sanitizeAssistant(msg: JSONObject): JSONObject {

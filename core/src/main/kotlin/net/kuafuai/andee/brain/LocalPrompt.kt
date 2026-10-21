@@ -1,6 +1,5 @@
 package net.kuafuai.andee.brain
 
-import net.kuafuai.andee.config.Notebook
 
 /**
  * The system prompt for the on-device brain.

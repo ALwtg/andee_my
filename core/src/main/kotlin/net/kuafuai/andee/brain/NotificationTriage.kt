@@ -1,8 +1,5 @@
 package net.kuafuai.andee.brain
 
-import android.util.Log
-import net.kuafuai.andee.config.Notebook
-import net.kuafuai.andee.config.VoiceConfig
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -47,7 +44,11 @@ import org.json.JSONObject
  *
  * Threading: [decide] blocks. Call it from a worker.
  */
-class NotificationTriage(cfg: net.kuafuai.andee.config.BrainConfig) {
+class NotificationTriage(
+    cfg: net.kuafuai.andee.config.BrainConfig,
+    /** Where its two log lines go; the brain's own host on every platform. */
+    private val log: (warn: Boolean, msg: String) -> Unit = { _, _ -> },
+) {
 
     private val llm = LlmClient(
         baseUrl = cfg.baseUrl,
@@ -105,12 +106,12 @@ class NotificationTriage(cfg: net.kuafuai.andee.config.BrainConfig) {
         val reply = try {
             llm.complete(messages, JSONArray())
         } catch (t: Throwable) {
-            Log.w(TAG, "triage call failed: ${t.message}")
+            log(true, "triage call failed: ${t.message}")
             return null
         }
         val raw = reply.content.trim()
-        Log.i(
-            TAG,
+        log(
+            false,
             "triage ${n.optString("app")}: ${raw.take(200)} " +
                 "(tokens ${reply.promptTokens}/${reply.completionTokens})",
         )

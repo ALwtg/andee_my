@@ -67,7 +67,7 @@ object FactoryReset {
 
         Target(R.string.factory_reset_target_history) {
             ChatHistory.wipe(it)
-            net.kuafuai.andee.brain.BrainTrace.wipe(it)
+            net.kuafuai.andee.brain.BrainTrace.wipe(it.applicationContext.filesDir)
         },
 
         Target(R.string.factory_reset_target_web) { webviewData() },

@@ -109,7 +109,7 @@ data class ScrollRow(
     val handle: Any?,
 )
 
-data class FoldedTopic(val id: Long, val title: String)
+data class FoldedTopic(val id: Long, val title: String, val summary: String)
 
 /**
  * The user-facing sentences the brain says itself. Each platform maps every key

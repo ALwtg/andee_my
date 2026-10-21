@@ -1,7 +1,5 @@
 package net.kuafuai.andee.brain
 
-import android.content.Context
-import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
@@ -96,8 +94,11 @@ object BrainTrace {
 
     @Volatile private var dir: File? = null
 
-    fun init(context: Context) {
-        dir = context.applicationContext.filesDir
+    @Volatile private var host: BrainHost? = null
+
+    fun init(host: BrainHost) {
+        this.host = host
+        dir = host.traceDir()
     }
 
     /**
@@ -138,8 +139,8 @@ object BrainTrace {
     fun end(gen: Int, why: String) =
         append(JSONObject().put("ev", "end").put("turn", idOf(gen)).put("gen", gen).put("why", why))
 
-    fun wipe(context: Context) {
-        val d = context.applicationContext.filesDir
+    /** [d] is the same directory [BrainHost.traceDir] names. */
+    fun wipe(d: File) {
         File(d, FILE).delete()
         File(d, "$FILE.1").delete()
     }
@@ -154,7 +155,7 @@ object BrainTrace {
                 val f = File(d, FILE)
                 if (f.length() > MAX_BYTES) f.renameTo(File(d, "$FILE.1"))
                 f.appendText(o.toString() + "\n")
-            }.onFailure { Log.w(TAG, "brain trace: ${it.message}") }
+            }.onFailure { host?.logWarn(TAG, "brain trace: ${it.message}") }
         }
     }
 }

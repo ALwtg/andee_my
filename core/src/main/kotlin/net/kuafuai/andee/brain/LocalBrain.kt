@@ -1,14 +1,6 @@
 package net.kuafuai.andee.brain
 
-import android.util.Log
-import net.kuafuai.andee.R
-import net.kuafuai.andee.config.Notebook
-import net.kuafuai.andee.config.VoiceConfig
-import net.kuafuai.andee.i18n.AppLocale
-import net.kuafuai.andee.market.MarketTools
-import net.kuafuai.andee.net.CallExtensionRegistry
-import net.kuafuai.andee.net.CommandDispatcher
-import net.kuafuai.andee.net.ToolSchemas
+import net.kuafuai.andee.config.BrainConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -60,23 +52,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * dispatch happens on a separate pool only so the loop thread can time it out.
  */
 class LocalBrain(
-    private val cfg: net.kuafuai.andee.config.BrainConfig,
+    private val cfg: BrainConfig,
     /**
-     * The notebook's context. This class reads and writes memories on every
-     * turn, so it needs one of its own rather than reaching through the
-     * dispatcher, which deliberately knows nothing about the brain.
+     * Everything this device provides: words, settings, the notebook, the
+     * scrollback and the tools. The same loop runs on the phone and on the
+     * desktop; only the host differs. See [BrainHost].
      */
-    private val appContext: android.content.Context,
-    private val dispatcher: CommandDispatcher,
-    private val registry: CallExtensionRegistry,
-    /**
-     * The CodeFlying market, as a second external tool source beside the call
-     * extension. Empty outside CodeFlying mode, so a local or hub brain sees the
-     * same tool list it always did — the gate lives in [MarketTools] rather than
-     * here, because "which backend is this" is the service's question, not the
-     * brain's.
-     */
-    private val market: MarketTools,
+    private val host: BrainHost,
     private val onProgress: (String) -> Unit,
     private val onFinal: (String) -> Unit,
     /**
@@ -107,12 +89,12 @@ class LocalBrain(
     /**
      * Apply a settings change that is only about how the backend is asked —
      * model, thinking, effort — with the conversation intact. The caller has
-     * already established [net.kuafuai.andee.config.BrainConfig.sameBackend]; a
+     * already established [BrainConfig.sameBackend]; a
      * different endpoint, key or mode is a different brain and gets rebuilt.
      * [cfg] itself stays as built: the only things read from it after
      * construction are the key and the mode, and neither can differ here.
      */
-    fun retune(next: net.kuafuai.andee.config.BrainConfig) {
+    fun retune(next: BrainConfig) {
         llm.retune(next.model, next.thinking, next.reasoningEffort)
     }
 
@@ -121,7 +103,7 @@ class LocalBrain(
     }
 
     init {
-        BrainTrace.init(appContext)
+        BrainTrace.init(host)
     }
 
     /**
@@ -287,14 +269,14 @@ class LocalBrain(
         if (cfg.apiKey.isEmpty()) {
             // Said out loud rather than logged: from the ball's point of view a
             // missing key is indistinguishable from a brain that never answers.
-            onFinal(AppLocale.str(appContext, R.string.brain_no_key))
+            onFinal(host.text(BrainText.NO_KEY))
             return
         }
         // The quiet-hour timer measures silence from the user's last words, so
         // every real utterance stamps it. Wake-ups and sweeps do not: a sweep
         // must not look like the user spoke, or it would keep pushing its own
         // trigger out.
-        net.kuafuai.andee.config.Notebook.touchActivity(appContext)
+        host.touchActivity()
         launch(text, TurnKind.USER, images)
     }
 
@@ -315,7 +297,7 @@ class LocalBrain(
         val kind = if (untrusted) TurnKind.NOTIFY else TurnKind.WAKE
         loop.execute {
             if (busy.get()) {
-                Log.i(TAG, "wake queued behind a running turn: ${t.take(60)}")
+                host.logInfo(TAG, "wake queued behind a running turn: ${t.take(60)}")
                 pendingWakes.addLast(t to kind)
                 return@execute
             }
@@ -340,7 +322,7 @@ class LocalBrain(
         if (cfg.apiKey.isEmpty()) return // nothing triaged it either; see NotificationTriage
         loop.execute {
             if (busy.get()) {
-                Log.i(TAG, "notification queued behind a running turn: ${t.take(60)}")
+                host.logInfo(TAG, "notification queued behind a running turn: ${t.take(60)}")
                 pendingWakes.addLast(t to TurnKind.NOTIFY)
                 return@execute
             }
@@ -367,10 +349,10 @@ class LocalBrain(
             // rows still comes back empty and hits the usual gate below.
             if (history.isEmpty()) rebuildHistoryFromScrollback()
             when {
-                cfg.apiKey.isEmpty() -> Log.i(TAG, "sweep skipped: no API key")
-                busy.get() -> Log.i(TAG, "sweep skipped: a turn is running")
+                cfg.apiKey.isEmpty() -> host.logInfo(TAG, "sweep skipped: no API key")
+                busy.get() -> host.logInfo(TAG, "sweep skipped: a turn is running")
                 history.size < MIN_MESSAGES_TO_REVIEW ->
-                    Log.i(TAG, "sweep skipped: only ${history.size} messages to review")
+                    host.logInfo(TAG, "sweep skipped: only ${history.size} messages to review")
                 else -> launch(sweepInstruction(), TurnKind.SWEEP)
             }
         }
@@ -393,25 +375,22 @@ class LocalBrain(
      * [history] here is safe.
      */
     private fun rebuildHistoryFromScrollback() {
-        val rows = net.kuafuai.andee.ui.ChatHistory.snapshot()
-            .filter {
-                it.role == net.kuafuai.andee.ui.ChatHistory.Role.USER ||
-                    it.role == net.kuafuai.andee.ui.ChatHistory.Role.ASSISTANT
-            }
+        val rows = host.scrollback()
+            .filter { it.isUser || it.isAssistant }
             .filter { it.text.isNotBlank() }
             .takeLast(REBUILD_MAX_MESSAGES)
         if (rows.isEmpty()) return
         history += JSONObject().put("role", "system").put("content", systemPrompt())
-        val fmt = SimpleDateFormat("yyyy-MM-dd EEE HH:mm", AppLocale.localeOf(appContext))
+        val fmt = SimpleDateFormat("yyyy-MM-dd EEE HH:mm", host.locale())
         for (r in rows) {
-            history += if (r.role == net.kuafuai.andee.ui.ChatHistory.Role.USER) {
+            history += if (r.isUser) {
                 JSONObject().put("role", "user")
                     .put("content", "[now ${fmt.format(Date(r.ts))}] ${r.text}")
             } else {
                 JSONObject().put("role", "assistant").put("content", r.text)
             }
         }
-        Log.i(TAG, "sweep rebuilt ${rows.size} messages from the scrollback")
+        host.logInfo(TAG, "sweep rebuilt ${rows.size} messages from the scrollback")
     }
 
     /**
@@ -453,12 +432,12 @@ class LocalBrain(
             } catch (t: Throwable) {
                 BrainTrace.end(gen, "threw: ${t.message ?: t.javaClass.simpleName}")
                 if (gen == generation.get()) {
-                    Log.e(TAG, "turn $gen ($kind) failed", t)
+                    host.logError(TAG, "turn $gen ($kind) failed", t)
                     // A silent turn has nobody to apologise to; it just ends.
                     if (!kind.silent) onFinal(explainFailure(t))
                 } else {
                     // Almost always the cancelled call's own IOException.
-                    Log.i(TAG, "turn $gen abandoned: ${t.message}")
+                    host.logInfo(TAG, "turn $gen abandoned: ${t.message}")
                 }
             } finally {
                 // Cleared here, and not inside runTurn, because runTurn has a
@@ -500,31 +479,31 @@ class LocalBrain(
      * the old generic line with the raw message, so nothing is hidden.
      */
     private fun explainFailure(t: Throwable): String {
-        fun s(id: Int, vararg args: Any) = AppLocale.str(appContext, id, *args)
+        fun s(id: BrainText, vararg args: Any) = host.text(id, *args)
         if (t is LlmHttpException) {
-            val codeFlying = cfg.mode == VoiceConfig.BRAIN_CODEFLYING
+            val codeFlying = cfg.mode == BrainConfig.BRAIN_CODEFLYING
             return when (t.code) {
-                402 -> if (codeFlying) s(R.string.brain_error_402_codeflying) else s(R.string.brain_error_402)
-                401, 403 -> s(R.string.brain_error_auth, t.code)
-                400 -> s(R.string.brain_error_400, t.detail.take(160).ifBlank { "HTTP 400" })
-                404 -> s(R.string.brain_error_404)
-                408, 429 -> s(R.string.brain_error_429)
-                in 500..599 -> s(R.string.brain_error_5xx, t.code)
-                else -> s(R.string.brain_error, t.message ?: t.javaClass.simpleName)
+                402 -> if (codeFlying) s(BrainText.ERROR_402_CODEFLYING) else s(BrainText.ERROR_402)
+                401, 403 -> s(BrainText.ERROR_AUTH, t.code)
+                400 -> s(BrainText.ERROR_400, t.detail.take(160).ifBlank { "HTTP 400" })
+                404 -> s(BrainText.ERROR_404)
+                408, 429 -> s(BrainText.ERROR_429)
+                in 500..599 -> s(BrainText.ERROR_5XX, t.code)
+                else -> s(BrainText.ERROR, t.message ?: t.javaClass.simpleName)
             }
         }
         return when (t) {
-            is java.net.SocketTimeoutException -> s(R.string.brain_error_timeout)
+            is java.net.SocketTimeoutException -> s(BrainText.ERROR_TIMEOUT)
             is java.net.UnknownHostException,
-            is java.net.ConnectException -> s(R.string.brain_error_network)
-            else -> s(R.string.brain_error, t.message ?: t.javaClass.simpleName)
+            is java.net.ConnectException -> s(BrainText.ERROR_NETWORK)
+            else -> s(BrainText.ERROR, t.message ?: t.javaClass.simpleName)
         }
     }
 
     /** Run one queued turn, if any. Loop thread only. */
     private fun drainWakes() {
         val (next, kind) = pendingWakes.removeFirstOrNull() ?: return
-        Log.i(TAG, "running a queued $kind turn: ${next.take(60)}")
+        host.logInfo(TAG, "running a queued $kind turn: ${next.take(60)}")
         launch(next, kind)
     }
 
@@ -551,7 +530,7 @@ class LocalBrain(
         if (t.isEmpty()) return
         loop.execute {
             history += JSONObject().put("role", "user").put("content", t)
-            Log.i(TAG, "note: $t")
+            host.logInfo(TAG, "note: $t")
         }
     }
 
@@ -625,18 +604,18 @@ class LocalBrain(
             //
             // Empty notebook, empty string, zero cost: the feature only starts
             // paying for itself once there is something to remember.
-            val index = net.kuafuai.andee.config.Notebook.indexForPrompt(appContext)
-            val scenes = Notebook.scenesForPrompt(appContext)
+            val index = host.notebookIndex()
+            val scenes = host.scenesIndex()
             // The pages it has made, the same way and for the same reason: a
             // tool answers a question the brain thought to ask, and 「上次那个表格」
             // is exactly the question it does not know to ask. `list_pages` has
             // the full list; this is the four or five newest, to make the shelf
             // visible at all.
-            val pages = net.kuafuai.andee.ui.ChatHistory.indexForPrompt()
+            val pages = host.pagesIndex()
             // And the conversations that have been put away. Same position, same
             // reasoning as the three above; the fourth is that this one is about
             // an ABSENCE — see the note where it is appended.
-            val topics = net.kuafuai.andee.ui.ChatHistory.topicsForPrompt()
+            val topics = host.topicsIndex()
             // Photos with no words: there is no sentence of the user's to take
             // the language from, so the bracketed fallback comes back for it.
             val wordless = userText.isEmpty()
@@ -679,7 +658,7 @@ class LocalBrain(
                         if (scenes.isEmpty()) {
                             ""
                         } else {
-                            "\n\n(scenes you can enter — see §11; you are in: ${VoiceConfig.activeScene(appContext) ?: "none"})\n$scenes"
+                            "\n\n(scenes you can enter — see §11; you are in: ${host.activeSceneName() ?: "none"})\n$scenes"
                         } +
                         // And the shelf of pages it has built (§7). Same
                         // position, same reasoning: this list changes every time
@@ -714,7 +693,7 @@ class LocalBrain(
 
         if (!internal && images.isNotEmpty()) attachUserPhotos(images)
 
-        val tools = LlmClient.toolSpecs(ToolSchemas.all(), registry.tools(), market.tools())
+        val tools = LlmClient.toolSpecs(*host.toolLists().toTypedArray())
         var lastSignature = ""
         var repeats = 0
 
@@ -722,7 +701,7 @@ class LocalBrain(
         // restart — see [VoiceConfig.maxSteps]. Values outside 1..200 are
         // clamped by the reader; a 0 saved by hand would otherwise refuse
         // every turn before it started.
-        val maxSteps = net.kuafuai.andee.config.VoiceConfig.maxSteps(appContext)
+        val maxSteps = host.maxSteps()
         for (step in 1..maxSteps) {
             if (gen != generation.get()) return
             // `enter_scene` mid-turn should change how the rest of this turn
@@ -734,9 +713,9 @@ class LocalBrain(
             turnTokens += reply.promptTokens + reply.completionTokens
 
             if (reply.reasoning.isNotBlank()) {
-                Log.d(TAG, "think[$step]: ${reply.reasoning.take(500)}")
+                host.logInfo(TAG, "think[$step]: ${reply.reasoning.take(500)}")
             }
-            Log.i(
+            host.logInfo(
                 TAG,
                 "step $step: ${reply.toolCalls.size} tool call(s), " +
                     "tokens ${reply.promptTokens}/${reply.completionTokens} " +
@@ -761,7 +740,7 @@ class LocalBrain(
                             // A tool-call-free reply with no prose is the model
                             // ending the turn with nothing in it. Saying so beats
                             // the ball going dark with no explanation.
-                            AppLocale.str(appContext, R.string.brain_no_result)
+                            host.text(BrainText.NO_RESULT)
                         },
                     )
                 }
@@ -782,26 +761,23 @@ class LocalBrain(
                 repeats = if (sig == lastSignature) repeats + 1 else 0
                 lastSignature = sig
                 if (repeats >= MAX_REPEATS) {
-                    Log.w(TAG, "same call $MAX_REPEATS× in a row: $sig")
+                    host.logWarn(TAG, "same call $MAX_REPEATS× in a row: $sig")
                     BrainTrace.end(gen, "same call $MAX_REPEATS× in a row: ${tc.name}")
                     if (!internal) {
                         onFinal(
-                            AppLocale.str(
-                                appContext,
-                                R.string.brain_repeat_stop,
-                                tc.name,
-                            )
+                            host.text(BrainText.REPEAT_STOP,
+                                tc.name,)
                         )
                     }
                     return
                 }
 
                 if (reply.content.isBlank() && !internal) onProgress(narrate(tc.name))
-                val t0 = android.os.SystemClock.uptimeMillis()
+                val t0 = System.nanoTime() / 1_000_000L
                 val msg = runTool(tc, images, internal, kind.untrusted)
                 BrainTrace.tool(
-                    gen, tc.name, ToolSchemas.methodOf(tc.name), tc.argumentsRaw,
-                    msg.optString("content"), android.os.SystemClock.uptimeMillis() - t0,
+                    gen, tc.name, host.methodOf(tc.name), tc.argumentsRaw,
+                    msg.optString("content"), System.nanoTime() / 1_000_000L - t0,
                 )
                 history += msg
             }
@@ -809,15 +785,12 @@ class LocalBrain(
             if (images.isNotEmpty()) attachImages(images)
         }
 
-        Log.w(TAG, "hit max steps ($maxSteps)")
+        host.logWarn(TAG, "hit max steps ($maxSteps)")
         BrainTrace.end(gen, "hit max steps ($maxSteps)")
         if (!internal) {
             onFinal(
-                AppLocale.str(
-                    appContext,
-                    R.string.brain_max_steps,
-                    maxSteps,
-                )
+                host.text(BrainText.MAX_STEPS,
+                    maxSteps,)
             )
         }
     }
@@ -867,16 +840,13 @@ class LocalBrain(
             // side and a user turn is not the moment to spend it. That check
             // lives beside the state it protects rather than in the schema,
             // which is static and cannot tell one turn kind from another.
-            if (ToolSchemas.methodOf(tc.name) == "note.fold" || tc.name == "note.fold") {
+            if (host.methodOf(tc.name) == "note.fold" || tc.name == "note.fold") {
                 return toolMessage(tc.id, noteFold(args))
             }
             // Same two-name translation BodyWsClient does, and the same
             // fallback: an extension registered its tool under one name and
             // that name goes straight through to the dispatcher.
-            val builtin = ToolSchemas.methodOf(tc.name)
-            val method = builtin
-                ?: tc.name.takeIf { registry.hasMethod(it) }
-                ?: tc.name.takeIf { market.hasMethod(it) }
+            val method = host.methodOf(tc.name)
                 ?: return toolMessage(tc.id, "No such tool: ${tc.name}")
 
             val result = dispatchWithTimeout(method, args, silent, untrusted)
@@ -893,7 +863,7 @@ class LocalBrain(
                 else -> result.toString()
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "tool '${tc.name}' failed: ${t.message}")
+            host.logWarn(TAG, "tool '${tc.name}' failed: ${t.message}")
             "Failed: ${t.message ?: t.javaClass.simpleName}"
         }
         return toolMessage(tc.id, body.take(MAX_TOOL_CHARS))
@@ -918,14 +888,12 @@ class LocalBrain(
         val declared = params.optLong("timeout_ms", 0L)
         val budget = if (declared > 0) declared + TIMEOUT_SLACK_MS else DEFAULT_TOOL_TIMEOUT_MS
         val f = toolExec.submit<Any?> {
-            dispatcher.dispatch(
-                method, params, driving = true, silent = silent, untrusted = untrusted,
-            )
+            host.dispatch(method, params, silent = silent, untrusted = untrusted)
         }
         return try {
             f.get(budget, TimeUnit.MILLISECONDS)
         } catch (e: TimeoutException) {
-            Log.w(TAG, "tool $method exceeded ${budget}ms — abandoning the wait")
+            host.logWarn(TAG, "tool $method exceeded ${budget}ms — abandoning the wait")
             JSONObject()
                 .put("timed_out", true)
                 .put("note", "This step had not returned after ${budget / 1000}s, so I stopped waiting. It may still be running in the background — read the screen before deciding the next step.")
@@ -1014,7 +982,7 @@ class LocalBrain(
         if (currentKind != TurnKind.SWEEP) {
             return no("Only the quiet-hour review puts topics away; this turn is not one. Do not try again — just carry on.")
         }
-        if (net.kuafuai.andee.config.VoiceConfig.activeScene(appContext) != null) {
+        if (host.activeSceneName() != null) {
             return no("A scene is active, so this is all one piece of work. Nothing to fold.")
         }
         if (pendingFolds.size >= MAX_FOLDS_PER_REVIEW) {
@@ -1109,15 +1077,15 @@ class LocalBrain(
         val from = history.indexOfFirst { it === fold.first }
         val until = history.indexOfFirst { it === fold.next }
         if (from < 1 || until <= from) {
-            Log.w(TAG, "fold of 「${fold.title}」 finished with no live range; dropped")
+            host.logWarn(TAG, "fold of 「${fold.title}」 finished with no live range; dropped")
             return
         }
         val firstSaid = TopicSplitter.anchorText(fold.first)
         val nextSaid = TopicSplitter.anchorText(fold.next)
-        val all = net.kuafuai.andee.ui.ChatHistory.snapshot()
+        val all = host.scrollback()
         val keys = all.map {
             TopicSplitter.RowKey(
-                isUser = it.role == net.kuafuai.andee.ui.ChatHistory.Role.USER,
+                isUser = it.isUser,
                 text = it.text,
                 ts = it.ts,
             )
@@ -1129,7 +1097,7 @@ class LocalBrain(
         )
         val rows = range?.let { all.subList(it.first, it.last + 1) }.orEmpty()
         if (rows.isEmpty() || rows.any { it.topicId != null }) {
-            Log.w(
+            host.logWarn(
                 TAG,
                 "fold of 「${fold.title}」 could not be matched to the device rows " +
                     "(first=${firstSaid.take(20)}, next=${nextSaid.take(20)}, rows=${rows.size}); kept as it was",
@@ -1140,16 +1108,15 @@ class LocalBrain(
         // "you can read this back" over a topic that was never written is worse
         // than not folding, because nothing will ever notice the difference.
         val topic = runCatching {
-            net.kuafuai.andee.ui.ChatHistory.foldTopic(
+            host.foldTopic(
                 title = fold.title,
                 summary = fold.summary,
                 rows = rows,
                 text = fold.text,
-                parentId = null,
             )
         }.getOrNull()
         if (topic == null) {
-            Log.w(TAG, "fold produced no topic; the conversation is kept as it was")
+            host.logWarn(TAG, "fold produced no topic; the conversation is kept as it was")
             return
         }
         val marker = JSONObject()
@@ -1174,7 +1141,7 @@ class LocalBrain(
         imageMessages.retainAll { m -> history.any { it === m } }
         photoMessages.retainAll { m -> history.any { it === m } }
         if (internalFromIndex > until) internalFromIndex -= (saved - 1)
-        Log.i(TAG, "topic put away: 「${topic.title}」 — $saved msgs, ${rows.size} rows → 1 marker, history now ${history.size}")
+        host.logInfo(TAG, "topic put away: 「${topic.title}」 — $saved msgs, ${rows.size} rows → 1 marker, history now ${history.size}")
     }
 
     // ------------------------------------------------------------------
@@ -1290,9 +1257,8 @@ class LocalBrain(
      * exist. A pref naming a scene that was deleted reads as no scene.
      */
     private fun systemPrompt(): String = LocalPrompt.withPersona(
-        net.kuafuai.andee.ui.ball.BallLooks
-            .byName(VoiceConfig.ballLook(appContext)).persona,
-        VoiceConfig.activeScene(appContext)?.let { Notebook.scene(appContext, it) },
+        host.persona(),
+        host.activeSceneName()?.let { host.scene(it) },
     )
 
     /**
@@ -1318,7 +1284,7 @@ class LocalBrain(
         val head = history[0]
         if (head.optString("role") != "system" || head.optString("content") == want) return
         head.put("content", want)
-        Log.i(TAG, "persona or scene changed — system prompt rewritten, prefix cache dropped once")
+        host.logInfo(TAG, "persona or scene changed — system prompt rewritten, prefix cache dropped once")
     }
 
     /**
@@ -1336,7 +1302,7 @@ class LocalBrain(
             // message is the only place a conversation can be cut.
             while (history.size > 1 && !isBoundary(history[1])) drop(1)
         }
-        Log.i(TAG, "history trimmed to ${history.size} msgs")
+        host.logInfo(TAG, "history trimmed to ${history.size} msgs")
     }
 
     private fun drop(index: Int) {
@@ -1393,15 +1359,15 @@ class LocalBrain(
         if (history.size == lastHarvestAtSize) {
             // Already tried at this size — a tail that cannot shrink (one huge
             // message, say) must not become an infinite review loop.
-            Log.i(TAG, "harvest skipped: nothing changed since the last one")
+            host.logInfo(TAG, "harvest skipped: nothing changed since the last one")
             return
         }
         val cut = boundaryAtOrBefore(history.size - KEEP_TAIL_MESSAGES)
         if (cut < MIN_HARVEST_MESSAGES) {
-            Log.i(TAG, "harvest skipped: only ${cut - 1} messages old enough to fold in")
+            host.logInfo(TAG, "harvest skipped: only ${cut - 1} messages old enough to fold in")
             return
         }
-        Log.i(
+        host.logInfo(
             TAG,
             "harvest: ${history.size} msgs / ${historyChars()} chars over budget — " +
                 "reviewing before trimming",
@@ -1433,7 +1399,7 @@ class LocalBrain(
         if (kind != TurnKind.HARVEST) return
         val from = internalFromIndex
         if (from < 0 || from >= history.size) return
-        Log.i(TAG, "harvest did not finish; dropping ${history.size - from} scaffolding message(s)")
+        host.logInfo(TAG, "harvest did not finish; dropping ${history.size - from} scaffolding message(s)")
         history.subList(from, history.size).clear()
         internalFromIndex = -1
     }
@@ -1451,18 +1417,18 @@ class LocalBrain(
         val from = internalFromIndex
         internalFromIndex = -1
         if (from < 0 || from > history.size) {
-            Log.w(TAG, "harvest finished without a usable start index")
+            host.logWarn(TAG, "harvest finished without a usable start index")
             return
         }
         val summary = summaryRaw.trim().take(MAX_INTERNAL_NOTE_CHARS)
         if (summary.isEmpty()) {
             // Keeping the long conversation beats replacing it with nothing.
-            Log.w(TAG, "harvest produced no summary; nothing dropped")
+            host.logWarn(TAG, "harvest produced no summary; nothing dropped")
             return
         }
         val keepStart = boundaryAtOrBefore(from - KEEP_TAIL_MESSAGES)
         if (keepStart < 2) {
-            Log.i(TAG, "harvest has nothing old enough to replace; kept as is")
+            host.logInfo(TAG, "harvest has nothing old enough to replace; kept as is")
             return
         }
         val kept = ArrayList<JSONObject>(history.size - keepStart + 2)
@@ -1482,7 +1448,7 @@ class LocalBrain(
         imageMessages.retainAll { msg -> history.any { it === msg } }
         photoMessages.retainAll { msg -> history.any { it === msg } }
         lastHarvestAtSize = history.size
-        Log.i(
+        host.logInfo(
             TAG,
             "harvest done: ${dropped} msgs folded into a ${summary.length}-char summary, " +
                 "history now ${history.size} msgs / ${historyChars()} chars",
@@ -1525,29 +1491,29 @@ class LocalBrain(
      * matches what a log line or a tool error would call the same thing.
      */
     private fun narrate(toolName: String): String = when {
-        toolName.startsWith("get_screen") -> AppLocale.str(appContext, R.string.narrate_get_screen)
+        toolName.startsWith("get_screen") -> host.text(BrainText.NARRATE_GET_SCREEN)
         toolName == "take_screenshot" || toolName == "zoom_screen_region" ->
-            AppLocale.str(appContext, R.string.narrate_screenshot)
-        toolName.startsWith("tap_") -> AppLocale.str(appContext, R.string.narrate_tap)
-        toolName.startsWith("long_press") -> AppLocale.str(appContext, R.string.narrate_long_press)
-        toolName.startsWith("swipe") -> AppLocale.str(appContext, R.string.narrate_swipe)
+            host.text(BrainText.NARRATE_SCREENSHOT)
+        toolName.startsWith("tap_") -> host.text(BrainText.NARRATE_TAP)
+        toolName.startsWith("long_press") -> host.text(BrainText.NARRATE_LONG_PRESS)
+        toolName.startsWith("swipe") -> host.text(BrainText.NARRATE_SWIPE)
         toolName == "type_text" || toolName == "fill_secret" ->
-            AppLocale.str(appContext, R.string.narrate_type)
-        toolName == "submit_input" -> AppLocale.str(appContext, R.string.narrate_submit)
-        toolName == "wait_for_screen" -> AppLocale.str(appContext, R.string.narrate_wait)
+            host.text(BrainText.NARRATE_TYPE)
+        toolName == "submit_input" -> host.text(BrainText.NARRATE_SUBMIT)
+        toolName == "wait_for_screen" -> host.text(BrainText.NARRATE_WAIT)
         toolName == "launch_app" || toolName == "open_url" ->
-            AppLocale.str(appContext, R.string.narrate_launch)
-        toolName == "system_action" -> AppLocale.str(appContext, R.string.narrate_system)
-        toolName == "show_html" -> AppLocale.str(appContext, R.string.narrate_show_html)
+            host.text(BrainText.NARRATE_LAUNCH)
+        toolName == "system_action" -> host.text(BrainText.NARRATE_SYSTEM)
+        toolName == "show_html" -> host.text(BrainText.NARRATE_SHOW_HTML)
         toolName == "list_pages" || toolName == "get_page" ->
-            AppLocale.str(appContext, R.string.narrate_pages)
+            host.text(BrainText.NARRATE_PAGES)
         toolName == "get_topic" || toolName == "list_topics" ->
-            AppLocale.str(appContext, R.string.narrate_topics)
-        toolName == "camera_turn" -> AppLocale.str(appContext, R.string.narrate_camera)
-        toolName.startsWith("dog_") -> AppLocale.str(appContext, R.string.narrate_dog)
-        toolName == "market_search" -> AppLocale.str(appContext, R.string.narrate_market_search)
-        toolName == "market_call" -> AppLocale.str(appContext, R.string.narrate_market_call)
-        else -> AppLocale.str(appContext, R.string.narrate_default, toolName)
+            host.text(BrainText.NARRATE_TOPICS)
+        toolName == "camera_turn" -> host.text(BrainText.NARRATE_CAMERA)
+        toolName.startsWith("dog_") -> host.text(BrainText.NARRATE_DOG)
+        toolName == "market_search" -> host.text(BrainText.NARRATE_MARKET_SEARCH)
+        toolName == "market_call" -> host.text(BrainText.NARRATE_MARKET_CALL)
+        else -> host.text(BrainText.NARRATE_DEFAULT, toolName)
     }
 
     /**
@@ -1563,7 +1529,7 @@ class LocalBrain(
     private fun stamp(): String =
         SimpleDateFormat(
             "yyyy-MM-dd EEE HH:mm",
-            AppLocale.localeOf(appContext),
+            host.locale(),
         ).format(Date())
 
     /**
@@ -1586,7 +1552,7 @@ class LocalBrain(
      * unmatched locale resolves to anyway.
      */
     private fun uiLangTag(): String =
-        AppLocale.localeOf(appContext).language.ifEmpty { "zh" }
+        host.locale().language.ifEmpty { "zh" }
 
     companion object {
         private const val TAG = "Brain"

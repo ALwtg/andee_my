@@ -2619,10 +2619,7 @@ class BodyCoreService : Service() {
         marketTools = market
         localBrain = net.kuafuai.andee.brain.LocalBrain(
             cfg = bc,
-            appContext = this,
-            dispatcher = dispatcher,
-            registry = callExtensions,
-            market = market,
+            host = net.kuafuai.andee.brain.AndroidBrainHost(this, dispatcher, callExtensions, market),
             onProgress = ::onBrainProgress,
             onFinal = ::onBrainFinal,
             onTurnEnd = ::onTurnEnd,
@@ -3121,7 +3118,9 @@ class BodyCoreService : Service() {
         val scene = if (localBrain == null) null
         else net.kuafuai.andee.config.VoiceConfig.activeScene(this)
             ?.let { net.kuafuai.andee.config.Notebook.scene(this, it) }
-        val verdict = net.kuafuai.andee.brain.NotificationTriage(bc)
+        val verdict = net.kuafuai.andee.brain.NotificationTriage(bc) { warn, msg ->
+            if (warn) android.util.Log.w("Brain", msg) else android.util.Log.i("Brain", msg)
+        }
             .decide(n, net.kuafuai.andee.config.VoiceConfig.uiLanguage(this), scene) ?: return false
         when (verdict.action) {
             net.kuafuai.andee.brain.NotificationTriage.Action.IGNORE -> {
