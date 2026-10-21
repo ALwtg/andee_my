@@ -21,5 +21,6 @@ internal object VoiceExitCommand {
         "Andee 休息一下", "安迪休息一下", "安迪你先休息一下",
     ).map(::normalize).toSet()
 
-    fun matches(text: String): Boolean = normalize(text) in commands
+    fun matches(text: String, userInitiated: Boolean = true): Boolean =
+        userInitiated && normalize(text) in commands
 }
