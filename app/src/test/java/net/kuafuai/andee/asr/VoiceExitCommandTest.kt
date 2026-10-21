@@ -7,6 +7,14 @@ import org.junit.Test
 
 class VoiceExitCommandTest {
     @Test
+    fun `automatic follow-up speech cannot request exit`() {
+        for (text in listOf("Exit Andee", "Take a break", "退出安迪", "休息一下")) {
+            assertFalse(text, VoiceExitCommand.matches(text, userInitiated = false))
+            assertTrue(text, VoiceExitCommand.matches(text, userInitiated = true))
+        }
+    }
+
+    @Test
     fun `recognizes the requested English exit phrases`() {
         assertTrue(VoiceExitCommand.matches("Exit Andee"))
         assertTrue(VoiceExitCommand.matches("Take a break"))
