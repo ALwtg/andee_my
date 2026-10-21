@@ -1264,6 +1264,7 @@ class LocalBrain(
     private fun systemPrompt(): String = LocalPrompt.withPersona(
         host.persona(),
         host.activeSceneName()?.let { host.scene(it) },
+        host.platformPrompt(),
     )
 
     /**

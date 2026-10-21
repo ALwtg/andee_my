@@ -45,6 +45,13 @@ interface BrainHost {
     /** The persona text of the look the ball is wearing; empty for none. */
     fun persona(): String
 
+    /**
+     * A section placed ahead of the whole system prompt saying what this body
+     * is, when it is not the phone the prompt was written for. The phone
+     * returns empty, so its prompt does not change by a byte.
+     */
+    fun platformPrompt(): String = ""
+
     // ---- notebook ----
 
     /** The user just spoke: restart the quiet-hour clock. */

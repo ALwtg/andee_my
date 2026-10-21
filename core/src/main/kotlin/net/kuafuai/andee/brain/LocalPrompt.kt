@@ -399,8 +399,18 @@ Entering and leaving: `enter_scene` / `exit_scene`, and say one sentence when yo
      * never be read as licence past the vault, truthfulness or asking before
      * the irreversible.
      */
-    fun withPersona(persona: String, scene: net.kuafuai.andee.config.Scene? = null): String {
-        var out = TEXT
+    /**
+     * @param platform what this body is, when it is not the phone the text was
+     *   written for. Empty on the phone, which keeps the prompt byte-for-byte
+     *   what it has always been there; the desktop hands in a section that
+     *   corrects the "you are a tablet" framing before anything else is read.
+     */
+    fun withPersona(
+        persona: String,
+        scene: net.kuafuai.andee.config.Scene? = null,
+        platform: String = "",
+    ): String {
+        var out = if (platform.isBlank()) TEXT else "$platform\n\n$TEXT"
         if (persona.isNotBlank()) {
             out += "\n\n" + """
 ### 12. The character you are wearing

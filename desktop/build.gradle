@@ -1,0 +1,47 @@
+// The macOS app: the shared brain from :core, a Compose Desktop window, and
+// the Mac body (screen, voice, shell) as it is built up. Packaged with
+// `./gradlew :desktop:createDistributable` into
+// desktop/build/compose/binaries/main/app/Andee.app.
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+
+plugins {
+    id 'org.jetbrains.kotlin.jvm'
+    id 'org.jetbrains.compose'
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+dependencies {
+    implementation project(':core')
+    implementation compose.desktop.currentOs
+    // Android has org.json built in; a JVM app has to bring it.
+    implementation 'org.json:json:20240303'
+
+    testImplementation libs.junit
+}
+
+compose.desktop {
+    application {
+        mainClass = 'net.kuafuai.andee.desktop.MainKt'
+        nativeDistributions {
+            targetFormats(TargetFormat.Dmg)
+            packageName = 'Andee'
+            // macOS rejects a 0.x bundle version for a .dmg; 1.0.0 is the bundle's
+            // version, not the product's.
+            packageVersion = '1.0.0'
+            macOS {
+                bundleID = 'net.kuafuai.andee.mac'
+            }
+        }
+    }
+}
+
+// A turn without the window, for checking the brain on this Mac:
+//   ./gradlew :desktop:probe --args='记住我喜欢芒果'
+tasks.register('probe', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'net.kuafuai.andee.desktop.ProbeKt'
+    standardInput = System.in
+}

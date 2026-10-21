@@ -6,6 +6,8 @@ pluginManagement {
         google()
         mavenCentral()
         gradlePluginPortal()
+        // Compose Multiplatform's Gradle plugin, for the desktop app.
+        maven { url 'https://maven.pkg.jetbrains.space/public/p/compose/dev' }
     }
 }
 dependencyResolutionManagement {
@@ -25,3 +27,4 @@ dependencyResolutionManagement {
 rootProject.name = "body"
 include ':app'
 include ':core'
+include ':desktop'
