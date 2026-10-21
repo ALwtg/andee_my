@@ -304,17 +304,22 @@ class LocalBrain(
      * Deferred rather than interrupting. See [busy] — the alternative is
      * cancelling a turn the user is in the middle of, which is exactly the
      * thing [cancel] is for and the user did not press it.
+     *
+     * [untrusted] = the todo was set on a [TurnKind.NOTIFY] turn. It runs as
+     * one again, or a stranger's message could get past the vault guard simply
+     * by asking for it to be done later.
      */
-    fun wake(text: String) {
+    fun wake(text: String, untrusted: Boolean = false) {
         val t = text.trim()
         if (t.isEmpty()) return
+        val kind = if (untrusted) TurnKind.NOTIFY else TurnKind.WAKE
         loop.execute {
             if (busy.get()) {
                 Log.i(TAG, "wake queued behind a running turn: ${t.take(60)}")
-                pendingWakes.addLast(t to TurnKind.WAKE)
+                pendingWakes.addLast(t to kind)
                 return@execute
             }
-            launch(t, TurnKind.WAKE)
+            launch(t, kind)
         }
     }
 

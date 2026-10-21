@@ -1431,6 +1431,7 @@ class CommandDispatcher(
                         lastError = "",
                         status = "active",
                         createdAt = now,
+                        untrusted = untrusted,
                     )
                 } else {
                     val at = Scheduler.parseLocal(atRaw)
@@ -1453,6 +1454,7 @@ class CommandDispatcher(
                         lastError = "",
                         status = "active",
                         createdAt = now,
+                        untrusted = untrusted,
                     )
                 }
                 Notebook.addTodo(appContext, todo)

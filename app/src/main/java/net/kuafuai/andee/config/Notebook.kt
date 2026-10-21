@@ -157,6 +157,13 @@ object Notebook {
         /** `active` / `paused` / `done` / `dropped`. */
         val status: String,
         val createdAt: Long,
+        /**
+         * Set on a turn whose subject matter a stranger wrote (a notification).
+         * Such a todo runs as that same kind of turn when it comes due, so the
+         * vault and scene guards cannot be laundered through the alarm clock.
+         * Rows written before this field existed read as false.
+         */
+        val untrusted: Boolean = false,
     )
 
     // ------------------------------------------------------------------
@@ -602,7 +609,7 @@ object Notebook {
         return null
     }
 
-    private fun toTodo(o: JSONObject): Todo = Todo(
+    internal fun toTodo(o: JSONObject): Todo = Todo(
         id = o.optString("id"),
         what = o.optString("what"),
         mode = o.optString("mode", "once"),
@@ -614,9 +621,10 @@ object Notebook {
         lastError = o.optString("last_error"),
         status = o.optString("status", "active"),
         createdAt = o.optLong("created_at"),
+        untrusted = o.optBoolean("untrusted", false),
     )
 
-    private fun toJson(t: Todo): JSONObject = JSONObject()
+    internal fun toJson(t: Todo): JSONObject = JSONObject()
         .put("id", t.id)
         .put("what", t.what)
         .put("mode", t.mode)
@@ -628,6 +636,7 @@ object Notebook {
         .put("last_error", t.lastError)
         .put("status", t.status)
         .put("created_at", t.createdAt)
+        .put("untrusted", t.untrusted)
 
     fun newTodoId(): String = "t" + System.currentTimeMillis().toString(36)
 
