@@ -95,7 +95,7 @@ object Scheduler {
      * Arm the next occurrence of [todo]. No-op (and cancels) when the todo has
      * no future run left — a fired one-shot, a paused row, a dropped one.
      */
-    fun armTodo(context: Context, todo: Notebook.Todo) {
+    fun armTodo(context: Context, todo: net.kuafuai.andee.config.Todo) {
         if (todo.status != "active" || todo.nextRunAt <= 0L) {
             cancelTodo(context, todo.id)
             return
@@ -193,9 +193,9 @@ object Scheduler {
      * The returned list is what the caller turns into either a silent note to
      * the brain (service alive) or a notification (service gone).
      */
-    fun catchUp(context: Context): List<Notebook.Todo> {
+    fun catchUp(context: Context): List<net.kuafuai.andee.config.Todo> {
         val now = System.currentTimeMillis()
-        val missed = mutableListOf<Notebook.Todo>()
+        val missed = mutableListOf<net.kuafuai.andee.config.Todo>()
         for (todo in Notebook.todos(context, "all")) {
             if (todo.status != "active") {
                 cancelTodo(context, todo.id)
@@ -242,7 +242,7 @@ object Scheduler {
      * a notification that just said "提醒：吃药" would be a lie about who is
      * talking.
      */
-    fun notifyMissed(context: Context, todo: Notebook.Todo) {
+    fun notifyMissed(context: Context, todo: net.kuafuai.andee.config.Todo) {
         val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         runCatching {
             if (mgr.getNotificationChannel(NOTIFY_CHANNEL) == null) {

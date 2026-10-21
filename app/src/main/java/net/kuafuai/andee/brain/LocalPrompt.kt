@@ -400,7 +400,7 @@ Entering and leaving: `enter_scene` / `exit_scene`, and say one sentence when yo
      * never be read as licence past the vault, truthfulness or asking before
      * the irreversible.
      */
-    fun withPersona(persona: String, scene: Notebook.Scene? = null): String {
+    fun withPersona(persona: String, scene: net.kuafuai.andee.config.Scene? = null): String {
         var out = TEXT
         if (persona.isNotBlank()) {
             out += "\n\n" + """

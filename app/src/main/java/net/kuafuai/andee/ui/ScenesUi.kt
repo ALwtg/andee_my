@@ -129,7 +129,7 @@ class ScenesUi(private val context: Context) {
         // The one in use first, then most recently used — the order the
         // prompt index uses, so the card and the model see the same list.
         val all = Notebook.scenes(context)
-            .sortedWith(compareByDescending<Notebook.Scene> { it.name == active }.thenByDescending { it.lastUsedAt })
+            .sortedWith(compareByDescending<net.kuafuai.andee.config.Scene> { it.name == active }.thenByDescending { it.lastUsedAt })
         if (all.isEmpty()) {
             body.addView(emptyState())
         } else {
@@ -243,7 +243,7 @@ class ScenesUi(private val context: Context) {
     }
 
     @SuppressLint("SetTextI18n")
-    private fun row(s: Notebook.Scene, active: Boolean): View {
+    private fun row(s: net.kuafuai.andee.config.Scene, active: Boolean): View {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))

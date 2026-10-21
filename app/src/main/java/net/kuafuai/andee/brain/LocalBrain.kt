@@ -60,7 +60,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * dispatch happens on a separate pool only so the loop thread can time it out.
  */
 class LocalBrain(
-    private val cfg: VoiceConfig.Companion.BrainConfig,
+    private val cfg: net.kuafuai.andee.config.BrainConfig,
     /**
      * The notebook's context. This class reads and writes memories on every
      * turn, so it needs one of its own rather than reaching through the
@@ -107,12 +107,12 @@ class LocalBrain(
     /**
      * Apply a settings change that is only about how the backend is asked —
      * model, thinking, effort — with the conversation intact. The caller has
-     * already established [VoiceConfig.Companion.BrainConfig.sameBackend]; a
+     * already established [net.kuafuai.andee.config.BrainConfig.sameBackend]; a
      * different endpoint, key or mode is a different brain and gets rebuilt.
      * [cfg] itself stays as built: the only things read from it after
      * construction are the key and the mode, and neither can differ here.
      */
-    fun retune(next: VoiceConfig.Companion.BrainConfig) {
+    fun retune(next: net.kuafuai.andee.config.BrainConfig) {
         llm.retune(next.model, next.thinking, next.reasoningEffort)
     }
 

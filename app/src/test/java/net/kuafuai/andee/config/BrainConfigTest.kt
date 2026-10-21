@@ -1,6 +1,6 @@
 package net.kuafuai.andee.config
 
-import net.kuafuai.andee.config.VoiceConfig.Companion.BrainConfig
+import net.kuafuai.andee.config.BrainConfig
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

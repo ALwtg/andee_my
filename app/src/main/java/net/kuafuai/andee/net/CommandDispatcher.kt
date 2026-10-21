@@ -1366,7 +1366,7 @@ class CommandDispatcher(
                         "not both and not neither"
                 }
                 val now = System.currentTimeMillis()
-                val todo: Notebook.Todo
+                val todo: net.kuafuai.andee.config.Todo
                 if (cronRaw.isNotEmpty()) {
                     val parsed = CronExpr.parse(cronRaw)
                     val gap = parsed.minGapMinutes()
@@ -1381,7 +1381,7 @@ class CommandDispatcher(
                             "That cron expression can never match (check the day / month / weekday " +
                                 "fields): $cronRaw",
                         )
-                    todo = Notebook.Todo(
+                    todo = net.kuafuai.andee.config.Todo(
                         id = Notebook.newTodoId(),
                         what = what,
                         mode = "cron",
@@ -1404,7 +1404,7 @@ class CommandDispatcher(
                         "That moment has already passed ($atRaw). It is already " +
                             "${Scheduler.formatLocal(now)}; give a time in the future."
                     }
-                    todo = Notebook.Todo(
+                    todo = net.kuafuai.andee.config.Todo(
                         id = Notebook.newTodoId(),
                         what = what,
                         mode = "once",
@@ -1704,7 +1704,7 @@ class CommandDispatcher(
         return AppLocale.str(appContext, id)
     }
 
-    private fun sceneParam(params: JSONObject?, method: String): Notebook.Scene {
+    private fun sceneParam(params: JSONObject?, method: String): net.kuafuai.andee.config.Scene {
         val name = requireNotNull(params?.optString("name")?.trim()?.ifEmpty { null }) {
             "$method requires name"
         }

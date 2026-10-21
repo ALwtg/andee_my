@@ -2742,7 +2742,7 @@ class BodyCoreService : Service() {
      * main thread; [net.kuafuai.andee.brain.LocalBrain.wake] only posts, and
      * defers itself if a turn is already running.
      */
-    fun wakeForTodo(todo: net.kuafuai.andee.config.Notebook.Todo) {
+    fun wakeForTodo(todo: net.kuafuai.andee.config.Todo) {
         val brain = localBrain
         if (brain == null) {
             // Nothing on this device can run a turn (no local brain — there is

@@ -28,7 +28,7 @@ import java.util.Locale
  * a different question: "what is it allowed to remember about me".
  *
  * **记忆** groups [Notebook.Memory] by type, most important first within each.
- * **待办** lists active and paused [Notebook.Todo]s, soonest first.
+ * **待办** lists active and paused [net.kuafuai.andee.config.Todo]s, soonest first.
  *
  * No editing: the brain writes these, not the person. Delete is the only
  * mutation, and it is **destructive** — gone from the encrypted blob, not
@@ -350,7 +350,7 @@ class NotebookUi(
     }
 
     @SuppressLint("SetTextI18n")
-    private fun todoRow(t: Notebook.Todo): View {
+    private fun todoRow(t: net.kuafuai.andee.config.Todo): View {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))

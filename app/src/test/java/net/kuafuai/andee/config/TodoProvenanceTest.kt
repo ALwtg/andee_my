@@ -14,7 +14,7 @@ import org.junit.Test
  */
 class TodoProvenanceTest {
 
-    private fun todo(untrusted: Boolean) = Notebook.Todo(
+    private fun todo(untrusted: Boolean) = net.kuafuai.andee.config.Todo(
         id = "t1",
         what = "fill in the bank password",
         mode = "once",

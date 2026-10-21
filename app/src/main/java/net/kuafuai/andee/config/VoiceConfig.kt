@@ -208,9 +208,9 @@ data class VoiceConfig(
          * is derived from `BuildConfig.CODEFLYING_*` and the user does not
          * fill in any voice / LLM fields.
          */
-        const val BRAIN_HUB = "hub"
-        const val BRAIN_LOCAL = "local"
-        const val BRAIN_CODEFLYING = "codeflying"
+        const val BRAIN_HUB = net.kuafuai.andee.config.BrainConfig.BRAIN_HUB
+        const val BRAIN_LOCAL = net.kuafuai.andee.config.BrainConfig.BRAIN_LOCAL
+        const val BRAIN_CODEFLYING = net.kuafuai.andee.config.BrainConfig.BRAIN_CODEFLYING
 
         const val DEFAULT_LLM_BASE_URL = "https://api.deepseek.com"
         const val DEFAULT_LLM_MODEL = "deepseek-flash"
@@ -384,40 +384,8 @@ data class VoiceConfig(
             )
         }
 
-        /**
-         * Which brain answers, and how to reach it if it is the local one.
-         *
-         * Read via [brainConfig]; like [hubConfig] this never throws and never
-         * requires the user to have configured anything — an unconfigured
-         * device reads as [BRAIN_LOCAL], which is the out-of-box default.
-         */
-        data class BrainConfig(
-            /** [BRAIN_HUB], [BRAIN_LOCAL] or [BRAIN_CODEFLYING]. */
-            val mode: String,
-            val apiKey: String,        // empty = on-device brain cannot run
-            val baseUrl: String,
-            val model: String,
-            val thinking: Boolean,
-            val reasoningEffort: String,
-        ) {
-            /**
-             * The agent loop runs on this device (local DeepSeek or CodeFlying
-             * — both are "the brain is here", only the backend differs). Only
-             * [BRAIN_HUB] is "run elsewhere, listen on a socket".
-             */
-            val isLocal: Boolean get() = mode == BRAIN_LOCAL || mode == BRAIN_CODEFLYING
-
-            /**
-             * Same backend, possibly asked differently. [mode], [apiKey] and
-             * [baseUrl] say *who* answers; [model], [thinking] and
-             * [reasoningEffort] only say how they are asked, and a running brain
-             * can take those on the next request. A config change that is only
-             * the second kind must not rebuild the brain, because rebuilding it
-             * is what discards the conversation.
-             */
-            fun sameBackend(other: BrainConfig): Boolean =
-                mode == other.mode && apiKey == other.apiKey && baseUrl == other.baseUrl
-        }
+        /** Moved to the shared module; see [net.kuafuai.andee.config.BrainConfig]. */
+        // Nested name kept so existing callers and the settings card read unchanged.
 
         /**
          * The brain mode in effect, with CodeFlying availability already
@@ -905,7 +873,7 @@ data class VoiceConfig(
         }
 
         /**
-         * The scene the assistant is in, by [Notebook.Scene.name], or null.
+         * The scene the assistant is in, by [net.kuafuai.andee.config.Scene.name], or null.
          *
          * Persisted for the same reason as [ballLook]: a service restart is not
          * the user leaving the scene. Written directly rather than through
