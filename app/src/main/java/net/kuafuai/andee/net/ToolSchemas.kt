@@ -1,6 +1,6 @@
 package net.kuafuai.andee.net
 
-import net.kuafuai.andee.screen.ScreenController
+import net.kuafuai.andee.screen.AimParts
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -246,7 +246,7 @@ object ToolSchemas {
             required = emptyList(),
             props = mapOf(
                 "cell" to prop("string", "Grid cell of the image you aimed from, e.g. \"D7\" on a full screenshot or \"d7\" on a magnified one."),
-                "part" to propEnum("Which part of that cell the target is in — one of nine thirds or, vertically, upper/lower between top/bottom. Omit for the centre.", ScreenController.PARTS),
+                "part" to propEnum("Which part of that cell the target is in — one of nine thirds or, vertically, upper/lower between top/bottom. Omit for the centre.", AimParts.PARTS),
                 "x" to prop("integer", "X, 0 (left edge) to 1000 (right edge) — of the screen, or of the zoom image when on=\"zoom\"."),
                 "y" to prop("integer", "Y, 0 (top edge) to 1000 (bottom edge) — of the screen, or of the zoom image when on=\"zoom\"."),
                 "on" to propEnum("Which image x/y (or a lowercase cell) were read off. \"screen\" is the default.", listOf("screen", "zoom")),
@@ -268,7 +268,7 @@ object ToolSchemas {
             required = emptyList(),
             props = mapOf(
                 "cell" to prop("string", "Grid cell of the image you aimed from, e.g. \"D7\" on a full screenshot or \"d7\" on a magnified one."),
-                "part" to propEnum("Which part of that cell the target is in — one of nine thirds or, vertically, upper/lower between top/bottom. Omit for the centre.", ScreenController.PARTS),
+                "part" to propEnum("Which part of that cell the target is in — one of nine thirds or, vertically, upper/lower between top/bottom. Omit for the centre.", AimParts.PARTS),
                 "x" to prop("integer", "X, 0 (left edge) to 1000 (right edge) — of the screen, or of the zoom image when on=\"zoom\"."),
                 "y" to prop("integer", "Y, 0 (top edge) to 1000 (bottom edge) — of the screen, or of the zoom image when on=\"zoom\"."),
                 "on" to propEnum("Which image x/y (or a lowercase cell) were read off. \"screen\" is the default.", listOf("screen", "zoom")),
@@ -362,7 +362,7 @@ object ToolSchemas {
             required = emptyList(),
             props = mapOf(
                 "cell" to prop("string", "Grid cell of the full screenshot you are about to tap, e.g. \"D7\". Replaces x/y/w/h."),
-                "part" to propEnum("Which part of that cell — the same part you would tap. Omit for the centre.", ScreenController.PARTS),
+                "part" to propEnum("Which part of that cell — the same part you would tap. Omit for the centre.", AimParts.PARTS),
                 "x" to prop("integer", "Region center X, 0 (left) to 1000 (right) of the whole screen — not image pixels. Use instead of cell."),
                 "y" to prop("integer", "Region center Y, 0 (top) to 1000 (bottom) of the whole screen — not image pixels. Use instead of cell."),
                 "w" to prop("integer", "Region width in screen 0-1000 units, e.g. 200."),
