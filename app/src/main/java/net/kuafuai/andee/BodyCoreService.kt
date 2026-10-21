@@ -14,6 +14,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import net.kuafuai.andee.asr.AsrController
+import net.kuafuai.andee.asr.VoiceExitCommand
 import net.kuafuai.andee.audio.AudioIO
 import net.kuafuai.andee.brain.SpeechMood
 import net.kuafuai.andee.i18n.AppLocale
@@ -173,6 +174,11 @@ class BodyCoreService : Service() {
     // button looks like it did nothing.
     @Volatile
     private var acceptBrainOutput = true
+
+    // stopSelf() schedules teardown. Late transcripts, wake callbacks and TTS
+    // drains must not start another turn in the gap before onDestroy runs.
+    @Volatile
+    private var exitRequested = false
 
     /**
      * Does the last final answer leave the conversation open?
@@ -556,7 +562,14 @@ class BodyCoreService : Service() {
             this, audio, window,
             onTranscript = {
                 voiceFailureReported = false
-                submitUserTurn(it, "voice")
+                if (VoiceExitCommand.matches(it)) {
+                    // Recognition runs on the ASR executor; stopping a task
+                    // and the service belongs on the main thread. Handle this
+                    // before card answers or either brain can consume it.
+                    ui.post { exitByVoice() }
+                } else {
+                    submitUserTurn(it, "voice")
+                }
             },
             onError = { msg -> reportVoiceFailure(msg) },
         )
@@ -962,6 +975,7 @@ class BodyCoreService : Service() {
      * half of the toggle and tear the recording down with no error anywhere.
      */
     private fun startTurn() {
+        if (exitRequested) return
         if (meeting.isActive()) {
             meeting.stopFromUser()
             return
@@ -997,6 +1011,7 @@ class BodyCoreService : Service() {
      * [how] is only for the log line.
      */
     private fun submitUserTurn(text: String, how: String, images: List<String> = emptyList()) {
+        if (exitRequested) return
         val said = text.trim()
         if (said.isEmpty() && images.isEmpty()) return
         // A card is up and waiting for an answer. Voice should answer it
@@ -1308,7 +1323,7 @@ class BodyCoreService : Service() {
      * Main thread only (posted by [tts.onDrained]).
      */
     private fun followUpWindow() {
-        if (!expectFollowUp) return
+        if (exitRequested || !expectFollowUp) return
         if (asr.isActive() || tts.isSpeaking() || meeting.isActive() ||
             net.kuafuai.andee.device.CallState.isActive
         ) return
@@ -1349,7 +1364,7 @@ class BodyCoreService : Service() {
         net.kuafuai.andee.wake.WakeWord.init(
             this,
             gate = {
-                wakeListeningAllowed() && !asr.isActive() && !tts.isSpeaking() &&
+                !exitRequested && wakeListeningAllowed() && !asr.isActive() && !tts.isSpeaking() &&
                         !meeting.isActive() && !net.kuafuai.andee.device.CallState.isActive &&
                         !net.kuafuai.andee.audio.Earcon.isSounding()
             },
@@ -1549,6 +1564,10 @@ class BodyCoreService : Service() {
     }
 
     override fun onDestroy() {
+        exitRequested = true
+        acceptBrainOutput = false
+        expectFollowUp = false
+        ui.removeCallbacksAndMessages(null)
         // First, before anything else: the dog is the only thing this service
         // drives that keeps acting after we are gone. Every motion is supposed
         // to end on its own, but "supposed to" is not a reason to leave motors
@@ -2388,6 +2407,23 @@ class BodyCoreService : Service() {
         }
     }
 
+    /**
+     * An explicit voice exit stops the body, not just its window. onDestroy
+     * owns the sockets, microphone, wake listener and every overlay, so reuse
+     * that teardown and leave permissions and saved history intact. Opening
+     * the launcher starts the body again with the existing grants.
+     */
+    private fun exitByVoice() {
+        if (exitRequested) return
+        exitRequested = true
+        expectFollowUp = false
+        stopEverything()
+        acceptBrainOutput = false
+        net.kuafuai.andee.ui.CardUi.dismissCurrent()
+        net.kuafuai.andee.wake.WakeWord.stop()
+        stopSelf()
+    }
+
     private fun startWsServer() {
         try {
             val srv = BodyWsServer(
@@ -2846,7 +2882,7 @@ class BodyCoreService : Service() {
         // of narration re-marks it: thinking looks like nothing at all on
         // the wire (no tool calls), and that's exactly when the "being
         // driven" light has to stay on.
-        if (acceptBrainOutput) {
+        if (acceptBrainOutput && !exitRequested) {
             dispatcher.beginTask()
             window.setState(FloatingWindowUi.State.THINKING)
             window.setSubtitle(
@@ -2868,7 +2904,7 @@ class BodyCoreService : Service() {
         // attach null to real answers, which fails silently and looks exactly
         // like the feature not existing. See [BrainTrace.current].
         val turn = net.kuafuai.andee.brain.BrainTrace.currentTurn()
-        if (acceptBrainOutput) {
+        if (acceptBrainOutput && !exitRequested) {
             // The brain's own verdict on whether this conversation is still
             // open. Written before the speak below because [followUpWindow]
             // reads it seconds later, off the TTS drain — see [expectFollowUp].
