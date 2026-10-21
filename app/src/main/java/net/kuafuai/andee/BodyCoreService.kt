@@ -1206,6 +1206,13 @@ class BodyCoreService : Service() {
      * have left: the failure outlives the card timing out.
      */
     private fun reportVoiceFailure(msg: String) {
+        // Serialize the error card with exit: an ASR callback can arrive while
+        // its socket is being closed, after the user has already left.
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            ui.post { reportVoiceFailure(msg) }
+            return
+        }
+        if (exitRequested) return
         android.util.Log.w("Body", "voice failed: $msg")
         if (voiceFailureReported) return
         voiceFailureReported = true
@@ -1291,6 +1298,7 @@ class BodyCoreService : Service() {
      * device that can be used.
      */
     private fun showAnswerAsCard() {
+        if (exitRequested) return
         val answer = lastAnswer ?: return
         if (!window.isCompact()) return
         net.kuafuai.andee.ui.CardUi.alert(answer) { }
