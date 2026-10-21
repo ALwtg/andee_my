@@ -1,0 +1,414 @@
+package net.kuafuai.andee.desktop.mac
+
+import net.kuafuai.andee.desktop.DesktopBrainHost
+import net.kuafuai.andee.screen.AimParts
+import net.kuafuai.andee.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
+import java.awt.BasicStroke
+import java.awt.Color
+import java.awt.Font
+import java.awt.RenderingHints
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.util.Base64
+import javax.imageio.ImageIO
+
+/**
+ * The `screen.*` tools on a Mac, speaking the phone's protocol exactly: an
+ * element outline with e-numbers, 0-1000 coordinates of the main display, an
+ * 8x12 aim grid on every screenshot, zoom with a crosshair, and the same
+ * guards (values outside 0-1000 are refused, the fourth tap on one spot within
+ * five minutes is refused).
+ *
+ * What a tap does here: an e-number press uses the element's own Press action
+ * when it has one (nothing can land on the wrong thing), and otherwise clicks
+ * its centre. A coordinate tap is a real mouse click.
+ */
+class MacScreen(
+    /** Hide our own windows for a gesture or a capture, and show them again after. */
+    private val hideOwnWindows: (Boolean) -> Unit,
+) : DesktopBrainHost.ToolProvider {
+
+    private data class El(val eid: String, val cx: Double, val cy: Double, val press: Boolean, val editable: Boolean, val label: String)
+
+    @Volatile private var index: Map<String, El> = emptyMap()
+    @Volatile private var zoomRegion: IntArray? = null
+    @Volatile private var zoomAt = 0L
+    private val spots = HashMap<String, MutableList<Long>>()
+
+    override fun handles(method: String) = method in METHODS
+
+    override fun dispatch(method: String, p: JSONObject, silent: Boolean, untrusted: Boolean): Any? {
+        if (!Bridge.available) throw IllegalStateException("The Mac screen bridge did not load; screen tools cannot run here.")
+        if (!Bridge.axTrusted()) throw IllegalStateException(
+            "Andee does not have Accessibility permission on this Mac, so it cannot read or operate the screen. " +
+                "Tell the user to allow it in System Settings → Privacy & Security → Accessibility (Andee's ✓ check card has a button).",
+        )
+        return when (method) {
+            "screen.ui_tree" -> uiTree(p.optBoolean("with_shot", false))
+            "screen.tap_id" -> tapId(req(p, "eid"), long = false)
+            "screen.long_press_id" -> tapId(req(p, "eid"), long = true)
+            "screen.tap" -> tapAim(p, long = false)
+            "screen.long_press" -> tapAim(p, long = true)
+            "screen.swipe" -> swipe(p)
+            "screen.type" -> type(p.optString("text"))
+            "screen.submit_input" -> submit()
+            "screen.wait" -> waitFor(p.optDouble("seconds", 2.0))
+            "screen.screenshot" -> screenshot(grid = true)
+            "screen.look_region" -> lookRegion(p)
+            "screen.global" -> global(req(p, "action"))
+            else -> throw IllegalArgumentException("unknown method $method")
+        }
+    }
+
+    // ---- geometry ----------------------------------------------------------
+
+    private val display: JSONObject get() = Bridge.display()
+    private fun dw() = display.getDouble("w")
+    private fun dh() = display.getDouble("h")
+    private fun toPx(nx: Int, ny: Int) = (nx / 1000.0 * dw()) to (ny / 1000.0 * dh())
+    private fun toNorm(x: Double, y: Double) = (x / dw() * 1000).toInt().coerceIn(0, 1000) to (y / dh() * 1000).toInt().coerceIn(0, 1000)
+
+    private fun requireNorm(v: Int, name: String) {
+        require(v in 0..1000) { "$name=$v is outside 0-1000. Coordinates are relative to the screen, 0 to 1000; read them off the grid." }
+    }
+
+    // ---- the outline ---------------------------------------------------------
+
+    private fun uiTree(withShot: Boolean): JSONObject {
+        val raw = Bridge.axTree(1500)
+        val lines = mutableListOf<String>()
+        val idx = LinkedHashMap<String, El>()
+        var total = 0
+        var n = 0
+        fun visit(o: JSONObject, depth: Int) {
+            total++
+            val f = o.optJSONArray("frame")
+            val role = o.optString("role").removePrefix("AX")
+            val label = listOf("title", "desc", "value", "placeholder", "help").map { o.optString(it) }.firstOrNull { it.isNotBlank() }
+                ?: o.optString("id").takeIf { it.isNotBlank() }?.let { "#$it" } ?: ""
+            val visible = f != null && f.getDouble(2) > 1 && f.getDouble(3) > 1 &&
+                f.getDouble(0) < dw() && f.getDouble(1) < dh() && f.getDouble(0) + f.getDouble(2) > 0 && f.getDouble(1) + f.getDouble(3) > 0
+            val press = o.optBoolean("press")
+            val editable = o.optBoolean("editable") || role in setOf("TextField", "TextArea", "SearchField", "ComboBox")
+            val useful = visible && !o.optBoolean("disabled") &&
+                (press || editable || label.isNotBlank() || role in setOf("Button", "Link", "CheckBox", "RadioButton", "PopUpButton", "MenuButton", "Tab", "Cell", "Row"))
+            val kids = o.optJSONArray("children")
+            val decorative = role in setOf("Group", "ScrollArea", "SplitGroup", "Unknown", "LayoutArea", "") && label.isBlank() && !press
+            var d = depth
+            if (useful && !(decorative && kids != null)) {
+                val eid = "e${n++}"
+                val cx = f!!.getDouble(0) + f.getDouble(2) / 2
+                val cy = f.getDouble(1) + f.getDouble(3) / 2
+                val (nx, ny) = toNorm(cx, cy)
+                idx[eid] = El(eid, cx, cy, press, editable, label)
+                if (lines.size < MAX_LINES) {
+                    lines += "  ".repeat(depth) + "$eid${if (press) "*" else ""}${if (editable) "✎" else ""}|$role|${label.take(80).replace('\n', ' ')}|[$nx,$ny]"
+                }
+                d = depth + 1
+            }
+            if (kids != null) for (i in 0 until kids.length()) visit(kids.getJSONObject(i), d)
+        }
+        raw.optJSONObject("tree")?.let { visit(it, 0) }
+        index = idx
+        val out = JSONObject().put("app", raw.optString("app")).put("bundle", raw.optString("bundle"))
+            .put("window", raw.optString("window_title")).put("nodes_total", total).put("elements_listed", idx.size)
+            .put("elements", lines.joinToString("\n"))
+        if (idx.size > MAX_LINES) out.put("elements_dropped", idx.size - MAX_LINES)
+        if (idx.isEmpty()) {
+            out.put("empty", true).put(
+                "hint",
+                "This app gives the accessibility layer almost nothing (common for apps that draw their own UI, like " +
+                    "WeChat for Mac). Work from the screenshot attached here: aim with the grid and tap_by_coordinates, " +
+                    "checking each result. A keyboard shortcut or the app's menu bar is often more reliable than a click.",
+            )
+            if (Bridge.screenCaptureAllowed()) out.put("shot_auto", true).put("png_base64", shot(grid = true)) else out.put("screenshot_blocked", SCREEN_RECORDING_NOTE)
+        } else if (withShot) {
+            if (Bridge.screenCaptureAllowed()) out.put("png_base64", shot(grid = true)) else out.put("screenshot_blocked", SCREEN_RECORDING_NOTE)
+        }
+        out.put("aim_note", "Coordinates are [x,y] in 0-1000 of the main display. * = has a Press action; ✎ = editable.")
+        return out
+    }
+
+    // ---- taps ---------------------------------------------------------------
+
+    private fun tapId(eid: String, long: Boolean): JSONObject {
+        val e = index[eid] ?: throw IllegalArgumentException(
+            "unknown element $eid — the screen has changed or the number is from an older list. Re-dump with get_screen_element; do not guess.",
+        )
+        val (nx, ny) = toNorm(e.cx, e.cy)
+        val pressed = !long && e.press && gesture { Bridge.axPressAt(e.cx, e.cy) }
+        if (!pressed) gesture { Bridge.click(e.cx, e.cy, right = long, holdMs = 40) }
+        return afterTap(JSONObject().put("completed", true).put("eid", eid).put("label", e.label)
+            .put("via", if (pressed) "press_action" else if (long) "right_click" else "click").put("x", nx).put("y", ny))
+    }
+
+    private fun tapAim(p: JSONObject, long: Boolean): JSONObject {
+        val (nx, ny, label) = resolveAim(p)
+        guardSpot(nx, ny)
+        val (x, y) = toPx(nx, ny)
+        gesture { Bridge.click(x, y, right = long, holdMs = if (long) 40 else 40) }
+        return afterTap(JSONObject().put("completed", true).put("x", nx).put("y", ny).put("aimed_at", label)
+            .put("via", if (long) "right_click" else "click"))
+    }
+
+    /** Taps are followed by a fresh picture, as on the phone, so the next step reads the result. */
+    private fun afterTap(o: JSONObject): JSONObject {
+        Thread.sleep(400)
+        if (Bridge.screenCaptureAllowed()) o.put("after_shot", JSONObject().put("png_base64", shot(grid = true)))
+        o.put("front_app", Bridge.frontmost().optString("name"))
+        return o
+    }
+
+    private fun resolveAim(p: JSONObject): Triple<Int, Int, String> {
+        val on = p.optString("on").lowercase()
+        val cell = p.optString("cell").trim()
+        if (cell.isNotEmpty()) {
+            val zoom = on == "zoom" || (on.isEmpty() && cell.first().isLowerCase())
+            val (col, row) = parseCell(cell)
+            val part = p.optString("part").trim().lowercase().replace('_', '-').replace(' ', '-')
+            val (fx, fy) = if (part.isEmpty()) intArrayOf(1, AimParts.MID_ROW).let { it[0] to it[1] }
+            else (AimParts.cellOf(part) ?: throw IllegalArgumentException("unknown part \"$part\" — one of ${AimParts.PARTS.joinToString()}")).let { it[0] to it[1] }
+            val lx = ((col * AimParts.COLS + fx) * 2 + 1) * 1000 / (2 * GRID_COLS * AimParts.COLS)
+            val ly = ((row * AimParts.ROWS + fy) * 2 + 1) * 1000 / (2 * GRID_ROWS * AimParts.ROWS)
+            return if (zoom) zoomToScreen(lx, ly).let { Triple(it.first, it.second, "zoom cell $cell $part") }
+            else Triple(lx, ly, "cell $cell $part")
+        }
+        val x = p.optInt("x", Int.MIN_VALUE)
+        val y = p.optInt("y", Int.MIN_VALUE)
+        require(x != Int.MIN_VALUE && y != Int.MIN_VALUE) { "give either cell (+ part) or x and y" }
+        requireNorm(x, "x"); requireNorm(y, "y")
+        return if (on == "zoom") zoomToScreen(x, y).let { Triple(it.first, it.second, "zoom $x,$y") } else Triple(x, y, "$x,$y")
+    }
+
+    private fun parseCell(cell: String): Pair<Int, Int> {
+        val s = cell.uppercase()
+        val col = s[0] - 'A'
+        val row = s.substring(1).toIntOrNull()?.minus(1) ?: -1
+        require(col in 0 until GRID_COLS && row in 0 until GRID_ROWS) {
+            "bad grid cell '$cell' — a column letter A..H and a row number 1..12, exactly as labelled on the image"
+        }
+        return col to row
+    }
+
+    private fun zoomToScreen(lx: Int, ly: Int): Pair<Int, Int> {
+        val r = zoomRegion ?: throw IllegalStateException("on=\"zoom\" needs a zoom first — call zoom_screen_region")
+        if (System.currentTimeMillis() - zoomAt > 180_000) throw IllegalStateException("that zoom is over three minutes old; take a fresh one")
+        return (r[0] + lx * (r[2] - r[0]) / 1000) to (r[1] + ly * (r[3] - r[1]) / 1000)
+    }
+
+    /** The phone's stuck-loop guard: a fourth tap within 120 px of a spot inside five minutes is refused. */
+    private fun guardSpot(nx: Int, ny: Int) {
+        val (x, y) = toPx(nx, ny)
+        val now = System.currentTimeMillis()
+        synchronized(spots) {
+            spots.values.forEach { it.removeAll { t -> now - t > 300_000 } }
+            val key = spots.keys.firstOrNull { k -> k.split(',').let { Math.hypot(it[0].toDouble() - x, it[1].toDouble() - y) < 120 } }
+                ?: "${x.toInt()},${y.toInt()}"
+            val list = spots.getOrPut(key) { mutableListOf() }
+            if (list.size >= 3) throw IllegalStateException(
+                "refused: this is the fourth tap on the same spot in five minutes. Stop, look at the screen again, and " +
+                    "if it is not working, tell the user where you are stuck instead of tapping again.",
+            )
+            list += now
+        }
+    }
+
+    // ---- swipes, typing, keys ---------------------------------------------
+
+    private fun swipe(p: JSONObject): JSONObject {
+        val x1 = p.getInt("x1"); val y1 = p.getInt("y1"); val x2 = p.getInt("x2"); val y2 = p.getInt("y2")
+        listOf(x1 to "x1", y1 to "y1", x2 to "x2", y2 to "y2").forEach { requireNorm(it.first, it.second) }
+        val (ax, ay) = toPx(x1, y1); val (bx, by) = toPx(x2, y2)
+        // On a Mac a swipe that scrolls is a scroll: the content moves the way the finger did, by that distance.
+        gesture { Bridge.scroll(ax, ay, (bx - ax).toInt(), (by - ay).toInt()) }
+        return JSONObject().put("completed", true).put("from", "$x1,$y1").put("to", "$x2,$y2").put("via", "scroll")
+            .put("note", "A swipe scrolls whatever is under the start point by that distance. To drag something, use the app's own controls.")
+    }
+
+    private fun type(text: String): JSONObject {
+        val before = Bridge.focusedValue()
+        if (!before.optBoolean("focused")) throw IllegalStateException("no field has focus — click into the field first")
+        val viaAx = Bridge.setFocusedValue(text)
+        if (!viaAx) gesture { Bridge.key(Bridge.Keys.A, Bridge.Keys.CMD); Bridge.key(Bridge.Keys.DELETE); Bridge.typeText(text) }
+        Thread.sleep(150)
+        val now = Bridge.focusedValue().optString("value")
+        val ok = now == text || now.contains(text)
+        return JSONObject().put("performed", ok).put("via", if (viaAx) "ax_value" else "keystrokes").put("len", text.length)
+            .apply { if (ok) put("text", now.take(200)) else put("error", "the field reads '${now.take(30)}' — check with a screenshot") }
+    }
+
+    private fun submit(): JSONObject {
+        gesture { Bridge.key(Bridge.Keys.RETURN) }
+        return JSONObject().put("performed", true).put("via", "return_key")
+    }
+
+    private fun global(action: String): JSONObject {
+        when (action.lowercase()) {
+            "back" -> Bridge.key(Bridge.Keys.LEFT_BRACKET, Bridge.Keys.CMD)
+            "home" -> Bridge.key(Bridge.Keys.F3, Bridge.Keys.CMD)
+            "recents" -> Bridge.key(Bridge.Keys.UP, Bridge.Keys.CONTROL)
+            "notifications", "quick_settings" -> Bridge.open("x-apple.systempreferences:com.apple.ControlCenter-Settings.extension")
+            else -> throw IllegalArgumentException("unknown action $action — back, home, recents, notifications")
+        }
+        return JSONObject().put("performed", true).put("action", action)
+            .put("note", when (action.lowercase()) {
+                "back" -> "Sent ⌘[ — Back in browsers and Finder. Many apps have no Back; prefer a visible button or Esc."
+                "home" -> "Sent ⌘F3 (show desktop)."
+                "recents" -> "Sent ⌃↑ (Mission Control)."
+                else -> "Opened Control Center settings."
+            })
+    }
+
+    private fun waitFor(seconds: Double): JSONObject {
+        val ms = (seconds.coerceIn(0.0, 20.0) * 1000).toLong()
+        Thread.sleep(ms)
+        return uiTree(withShot = true).put("waited_ms", ms)
+    }
+
+    // ---- pictures -----------------------------------------------------------
+
+    private fun screenshot(grid: Boolean): JSONObject {
+        if (!Bridge.screenCaptureAllowed()) throw IllegalStateException(SCREEN_RECORDING_NOTE)
+        return JSONObject().put("png_base64", shot(grid)).put("aim_grid", AIM_GRID_NOTE)
+    }
+
+    private fun capture(): BufferedImage {
+        val f = File.createTempFile("andee-shot", ".png")
+        try {
+            val ok = gestureless { Bridge.screenshot(f.path, 2560) }
+            if (!ok) throw IllegalStateException(SCREEN_RECORDING_NOTE)
+            return ImageIO.read(f)
+        } finally { f.delete() }
+    }
+
+    private fun shot(grid: Boolean): String {
+        var img = capture()
+        img = scale(img, SHOT_MAX_SIDE)
+        if (grid) drawGrid(img, zoom = false)
+        return png(img)
+    }
+
+    private fun lookRegion(p: JSONObject): JSONObject {
+        if (!Bridge.screenCaptureAllowed()) throw IllegalStateException(SCREEN_RECORDING_NOTE)
+        val (cx, cy, w, h, mark) = if (p.optString("cell").isNotBlank()) {
+            val (nx, ny, _) = resolveAim(p)
+            listOf(nx, ny, 2 * 1000 / GRID_COLS, 2 * 1000 / GRID_ROWS, 1)
+        } else {
+            listOf(p.getInt("x"), p.getInt("y"), p.optInt("w", 200), p.optInt("h", 300), 0)
+        }
+        requireNorm(cx, "x"); requireNorm(cy, "y")
+        val left = (cx - w / 2).coerceIn(0, 999); val top = (cy - h / 2).coerceIn(0, 999)
+        val right = (left + w).coerceAtMost(1000); val bottom = (top + h).coerceAtMost(1000)
+        val full = capture()
+        val sx = full.width / 1000.0; val sy = full.height / 1000.0
+        val sub = full.getSubimage((left * sx).toInt(), (top * sy).toInt(), ((right - left) * sx).toInt().coerceAtLeast(4), ((bottom - top) * sy).toInt().coerceAtLeast(4))
+        val k = SHOT_MAX_SIDE.toDouble() / maxOf(sub.width, sub.height)
+        val out = BufferedImage((sub.width * k).toInt(), (sub.height * k).toInt(), BufferedImage.TYPE_INT_RGB)
+        out.createGraphics().apply {
+            setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+            drawImage(sub, 0, 0, out.width, out.height, null); dispose()
+        }
+        drawGrid(out, zoom = true)
+        if (mark == 1) {
+            val mx = (cx - left) * out.width / (right - left).toDouble(); val my = (cy - top) * out.height / (bottom - top).toDouble()
+            out.createGraphics().apply {
+                setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                val r = minOf(out.width, out.height) * 0.045
+                color = Color(224, 0, 255); stroke = BasicStroke((r * 0.14).toFloat())
+                drawOval((mx - r).toInt(), (my - r).toInt(), (2 * r).toInt(), (2 * r).toInt())
+                drawLine((mx - r * 1.8).toInt(), my.toInt(), (mx - r * 0.4).toInt(), my.toInt())
+                drawLine((mx + r * 0.4).toInt(), my.toInt(), (mx + r * 1.8).toInt(), my.toInt())
+                drawLine(mx.toInt(), (my - r * 1.8).toInt(), mx.toInt(), (my - r * 0.4).toInt())
+                drawLine(mx.toInt(), (my + r * 0.4).toInt(), mx.toInt(), (my + r * 1.8).toInt())
+                dispose()
+            }
+        }
+        zoomRegion = intArrayOf(left, top, right, bottom); zoomAt = System.currentTimeMillis()
+        return JSONObject().put("png_base64", png(out)).put("region", JSONObject().put("left", left).put("top", top).put("right", right).put("bottom", bottom))
+            .put("zoom_hint", "This is a magnified region; its grid is lowercase (a1..h12). Aim off it with {\"cell\": \"d7\", \"part\": \"…\", \"on\": \"zoom\"}.")
+    }
+
+    private fun scale(img: BufferedImage, maxSide: Int): BufferedImage {
+        val k = maxSide.toDouble() / maxOf(img.width, img.height)
+        if (k >= 1) return img
+        val out = BufferedImage((img.width * k).toInt(), (img.height * k).toInt(), BufferedImage.TYPE_INT_RGB)
+        out.createGraphics().apply {
+            setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+            drawImage(img, 0, 0, out.width, out.height, null); dispose()
+        }
+        return out
+    }
+
+    private fun drawGrid(img: BufferedImage, zoom: Boolean) {
+        val g = img.createGraphics()
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        val cw = img.width / GRID_COLS.toDouble(); val ch = img.height / GRID_ROWS.toDouble()
+        for (i in 0..GRID_COLS) {
+            val x = (i * cw).toInt().coerceIn(0, img.width - 1)
+            g.color = Color(255, 255, 255, 38); g.stroke = BasicStroke(3f); g.drawLine(x, 0, x, img.height)
+            g.color = Color(0, 0, 0, 96); g.stroke = BasicStroke(1f); g.drawLine(x, 0, x, img.height)
+        }
+        for (i in 0..GRID_ROWS) {
+            val y = (i * ch).toInt().coerceIn(0, img.height - 1)
+            g.color = Color(255, 255, 255, 38); g.stroke = BasicStroke(3f); g.drawLine(0, y, img.width, y)
+            g.color = Color(0, 0, 0, 96); g.stroke = BasicStroke(1f); g.drawLine(0, y, img.width, y)
+        }
+        val size = (minOf(cw, ch) * 0.2).coerceIn(9.0, 24.0).toFloat()
+        g.font = Font(Font.SANS_SERIF, Font.BOLD, size.toInt())
+        for (r in 0 until GRID_ROWS) for (c in 0 until GRID_COLS) {
+            val label = "${'A' + c}${r + 1}".let { if (zoom) it.lowercase() else it }
+            val w = g.fontMetrics.stringWidth(label)
+            val tx = ((c + 0.5) * cw - w / 2).toInt(); val ty = ((r + 0.5) * ch + size * 0.35).toInt()
+            g.color = Color(0, 0, 0, 165); for (dx in -1..1) for (dy in -1..1) g.drawString(label, tx + dx, ty + dy)
+            g.color = Color(255, 255, 255, 175); g.drawString(label, tx, ty)
+        }
+        g.dispose()
+    }
+
+    private fun png(img: BufferedImage): String {
+        val bos = ByteArrayOutputStream()
+        ImageIO.write(img, "png", bos)
+        return Base64.getEncoder().encodeToString(bos.toByteArray())
+    }
+
+    // ---- our own windows -----------------------------------------------------
+
+    /** Gestures hide our windows so a click cannot land on Andee. */
+    private fun <T> gesture(block: () -> T): T {
+        hideOwnWindows(true)
+        try { Thread.sleep(120); return block() } finally { hideOwnWindows(false) }
+    }
+
+    /** Captures exclude our process in ScreenCaptureKit itself; nothing to hide. */
+    private fun <T> gestureless(block: () -> T): T = block()
+
+    private fun req(p: JSONObject, k: String) = p.optString(k).trim().ifEmpty { throw IllegalArgumentException("$k is required") }
+
+    companion object {
+        private const val GRID_COLS = 8
+        private const val GRID_ROWS = 12
+        private const val SHOT_MAX_SIDE = 1280
+        private const val MAX_LINES = 300
+
+        val METHODS = setOf(
+            "screen.ui_tree", "screen.tap_id", "screen.tap", "screen.long_press_id", "screen.long_press",
+            "screen.swipe", "screen.type", "screen.submit_input", "screen.wait", "screen.look_region",
+            "screen.screenshot", "screen.global",
+        )
+
+        const val SCREEN_RECORDING_NOTE =
+            "Andee does not have Screen Recording permission on this Mac, so it cannot see the screen. Tell the user to " +
+                "allow it in System Settings → Privacy & Security → Screen & System Audio Recording (the ✓ check card has a button), " +
+                "then quit and reopen Andee."
+
+        private const val AIM_GRID_NOTE =
+            "This image carries an 8x12 aim grid, A1 (top-left) to H12 (bottom-right), each label at the centre of its cell. " +
+                "To click something, name its cell and which part of the cell — {\"cell\": \"D7\", \"part\": \"bottom-right\"} on " +
+                "tap_by_coordinates. Andee's own windows are never in this picture."
+
+        init { Log.i("MacScreen", "screen tools registered") }
+    }
+}

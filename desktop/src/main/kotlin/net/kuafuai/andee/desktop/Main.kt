@@ -27,6 +27,11 @@ fun main() {
             title = "Andee",
             state = rememberWindowState(width = 520.dp, height = 760.dp),
         ) {
+            // A click aimed at another app must not land on Andee: step aside for the instant of it.
+            val w = this.window
+            Assistant.hideWindows = { hide ->
+                javax.swing.SwingUtilities.invokeAndWait { w.opacity = if (hide) 0f else 1f }
+            }
             androidx.compose.foundation.layout.Box {
                 if (settings) SettingsScreen { settings = false } else ChatScreen { settings = true }
                 pending?.let { ApprovalCard(it) }

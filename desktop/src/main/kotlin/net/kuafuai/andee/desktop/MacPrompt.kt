@@ -25,7 +25,15 @@ What you can do here, right now, is exactly what your tool list contains — not
         )
         append("\n\n")
         if (caps.screen) {
-            append("- You can see and operate the Mac's screen: the tools whose names mention the screen work on this Mac, with the same grid and 0-1000 coordinates.\n")
+            append(
+                "- You can see and operate the Mac's screen with the same tools and the same grid and 0-1000 coordinates. " +
+                    "On a Mac: a tap is a mouse click; long_press is a right-click (the context menu); swipe scrolls what is " +
+                    "under its start point by that distance; system_action back is ⌘[ (Back in browsers and Finder — many " +
+                    "apps have none, prefer a visible button or Esc), home shows the desktop. launch_app takes a bundle id " +
+                    "(com.apple.Safari) or an app name. Prefer keyboard shortcuts and the menu bar (it is in the element list) " +
+                    "over hunting for small icons. Anything a command can do (open -a, open URL, mdfind) is usually faster " +
+                    "than clicking.\n",
+            )
         } else {
             append("- **You cannot see or operate this Mac's screen yet.** There are no screen tools on this device. Do not offer to open, tap, click, type into or look at anything on the screen, and do not say you did.\n")
         }

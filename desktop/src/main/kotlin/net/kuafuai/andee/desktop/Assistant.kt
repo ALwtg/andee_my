@@ -37,6 +37,20 @@ object Assistant {
         )
     }
 
+    /** Hides Andee's own windows for the instant of a click; set by the window. */
+    @Volatile var hideWindows: (Boolean) -> Unit = {}
+
+    /** The screen hand: accessibility tree, clicks, keys and screenshots. */
+    val screen: net.kuafuai.andee.desktop.mac.MacScreen by lazy {
+        net.kuafuai.andee.desktop.mac.MacScreen { hide -> hideWindows(hide) }
+    }
+
+    /** Apps, calendar, reminders, contacts, volume, battery and the vault. */
+    val device: net.kuafuai.andee.desktop.mac.MacDevice by lazy {
+        net.kuafuai.andee.desktop.mac.MacVault.entries()
+        net.kuafuai.andee.desktop.mac.MacDevice()
+    }
+
     /** Values that must never reach the model or a log: Andee's own keys, then the vault. */
     private fun secrets(): List<Pair<String, String>> = buildList {
         Settings.get("llm_api_key").takeIf { it.length >= 8 }?.let { add("Andee's model key" to it) }
@@ -71,6 +85,8 @@ object Assistant {
                     notes.dispatch(method, p, silent, untrusted)
             },
             shell,
+            screen,
+            device,
         )
     }
 
@@ -89,7 +105,7 @@ object Assistant {
         Log.i(TAG, "building the brain (${cfg.mode}, ${cfg.model})")
         val b = LocalBrain(
             cfg = cfg,
-            host = DesktopBrainHost(providers(), MacPrompt.Capabilities(shell = true)),
+            host = DesktopBrainHost(providers(), MacPrompt.Capabilities(shell = true, screen = true)),
             onProgress = { onProgress(it) },
             onFinal = { text ->
                 Scrollback.add(Scrollback.Role.ASSISTANT, text)
