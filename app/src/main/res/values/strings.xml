@@ -355,6 +355,7 @@
     <string name="svc_btn_type_instead">打字说</string>
     <string name="svc_btn_open_settings">打开设置</string>
     <string name="svc_stopped">已停止</string>
+    <string name="svc_exit_meeting_active">正在记录会议，请先结束会议并保存纪要，再退出安迪。</string>
     <!--
         The two parenthesised rows dropped into the scrollback when a recording
         winds itself up. They read as a stage direction on purpose, mirroring
