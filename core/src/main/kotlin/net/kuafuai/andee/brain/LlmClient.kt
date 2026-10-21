@@ -138,8 +138,9 @@ class LlmClient(
     /**
      * @param messages the full conversation, system message first.
      * @param tools OpenAI-format function specs — see [toolSpecs].
+     * @param noThinking ask without reasoning whatever the user's setting is.
      */
-    fun complete(messages: List<JSONObject>, tools: JSONArray): Reply {
+    fun complete(messages: List<JSONObject>, tools: JSONArray, noThinking: Boolean = false): Reply {
         val msgArr = JSONArray()
         for (m in messages) msgArr.put(m)
         val body = JSONObject()
@@ -149,7 +150,7 @@ class LlmClient(
         if (tools.length() > 0) {
             body.put("tools", tools).put("tool_choice", "auto")
         }
-        if (thinking) {
+        if (thinking && !noThinking) {
             body.put("thinking", JSONObject().put("type", "enabled"))
             body.put("reasoning_effort", reasoningEffort)
         } else {
