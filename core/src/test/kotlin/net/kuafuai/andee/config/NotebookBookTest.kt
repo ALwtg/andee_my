@@ -77,14 +77,15 @@ class NotebookBookTest {
     }
 
     @Test
-    fun `a write the store refuses is not reported back as saved state`() {
+    fun `a write the store refuses fails loudly and leaves nothing behind`() {
         val store = object : NotebookStore {
             override fun read(): String? = null
             override fun write(plain: String) = false
             override fun wipe() {}
         }
         val b = NotebookBook(store)
-        b.remember("fruit", "likes mango", "", "user")
+        val failed = runCatching { b.remember("fruit", "likes mango", "", "user") }.isFailure
+        assertTrue("remember must throw so the model is not told it saved", failed)
         assertTrue(b.memories().isEmpty())
     }
 

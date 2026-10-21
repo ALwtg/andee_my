@@ -108,13 +108,19 @@ class NotebookBook(private val store: NotebookStore) {
         .put("scenes", JSONArray())
         .put("meta", JSONObject())
 
+    /**
+     * Throws when the store refuses. Every caller is a tool the model called,
+     * and the throw becomes the tool's error: a save that did not happen must
+     * not come back as "Saved." — the model would tell the user it remembered.
+     */
     private fun write(next: JSONObject) {
         prune(next)
-        // Never report a save that did not happen — see the same guard in
-        // Vault.write.
         if (!store.write(next.toString())) {
             Log.e(TAG, "notebook: the store refused the write, nothing written")
-            return
+            throw IllegalStateException(
+                "The notebook could not be saved on this device, so nothing was stored. " +
+                    "Tell the user plainly that you could not remember this, rather than saying you did.",
+            )
         }
         cached = next
     }
@@ -330,7 +336,8 @@ class NotebookBook(private val store: NotebookStore) {
                 .thenByDescending { it.updatedAt },
         )
         val take = ranked.take(limit.coerceIn(1, 30))
-        if (take.isNotEmpty()) bumpHits(take.map { it.name })
+        // Bookkeeping only: a recall still answers when the counter cannot be saved.
+        if (take.isNotEmpty()) runCatching { bumpHits(take.map { it.name }) }
         return take
     }
 
