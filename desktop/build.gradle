@@ -58,6 +58,25 @@ compose.desktop {
             packageVersion = '1.0.0'
             macOS {
                 bundleID = 'net.kuafuai.andee.mac'
+                entitlementsFile.set(project.file('entitlements.plist'))
+                runtimeEntitlementsFile.set(project.file('entitlements.plist'))
+                // macOS shows these when Andee first asks; without them the request is refused silently.
+                infoPlist {
+                    extraKeysRawXml = '''
+                        <key>NSMicrophoneUsageDescription</key>
+                        <string>Andee listens when you press the microphone button, to hear what you ask.</string>
+                        <key>NSAppleEventsUsageDescription</key>
+                        <string>Andee uses Calendar, Reminders, Contacts and other apps when you ask it to.</string>
+                        <key>NSCalendarsUsageDescription</key>
+                        <string>Andee reads and adds calendar events when you ask it to.</string>
+                        <key>NSRemindersUsageDescription</key>
+                        <string>Andee sets reminders when you ask it to.</string>
+                        <key>NSContactsUsageDescription</key>
+                        <string>Andee looks up contacts when you ask it to.</string>
+                        <key>NSCameraUsageDescription</key>
+                        <string>Andee looks through the camera only when you ask it to.</string>
+                    '''
+                }
             }
         }
     }

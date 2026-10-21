@@ -21,6 +21,9 @@ object Assistant {
     @Volatile var onBusy: (Boolean) -> Unit = {}
     @Volatile var onSceneChanged: (String?) -> Unit = {}
 
+    /** Speak answers aloud: on after the user spoke, off after they typed (a typed question wants a quiet answer). */
+    @Volatile var speakReplies = false
+
     /**
      * Shows a command for approval and returns the button pressed. Set by the
      * window; until it is, everything that needs asking is declined.
@@ -105,12 +108,14 @@ object Assistant {
         Log.i(TAG, "building the brain (${cfg.mode}, ${cfg.model})")
         val b = LocalBrain(
             cfg = cfg,
-            host = DesktopBrainHost(providers(), MacPrompt.Capabilities(shell = true, screen = true)),
+            host = DesktopBrainHost(providers(), MacPrompt.Capabilities(shell = true, screen = true, voice = true)),
             onProgress = { onProgress(it) },
             onFinal = { text ->
-                Scrollback.add(Scrollback.Role.ASSISTANT, text)
-                onFinal(text)
+                val clean = net.kuafuai.andee.brain.SpeechMood.parse(text).text.replace("[END]", "").trim()
+                Scrollback.add(Scrollback.Role.ASSISTANT, clean)
+                onFinal(clean)
                 onBusy(false)
+                if (speakReplies) net.kuafuai.andee.desktop.voice.MacVoice.speak(text)
             },
             onTurnEnd = { onBusy(false) },
         )
@@ -119,7 +124,8 @@ object Assistant {
         return b
     }
 
-    fun say(text: String) {
+    fun say(text: String, spoken: Boolean = false) {
+        speakReplies = spoken
         val t = text.trim()
         if (t.isEmpty()) return
         Scrollback.add(Scrollback.Role.USER, t)
@@ -131,6 +137,7 @@ object Assistant {
     fun stop() {
         brain?.cancel()
         shell.stopAll()
+        net.kuafuai.andee.desktop.voice.MacVoice.stopSpeaking()
         onBusy(false)
     }
 

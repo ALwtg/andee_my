@@ -61,6 +61,8 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
     var progress by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
+    var voice by remember { mutableStateOf(net.kuafuai.andee.desktop.voice.MacVoice.State.IDLE) }
+    var heard by remember { mutableStateOf("") }
     val list = rememberLazyListState()
 
     LaunchedEffect(Unit) {
@@ -68,6 +70,12 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
         Assistant.onProgress = { progress = it }
         Assistant.onFinal = { progress = "" }
         Assistant.onBusy = { b -> busy = b; if (!b) progress = "" }
+        net.kuafuai.andee.desktop.voice.MacVoice.onState = { voice = it }
+        net.kuafuai.andee.desktop.voice.MacVoice.onPartial = { heard = it }
+        net.kuafuai.andee.desktop.voice.MacVoice.onFinal = { said ->
+            heard = ""
+            Thread { Assistant.say(said, spoken = true) }.start()
+        }
     }
     LaunchedEffect(rows.size) { if (rows.isNotEmpty()) list.animateScrollToItem(rows.size - 1) }
 
@@ -86,6 +94,14 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
                 Pill(if (Strings.lang() == "zh") "■ 停止" else "■ Stop") { Assistant.stop() }
                 Spacer(Modifier.width(8.dp))
             }
+            val listening = voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING
+            Pill(if (listening) (if (Strings.lang() == "zh") "● 说完了" else "● Done") else "🎤") {
+                val v = net.kuafuai.andee.desktop.voice.MacVoice
+                if (!v.configured()) {
+                    progress = if (Strings.lang() == "zh") "还没配语音 Key：在 ⚙ 设置的「语音」里填上。" else "No voice key yet: add it under Voice in ⚙ Settings."
+                } else if (v.isListening()) v.stopListening() else v.startListening()
+            }
+            Spacer(Modifier.width(8.dp))
             Pill("⚙") { onOpenSettings() }
         }
         Spacer(Modifier.height(12.dp))
@@ -99,6 +115,9 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
                 }
             }
             items(rows, key = { it.id }) { r -> Bubble(r) }
+        }
+        if (heard.isNotEmpty()) {
+            Text("🎤 $heard", color = Palette.text, fontSize = 14.sp, modifier = Modifier.padding(vertical = 6.dp))
         }
         if (progress.isNotEmpty()) {
             Text(progress, color = Palette.secondary, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))

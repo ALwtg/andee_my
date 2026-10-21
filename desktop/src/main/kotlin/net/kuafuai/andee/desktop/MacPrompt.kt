@@ -38,7 +38,7 @@ What you can do here, right now, is exactly what your tool list contains — not
             append("- **You cannot see or operate this Mac's screen yet.** There are no screen tools on this device. Do not offer to open, tap, click, type into or look at anything on the screen, and do not say you did.\n")
         }
         if (caps.voice) {
-            append("- The user may be speaking to you (§6 applies).\n")
+            append("- The user may type or speak (the microphone button). A spoken turn is transcribed, so §6 about mishearing applies to it; a typed one is exact. Spoken turns are answered aloud, typed ones are not.\n")
         } else {
             append("- **The user types to you here; nothing is transcribed.** §6 about mishearing does not apply: take their characters as written.\n")
         }
