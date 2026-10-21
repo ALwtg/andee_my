@@ -560,15 +560,15 @@ class BodyCoreService : Service() {
         }
         asr = AsrController(
             this, audio, window,
-            onTranscript = {
+            onTranscript = { text, userInitiated ->
                 voiceFailureReported = false
-                if (VoiceExitCommand.matches(it)) {
+                if (VoiceExitCommand.matches(text, userInitiated)) {
                     // Recognition runs on the ASR executor; stopping a task
                     // and the service belongs on the main thread. Handle this
                     // before card answers or either brain can consume it.
                     ui.post { exitByVoice() }
                 } else {
-                    submitUserTurn(it, "voice")
+                    submitUserTurn(text, "voice")
                 }
             },
             onError = { msg -> reportVoiceFailure(msg) },
@@ -1335,7 +1335,7 @@ class BodyCoreService : Service() {
         if (asr.isActive() || tts.isSpeaking() || meeting.isActive() ||
             net.kuafuai.andee.device.CallState.isActive
         ) return
-        asr.toggle()   // not streaming → starts; the 3 s silence watchdog closes it
+        asr.toggle(userInitiated = false)   // the 3 s silence watchdog closes it
     }
 
     /**
@@ -1575,7 +1575,6 @@ class BodyCoreService : Service() {
         exitRequested = true
         acceptBrainOutput = false
         expectFollowUp = false
-        ui.removeCallbacksAndMessages(null)
         // First, before anything else: the dog is the only thing this service
         // drives that keeps acting after we are gone. Every motion is supposed
         // to end on its own, but "supposed to" is not a reason to leave motors
@@ -2423,8 +2422,17 @@ class BodyCoreService : Service() {
      */
     private fun exitByVoice() {
         if (exitRequested) return
+        // Keep the recorder and its minutes callback alive until the user
+        // ends the meeting through the existing stop flow.
+        if (meeting.isActive()) {
+            net.kuafuai.andee.ui.CardUi.alert(
+                AppLocale.str(this, R.string.svc_exit_meeting_active),
+            ) { }
+            return
+        }
         exitRequested = true
         expectFollowUp = false
+        ui.removeCallbacksAndMessages(null)
         stopEverything()
         acceptBrainOutput = false
         net.kuafuai.andee.ui.CardUi.dismissCurrent()
