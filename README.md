@@ -28,7 +28,7 @@
 
 <p align="center">  
   <a href="./README.md"><img alt="README in English" src="https://img.shields.io/badge/English-d9d9d9"></a>  
-  <a href="./README.zh-CN.md"><img alt="Chinese" src="https://img.shields.io/badge/Chinese-d9d9d9"></a>  
+  <a href="./README.zh-CN.md"><img alt="Chinese" src="https://img.shields.io/badge/中文文档-d9d9d9"></a>  
 </p>
 
 <p align="center">
