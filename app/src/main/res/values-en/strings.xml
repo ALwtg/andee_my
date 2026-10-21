@@ -351,6 +351,7 @@
     <string name="svc_btn_type_instead">Type it instead</string>
     <string name="svc_btn_open_settings">Open settings</string>
     <string name="svc_stopped">Stopped</string>
+    <string name="svc_exit_meeting_active">A meeting is recording. End it and save the minutes before exiting Andee.</string>
     <string name="svc_meeting_ended_line">(Meeting recording ended — %1$d characters, drafting the minutes…)</string>
     <string name="svc_call_ended_line">(Call ended — %1$d characters, summarising…)</string>
     <string name="svc_notification_look_line">(%1$s has a message — I tapped "Take a look"…)</string>

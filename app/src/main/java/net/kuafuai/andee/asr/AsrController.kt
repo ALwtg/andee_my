@@ -33,7 +33,7 @@ class AsrController(
     private val context: Context,
     private val audio: AudioIO,
     private val window: FloatingWindowUi,
-    private val onTranscript: (String) -> Unit = {},
+    private val onTranscript: (String, Boolean) -> Unit = { _, _ -> },
     /**
      * Voice failed. Called with the recogniser's own message, after the ball
      * has been put into ERROR.
@@ -117,10 +117,10 @@ class AsrController(
     fun isActive(): Boolean = audio.isStreaming()
 
     /** Called from the UI thread when the user taps the ball. */
-    fun toggle() {
+    fun toggle(userInitiated: Boolean = true) {
         executor.execute {
             try {
-                if (audio.isStreaming()) stopImpl() else startImpl()
+                if (audio.isStreaming()) stopImpl() else startImpl(userInitiated)
             } catch (t: Throwable) {
                 Log.e(TAG, "toggle failed", t)
                 runCatching { stopImpl() }
@@ -145,7 +145,7 @@ class AsrController(
         executor.shutdownNow()
     }
 
-    private fun startImpl() {
+    private fun startImpl(userInitiated: Boolean) {
         val cfg = VoiceConfig.load(context)
         // Set here, not in [armSilenceWatchdog], because 火山 reports
         // [AsrEngine.Listener.onReady] from *inside* its own connect — before
@@ -189,7 +189,9 @@ class AsrController(
                 window.clearSubtitle()
                 executor.execute {
                     runCatching { stopImpl() }
-                    if (text.isNotBlank()) onTranscript(text)
+                    // Capture the origin per session; a later tap must not
+                    // turn an earlier follow-up result into an exit command.
+                    if (text.isNotBlank()) onTranscript(text, userInitiated)
                 }
             }
 
