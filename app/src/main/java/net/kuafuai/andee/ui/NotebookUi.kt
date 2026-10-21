@@ -27,7 +27,7 @@ import java.util.Locale
  * export-shaped. That is the only route to the raw text; the rows here answer
  * a different question: "what is it allowed to remember about me".
  *
- * **记忆** groups [Notebook.Memory] by type, most important first within each.
+ * **记忆** groups [net.kuafuai.andee.config.Memory] by type, most important first within each.
  * **待办** lists active and paused [net.kuafuai.andee.config.Todo]s, soonest first.
  *
  * No editing: the brain writes these, not the person. Delete is the only
@@ -257,7 +257,7 @@ class NotebookUi(
         for (type in Notebook.TYPES) {
             val group = byType[type] ?: continue
             val sorted = group.sortedWith(
-                compareByDescending<Notebook.Memory> { it.importance }
+                compareByDescending<net.kuafuai.andee.config.Memory> { it.importance }
                     .thenByDescending { it.updatedAt },
             )
             body.addView(sectionHeader(typeLabel(type)))
@@ -277,7 +277,7 @@ class NotebookUi(
     }
 
     @SuppressLint("SetTextI18n")
-    private fun memoryRow(m: Notebook.Memory): View {
+    private fun memoryRow(m: net.kuafuai.andee.config.Memory): View {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
