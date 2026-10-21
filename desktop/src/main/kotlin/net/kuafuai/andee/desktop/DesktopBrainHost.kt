@@ -32,6 +32,8 @@ class DesktopBrainHost(
         /** Tools that exist only here and are not in the shared [ToolSchemas]. */
         fun extraTools(): JSONArray = JSONArray()
         fun methodOfExtra(toolName: String): String? = null
+        /** The brain is starting a turn of this kind (USER / WAKE / NOTIFY / SWEEP / HARVEST). */
+        fun turnStarted(kind: String) {}
     }
 
     override fun text(key: BrainText, vararg args: Any): String {
@@ -96,6 +98,8 @@ class DesktopBrainHost(
             ?: throw IllegalArgumentException("unknown method $method")
         return p.dispatch(method, params, silent, untrusted)
     }
+
+    override fun turnStarted(kind: String) = providers.forEach { it.turnStarted(kind) }
 
     override fun traceDir(): File = AppDirs.root
 }

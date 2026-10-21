@@ -31,7 +31,7 @@ object Settings {
         "brain", "llm_api_key", "llm_base_url", "llm_model", "llm_thinking", "llm_reasoning_effort",
         "api_key", "asr_endpoint", "tts_endpoint", "asr_resource_id", "tts_resource_id", "tts_speaker",
         "voice_provider", "lang", "max_steps", "scene", "ball",
-        "shell_mode", "shell_workdirs",
+        "shell_mode", "shell_workdirs", "shell_critical_confirm",
     )
 
     private val file get() = AppDirs.file("settings.properties")

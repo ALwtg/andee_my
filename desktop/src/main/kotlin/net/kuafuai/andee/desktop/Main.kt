@@ -16,15 +16,21 @@ import java.util.Locale
 fun main() {
     installFileLog()
     net.kuafuai.andee.util.Log.i("Andee", "starting, data in ${AppDirs.root}")
+    Assistant.askApproval = { ApprovalGate.request(it) }
     Assistant.start()
     application {
         var settings by remember { mutableStateOf(false) }
+        var pending by remember { mutableStateOf(ApprovalGate.current) }
+        ApprovalGate.onChange = { pending = ApprovalGate.current }
         Window(
             onCloseRequest = ::exitApplication,
             title = "Andee",
             state = rememberWindowState(width = 520.dp, height = 760.dp),
         ) {
-            if (settings) SettingsScreen { settings = false } else ChatScreen { settings = true }
+            androidx.compose.foundation.layout.Box {
+                if (settings) SettingsScreen { settings = false } else ChatScreen { settings = true }
+                pending?.let { ApprovalCard(it) }
+            }
         }
     }
 }

@@ -101,6 +101,13 @@ interface BrainHost {
      */
     fun dispatch(method: String, params: org.json.JSONObject, silent: Boolean, untrusted: Boolean): Any?
 
+    /**
+     * Why the current turn is running, set by the brain before its tools run.
+     * Most hosts can ignore it; one that runs commands needs to tell a user
+     * turn from a todo that fired while nobody may be at the screen.
+     */
+    fun turnStarted(kind: String) {}
+
     /** Where the trace file lives. */
     fun traceDir(): File
 }

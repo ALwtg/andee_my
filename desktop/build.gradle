@@ -13,6 +13,19 @@ kotlin {
     jvmToolchain(17)
 }
 
+// Native helpers, compiled with the Command Line Tools' swiftc (arm64).
+def nativeOut = layout.buildDirectory.dir('native')
+tasks.register('buildNative', Exec) {
+    def src = file('native/trash.swift')
+    def out = nativeOut.get().file('andee-trash').asFile
+    inputs.file(src)
+    outputs.file(out)
+    doFirst { out.parentFile.mkdirs() }
+    commandLine 'swiftc', '-O', '-target', 'arm64-apple-macos13', src.path, '-o', out.path
+}
+sourceSets.main.resources.srcDir(nativeOut)
+processResources.dependsOn('buildNative')
+
 dependencies {
     implementation project(':core')
     implementation compose.desktop.currentOs
@@ -44,4 +57,9 @@ tasks.register('probe', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'net.kuafuai.andee.desktop.ProbeKt'
     standardInput = System.in
+}
+
+tasks.named('test') {
+    dependsOn('buildNative')
+    systemProperty 'andee.trashTool', layout.buildDirectory.file('native/andee-trash').get().asFile.path
 }

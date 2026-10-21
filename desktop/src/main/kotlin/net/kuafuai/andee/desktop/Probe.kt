@@ -15,7 +15,19 @@ fun main(args: Array<String>) {
             t?.printStackTrace()
         }
     }
-    for (line in args.ifEmpty { arrayOf("你好") }) {
+    // No window here: approvals are answered from ANDEE_PROBE_APPROVE (once|always|deny), default deny.
+    val auto = System.getenv("ANDEE_PROBE_APPROVE").orEmpty()
+    Assistant.askApproval = { a ->
+        println("  [approval] ${a.domain ?: a.command}  (${a.tier}: ${a.reason}) → ${auto.ifEmpty { "deny" }}")
+        when (auto) {
+            "once" -> net.kuafuai.andee.desktop.shell.ShellTools.Answer.ONCE
+            "always" -> net.kuafuai.andee.desktop.shell.ShellTools.Answer.ALWAYS
+            else -> net.kuafuai.andee.desktop.shell.ShellTools.Answer.DENY
+        }
+    }
+    // Turns are separated by `|` so a sentence with spaces stays one turn.
+    val turns = args.joinToString(" ").split('|').map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf("你好") }
+    for (line in turns) {
         val done = CountDownLatch(1)
         Assistant.onProgress = { println("  … $it") }
         Assistant.onFinal = { println("Andee: $it") }

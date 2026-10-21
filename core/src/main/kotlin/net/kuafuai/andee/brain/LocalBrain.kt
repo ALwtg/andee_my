@@ -425,6 +425,7 @@ class LocalBrain(
         loop.execute {
             busy.set(true)
             currentKind = kind
+            host.turnStarted(kind.name)
             turnTokens = 0
             try {
                 BrainTrace.turn(gen, kind.name, text)

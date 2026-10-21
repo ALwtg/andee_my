@@ -21,6 +21,29 @@ object Assistant {
     @Volatile var onBusy: (Boolean) -> Unit = {}
     @Volatile var onSceneChanged: (String?) -> Unit = {}
 
+    /**
+     * Shows a command for approval and returns the button pressed. Set by the
+     * window; until it is, everything that needs asking is declined.
+     */
+    @Volatile var askApproval: (net.kuafuai.andee.desktop.shell.ShellTools.Approval) ->
+        net.kuafuai.andee.desktop.shell.ShellTools.Answer = { net.kuafuai.andee.desktop.shell.ShellTools.Answer.DENY }
+
+    /** The terminal hand; one per app so running jobs survive a brain rebuild. */
+    val shell: net.kuafuai.andee.desktop.shell.ShellTools by lazy {
+        net.kuafuai.andee.desktop.shell.ShellTools(
+            ask = { askApproval(it) },
+            secrets = { secrets() },
+            record = { line -> Scrollback.add(Scrollback.Role.ASSISTANT, line) },
+        )
+    }
+
+    /** Values that must never reach the model or a log: Andee's own keys, then the vault. */
+    private fun secrets(): List<Pair<String, String>> = buildList {
+        Settings.get("llm_api_key").takeIf { it.length >= 8 }?.let { add("Andee's model key" to it) }
+        Settings.get("api_key").takeIf { it.length >= 8 }?.let { add("Andee's voice key" to it) }
+        addAll(VaultSecrets.values())
+    }
+
     private var brain: LocalBrain? = null
     private var builtFor: BrainConfig? = null
 
@@ -47,6 +70,7 @@ object Assistant {
                 override fun dispatch(method: String, p: JSONObject, silent: Boolean, untrusted: Boolean) =
                     notes.dispatch(method, p, silent, untrusted)
             },
+            shell,
         )
     }
 
@@ -65,7 +89,7 @@ object Assistant {
         Log.i(TAG, "building the brain (${cfg.mode}, ${cfg.model})")
         val b = LocalBrain(
             cfg = cfg,
-            host = DesktopBrainHost(providers(), MacPrompt.Capabilities()),
+            host = DesktopBrainHost(providers(), MacPrompt.Capabilities(shell = true)),
             onProgress = { onProgress(it) },
             onFinal = { text ->
                 Scrollback.add(Scrollback.Role.ASSISTANT, text)
@@ -87,8 +111,10 @@ object Assistant {
         ensure().submit(t)
     }
 
+    /** The user's stop: the turn ends, and every command it started ends with it. */
     fun stop() {
         brain?.cancel()
+        shell.stopAll()
         onBusy(false)
     }
 
