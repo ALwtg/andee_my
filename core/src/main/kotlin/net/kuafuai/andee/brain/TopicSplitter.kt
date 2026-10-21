@@ -24,7 +24,7 @@ import org.json.JSONObject
  * Pure: no Android, no state, so the rules can be tested directly; see
  * `TopicSplitterTest`.
  */
-internal object TopicSplitter {
+object TopicSplitter {
 
     /**
      * A silence at least this long is marked in the turn list as a likely seam.
@@ -281,7 +281,7 @@ internal object TopicSplitter {
  * device chatter, and a screenshot payload inside a folded topic would be a
  * megabyte of base64 with the user's sentence nowhere in it.
  */
-internal fun renderTopicText(history: List<JSONObject>, from: Int, until: Int): String {
+fun renderTopicText(history: List<JSONObject>, from: Int, until: Int): String {
     val sb = StringBuilder()
     for (i in from.coerceAtLeast(0) until until.coerceAtMost(history.size)) {
         val m = history[i]

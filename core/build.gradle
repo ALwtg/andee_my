@@ -1,0 +1,34 @@
+// Platform-neutral Kotlin shared by the Android app and the desktop app: the
+// brain loop, the tool vocabulary, the turn guards, voice protocols, the wake
+// DSP and the ball's model. Nothing here may import android.* — that is the
+// whole point of the module, and the compiler enforces it because android.jar
+// is not on this classpath.
+plugins {
+    id 'org.jetbrains.kotlin.jvm'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+compileKotlin {
+    kotlinOptions { jvmTarget = '1.8' }
+}
+compileTestKotlin {
+    kotlinOptions { jvmTarget = '1.8' }
+}
+
+dependencies {
+    // Android ships its own org.json in the framework, and the app must keep
+    // using that one (R8 config and behaviour are tuned to it). So core only
+    // compiles against it; the desktop app adds the real artifact.
+    compileOnly 'org.json:json:20240303'
+
+    testImplementation libs.junit
+    testImplementation 'org.json:json:20240303'
+}
