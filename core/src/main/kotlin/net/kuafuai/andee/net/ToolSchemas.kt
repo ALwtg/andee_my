@@ -1043,7 +1043,7 @@ object ToolSchemas {
 
         The source comes back raw, the same bytes the tablet renders. It is long
         by nature (inline CSS and JS, sometimes a base64 image); past
-        ${net.kuafuai.andee.ui.ChatHistory.ARTIFACT_SOURCE_MAX} characters it is
+        ${net.kuafuai.andee.ui.ScrollbackLimits.ARTIFACT_SOURCE_MAX} characters it is
         cut and `truncated` says so, and the missing tail has to be rebuilt in
         the same style rather than dropped.
 
@@ -1684,7 +1684,7 @@ object ToolSchemas {
         rather than telling them it is no longer available.
 
         The whole back-and-forth comes back as plain text, which may be long. Past
-        ${net.kuafuai.andee.ui.ChatHistory.TOPIC_TEXT_MAX} characters it is cut and `truncated` says so.
+        ${net.kuafuai.andee.ui.ScrollbackLimits.TOPIC_TEXT_MAX} characters it is cut and `truncated` says so.
 
         Reading is not showing: nothing appears on screen. If the user should see the conversation,
         write it into a page with `show_html`.
@@ -1786,6 +1786,18 @@ object ToolSchemas {
      *  string CommandDispatcher expects. */
     fun methodOf(toolName: String): String? =
         TOOLS.firstOrNull { it.getString("name") == toolName }?.optString("method")?.ifEmpty { null }
+
+    /**
+     * The entries whose internal method [keep] accepts, for a body that only
+     * has some of these hands — the desktop has no SMS and no step counter, and
+     * a tool listed but not implemented is a promise the model will make to
+     * the user. The descriptions are the same text, not a copy.
+     */
+    fun subset(keep: (method: String) -> Boolean): JSONArray {
+        val arr = JSONArray()
+        for (t in TOOLS) if (keep(t.optString("method"))) arr.put(t)
+        return arr
+    }
 
     // ---- builders ----
 
