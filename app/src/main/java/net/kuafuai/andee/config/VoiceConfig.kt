@@ -4,52 +4,12 @@ import android.content.Context
 import net.kuafuai.andee.BuildConfig
 import java.util.UUID
 
-
-data class VoiceConfig(
-    val apiKey: String,
-    val asrEndpoint: String,
-    val asrResourceId: String,
-    val asrUid: String,
-    val ttsEndpoint: String,
-    val ttsResourceId: String,
-    val ttsSpeaker: String,
-    val ttsSampleRate: Int,
-    /**
-     * [VOICE_HUOSHAN] or [VOICE_GOOGLE] — which service hears and speaks.
-     *
-     * Read here rather than at the call site so that the two engines, the
-     * meeting recorder and the start-up log cannot disagree about it, the same
-     * reason [ttsSpeaker] lives in this object.
-     */
-    val voiceProvider: String,
-    /** Vertex Express key. Empty means the Google path cannot run. */
-    val googleApiKey: String,
-    val googleBaseUrl: String,
-    /**
-     * GCP project **number**, and the region the Live API session is opened
-     * in. Both are only used by the listening half.
-     *
-     * The model has to be named by its full resource path —
-     * `projects/{n}/locations/{r}/publishers/google/models/{m}` — because the
-     * Live API reads a bare name as a project id and answers
-     * `1008 Permission denied on resource project …`. The reference gateway
-     * found that out the hard way; these two rows are what that costs.
-     */
-    val googleProject: String,
-    val googleLocation: String,
-    val googleAsrModel: String,
-    val googleTtsModel: String,
-    /**
-     * A hint for both directions, or blank for "let Google decide".
-     *
-     * Blank rather than a fixed `zh-CN`, following the reference gateway: a
-     * Chinese user says "hello 帮我查一下" and an English one says
-     * "帮我查杭州天气", so naming one language does not restrict the other, it
-     * only makes it less accurate.
-     */
-    val googleLanguage: String,
-) {
-    companion object {
+/**
+ * Reads and writes the phone's settings (`voice_prefs`). Everything here used
+ * to be the companion of the settings data class, which now lives in the shared
+ * module as [VoiceSettings].
+ */
+object VoiceConfig {
         /**
          * The 火山 (Volcengine Speech) account the voice pipeline runs on when
          * the user is on the **本机** backend. On [BRAIN_CODEFLYING], the key
@@ -106,8 +66,8 @@ data class VoiceConfig(
          * the picker, the self-check rows and the engines all branch on the
          * string, so a third provider is a value rather than a second flag.
          */
-        const val VOICE_HUOSHAN = "huoshan"
-        const val VOICE_GOOGLE = "google"
+        const val VOICE_HUOSHAN = VoiceSettings.VOICE_HUOSHAN
+        const val VOICE_GOOGLE = VoiceSettings.VOICE_GOOGLE
 
         /**
          * The Vertex endpoint, its Express-keyed surface.
@@ -592,7 +552,7 @@ data class VoiceConfig(
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString("api_key", "").orEmpty().isNotBlank()
 
-        fun load(context: Context): VoiceConfig {
+        fun load(context: Context): VoiceSettings {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             var uid = p.getString("uid", null)
             if (uid.isNullOrEmpty()) {
@@ -604,7 +564,7 @@ data class VoiceConfig(
             // (user's own 火山 account); 云端 shares the same prefs because
             // ASR/TTS still run on this device whichever brain answers.
             val codeFlying = brainMode(context) == BRAIN_CODEFLYING
-            return VoiceConfig(
+            return VoiceSettings(
                 apiKey = if (codeFlying) codeFlyingKey(context)
                 else p.getString("api_key", "").orEmpty().trim().ifEmpty { API_KEY },
                 asrEndpoint = if (codeFlying) codeFlyingAsrEndpoint()
@@ -963,5 +923,4 @@ data class VoiceConfig(
             "sweep", "sweep_quiet_minutes", "sweep_daily_cap",
             "max_steps",
         )
-    }
 }

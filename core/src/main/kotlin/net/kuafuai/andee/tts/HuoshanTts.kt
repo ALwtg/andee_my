@@ -1,7 +1,7 @@
 package net.kuafuai.andee.tts
 
-import android.util.Log
-import net.kuafuai.andee.config.VoiceConfig
+import net.kuafuai.andee.util.Log
+import net.kuafuai.andee.config.VoiceSettings
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
@@ -33,7 +33,7 @@ import javax.net.ssl.SSLContext
  *   (session_id is omitted for connection-level events: 1, 2, 50, 51, 52)
  */
 class HuoshanTts(
-    private val config: VoiceConfig,
+    private val config: VoiceSettings,
     private val listener: TtsEngine.Listener,
 ) : TtsEngine {
 

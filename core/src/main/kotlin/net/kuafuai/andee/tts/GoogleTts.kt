@@ -1,8 +1,7 @@
 package net.kuafuai.andee.tts
 
-import android.util.Base64
-import android.util.Log
-import net.kuafuai.andee.config.VoiceConfig
+import net.kuafuai.andee.util.Log
+import net.kuafuai.andee.config.VoiceSettings
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -46,7 +45,7 @@ import java.util.concurrent.TimeUnit
  * the WebSocket the vendor's own live models want.
  */
 class GoogleTts(
-    private val config: VoiceConfig,
+    private val config: VoiceSettings,
     private val listener: TtsEngine.Listener,
 ) : TtsEngine {
 
@@ -242,7 +241,7 @@ class GoogleTts(
             val data = inline.optString("data")
             if (data.isBlank()) continue
             checkRate(inline.optString("mimeType"))
-            val pcm = runCatching { Base64.decode(data, Base64.DEFAULT) }.getOrNull() ?: continue
+            val pcm = runCatching { java.util.Base64.getMimeDecoder().decode(data) }.getOrNull() ?: continue
             if (pcm.isNotEmpty()) out.add(pcm)
         }
         return out

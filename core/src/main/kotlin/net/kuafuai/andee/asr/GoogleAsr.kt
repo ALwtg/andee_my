@@ -1,8 +1,7 @@
 package net.kuafuai.andee.asr
 
-import android.util.Base64
-import android.util.Log
-import net.kuafuai.andee.config.VoiceConfig
+import net.kuafuai.andee.util.Log
+import net.kuafuai.andee.config.VoiceSettings
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -34,8 +33,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  *  * **The model must be named by its full resource path.** A bare name is
  *    read as a project id → `1008 Permission denied on resource project …`;
- *    `models/x` is a 1007. Hence [VoiceConfig.googleProject] and
- *    [VoiceConfig.googleLocation].
+ *    `models/x` is a 1007. Hence [VoiceSettings.googleProject] and
+ *    [VoiceSettings.googleLocation].
  *  * **`responseModalities` must be `TEXT`.** A transcription model wants the
  *    opposite of a talking one, and getting it backwards drops the connection.
  *  * **`languageCodes` is sent as an explicit empty array**, not omitted, when
@@ -55,7 +54,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * all I/O is on [io]; the socket's callbacks arrive on OkHttp's thread.
  */
 class GoogleAsr(
-    private val config: VoiceConfig,
+    private val config: VoiceSettings,
     private val listener: AsrEngine.Listener,
 ) : AsrEngine {
 
@@ -597,7 +596,7 @@ class GoogleAsr(
             JSONObject().put(
                 "audio",
                 JSONObject()
-                    .put("data", Base64.encodeToString(pcm, Base64.NO_WRAP))
+                    .put("data", java.util.Base64.getEncoder().encodeToString(pcm))
                     .put("mimeType", "audio/pcm;rate=$SAMPLE_RATE"),
             ),
         )

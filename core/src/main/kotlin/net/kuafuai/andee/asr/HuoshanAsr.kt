@@ -1,7 +1,7 @@
 package net.kuafuai.andee.asr
 
-import android.util.Log
-import net.kuafuai.andee.config.VoiceConfig
+import net.kuafuai.andee.util.Log
+import net.kuafuai.andee.config.VoiceSettings
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
@@ -29,7 +29,7 @@ import javax.net.ssl.SSLContext
  *   [3] reserved (0)
  */
 class HuoshanAsr(
-    private val config: VoiceConfig,
+    private val config: VoiceSettings,
     private val listener: AsrEngine.Listener,
 ) : AsrEngine {
 
