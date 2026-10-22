@@ -80,9 +80,10 @@ fun ApprovalCard(p: ApprovalGate.Pending) {
         Tier.MEDIUM -> Color(0xFFFFD60A)
         else -> Palette.secondary
     }
-    Box(Modifier.fillMaxSize().background(Color(0xB3000000)), contentAlignment = Alignment.Center) {
+    // Just the card: it lives in its own window beside the ball (PromptWindow), not over the chat.
+    run {
         Column(
-            Modifier.widthIn(max = 460.dp).fillMaxWidth().padding(20.dp)
+            Modifier.fillMaxWidth()
                 .background(Palette.card, RoundedCornerShape(18.dp))
                 .border(1.dp, Palette.hairline, RoundedCornerShape(18.dp)).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),

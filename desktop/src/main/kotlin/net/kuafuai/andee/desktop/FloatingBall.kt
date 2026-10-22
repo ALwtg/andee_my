@@ -30,12 +30,20 @@ private val BALL_WINDOW = 112.dp
  * over full-screen apps (that last part is the native `floatWindow`, because a
  * JVM's "always on top" is only the floating level on the current Space).
  *
- * Tap talks, as on the phone. Long-press shows or hides the chat window — the
- * phone's long-press unfolds the card. Quitting is ⌘Q, since closing the chat only hides it. Drag moves it, and where it was left is
- * remembered.
+ * While a task is running or being read out, any press stops it (see `working` / `onStop`).
+ *
+ * The phone's three gestures: tap talks, double-tap types (the chat window comes
+ * up with the cursor in the input box), long-press opens the window. Quitting is
+ * ⌘Q, since closing the chat only hides it. Drag moves it, and where it was left
+ * is remembered. A tap waits out the double-tap interval before it fires, which
+ * is what lets the two be told apart.
  */
 @Composable
-fun ApplicationScope.FloatingBall(onTap: () -> Unit, onLongPress: () -> Unit, onWindow: (java.awt.Window) -> Unit) {
+fun ApplicationScope.FloatingBall(
+    onTap: () -> Unit, onDoubleTap: () -> Unit, onLongPress: () -> Unit, onWindow: (java.awt.Window) -> Unit,
+    /** True while a task is running or being read out; a press then stops it at once. */
+    working: () -> Boolean = { false }, onStop: () -> Unit = {},
+) {
     val state = rememberWindowState(size = DpSize(BALL_WINDOW, BALL_WINDOW), position = savedPosition())
     Window(
         onCloseRequest = ::exitApplication,
@@ -77,7 +85,16 @@ fun ApplicationScope.FloatingBall(onTap: () -> Unit, onLongPress: () -> Unit, on
                     }
                 }
                 .pointerInput(Unit) {
-                    detectTapGestures(onTap = { onTap() }, onLongPress = { onLongPress() })
+                    // A tap waits out the double-tap interval before it fires, which is half a second of
+                    // "nothing happened" when the user is trying to make it stop. So while it is working
+                    // the stop happens on the press itself, and the rest of that gesture is ignored.
+                    var stopped = false
+                    detectTapGestures(
+                        onPress = { stopped = working(); if (stopped) onStop() },
+                        onTap = { if (!stopped) onTap() },
+                        onDoubleTap = { if (!stopped) onDoubleTap() },
+                        onLongPress = { if (!stopped) onLongPress() },
+                    )
                 },
             contentAlignment = Alignment.Center,
         ) {

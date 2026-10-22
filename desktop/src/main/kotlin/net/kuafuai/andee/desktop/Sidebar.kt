@@ -70,22 +70,26 @@ fun Sidebar(nav: Nav, width: androidx.compose.ui.unit.Dp = 228.dp) {
             Text("Andee", color = Palette.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(10.dp))
-        Text(
-            "＋  " + t("新对话", "New chat"), color = Palette.title, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-            modifier = Modifier.fillMaxWidth()
+        Row(
+            Modifier.fillMaxWidth()
                 .background(Palette.tint.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
                 .border(1.dp, Palette.accent.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
                 .clickable { Assistant.newConversation(); nav.go("chat") }
                 .padding(horizontal = 12.dp, vertical = 9.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(AndeeIcon.PLUS, Palette.title, 16.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(t("新对话", "New chat"), color = Palette.title, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
         Spacer(Modifier.height(12.dp))
 
-        NavItem("💬", t("对话", "Chat"), here == "chat") { nav.go("chat") }
-        NavItem("📄", t("产物", "Artifacts") + if (artifactCount > 0) "  $artifactCount" else "", here == "artifacts") { nav.go("artifacts") }
-        NavItem("📓", t("小本本", "Notebook"), here == "notebook") { nav.go("notebook") }
-        NavItem("🎭", t("情景", "Scenes"), here == "scenes") { nav.go("scenes") }
-        NavItem("🔐", t("保险箱", "Vault"), here == "vault") { nav.go("vault") }
-        NavItem("🙂", t("形象与表情", "Look"), here == "expressions") { nav.go("expressions") }
+        NavItem(AndeeIcon.CHAT, t("对话", "Chat"), here == "chat") { nav.go("chat") }
+        NavItem(AndeeIcon.DOCUMENT, t("产物", "Artifacts") + if (artifactCount > 0) "  $artifactCount" else "", here == "artifacts") { nav.go("artifacts") }
+        NavItem(AndeeIcon.NOTEBOOK, t("小本本", "Notebook"), here == "notebook") { nav.go("notebook") }
+        NavItem(AndeeIcon.SPARKLE, t("情景", "Scenes"), here == "scenes") { nav.go("scenes") }
+        NavItem(AndeeIcon.LOCK, t("保险箱", "Vault"), here == "vault") { nav.go("vault") }
+        NavItem(AndeeIcon.FACE, t("形象与表情", "Look"), here == "expressions") { nav.go("expressions") }
 
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -126,13 +130,13 @@ fun Sidebar(nav: Nav, width: androidx.compose.ui.unit.Dp = 228.dp) {
         }
 
         Spacer(Modifier.height(8.dp))
-        NavItem("✅", t("自检", "Self-check"), here == "selfcheck") { nav.go("selfcheck") }
-        NavItem("🔧", t("设置", "Settings"), here == "settings") { nav.go("settings") }
+        NavItem(AndeeIcon.CHECK_CIRCLE, t("自检", "Self-check"), here == "selfcheck") { nav.go("selfcheck") }
+        NavItem(AndeeIcon.SLIDERS, t("设置", "Settings"), here == "settings") { nav.go("settings") }
     }
 }
 
 @Composable
-private fun NavItem(icon: String, label: String, selected: Boolean, onClick: () -> Unit) {
+private fun NavItem(icon: AndeeIcon, label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .background(if (selected) Palette.glass else Color.Transparent, RoundedCornerShape(10.dp))
@@ -141,7 +145,8 @@ private fun NavItem(icon: String, label: String, selected: Boolean, onClick: () 
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(icon, fontSize = 14.sp, modifier = Modifier.width(24.dp))
+        Icon(icon, if (selected) Palette.title else Palette.secondary, 18.dp)
+        Spacer(Modifier.width(10.dp))
         Text(label, color = if (selected) Palette.title else Palette.label, fontSize = 14.sp)
     }
 }

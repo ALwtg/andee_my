@@ -26,17 +26,11 @@ import androidx.compose.ui.unit.sp
 
 /**
  * The settings sheet, the phone's card shape: a Glass header, segmented
- * pickers, and a 更多 section that opens the notebook, scenes, the expression
- * card and the self-check — the same four doors the phone's card reaches.
+ * pickers and fields. The notebook, scenes, vault, looks and self-check are in the sidebar.
  */
 @Composable
 fun SettingsScreen(
     onDone: () -> Unit,
-    onOpenNotebook: () -> Unit,
-    onOpenVault: () -> Unit,
-    onOpenScenes: () -> Unit,
-    onOpenExpressions: () -> Unit,
-    onOpenSelfCheck: () -> Unit,
 ) {
     val zh = Strings.lang() == "zh"
     fun t(a: String, b: String) = if (zh) a else b
@@ -48,7 +42,13 @@ fun SettingsScreen(
         GlassHeader(t("设置", "Settings"), subtitle = t("所有设置都存在本机", "Everything stays on this Mac"), onClose = onDone)
 
         SectionTitle(t("界面语言", "Language"))
-        SegmentedPicker(listOf("zh" to "中", "en" to "EN"), lang) { lang = it; v["lang"] = it }
+        SegmentedPicker(listOf("zh" to "中", "en" to "EN"), lang) {
+            // Written the instant it is tapped, as on the phone: the redraw in the new language is
+            // the confirmation. Everything else typed on this page stays unsaved and survives the redraw.
+            lang = it
+            Settings.save(mapOf("lang" to it))
+            Strings.changed()
+        }
 
         SectionTitle(t("大脑", "Backend"))
         SegmentedPicker(listOf("local" to t("本机", "Own key"), "codeflying" to "CodeFlying"), v["brain"].orEmpty().ifEmpty { "local" }) { v["brain"] = it }
@@ -97,22 +97,17 @@ fun SettingsScreen(
         SectionTitle(t("语音", "Voice"))
         GlassField(t("语音 Key", "Voice key"), v["api_key"].orEmpty(), { v["api_key"] = it }, secret = true)
 
-        SectionTitle(t("更多", "More"))
-        MoreRow(t("小本本", "Notebook"), t("它记得的事", "What it remembers"), onOpenNotebook)
-        MoreRow(t("保险箱", "Vault"), t("你自己的账号", "Your own accounts"), onOpenVault)
-        MoreRow(t("情景", "Scenes"), t("和它一起学会的做事方式", "Ways of working it learned"), onOpenScenes)
-        MoreRow(t("形象与表情", "Look & expressions"), t("换一个样子", "Pick a face"), onOpenExpressions)
-        MoreRow(t("自检", "Self-check"), t("看看哪里没开", "What is missing"), onOpenSelfCheck)
 
         Spacer(Modifier.height(20.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PrimaryButton(t("保存", "Save")) {
+        // Equal halves, cancel on the left and the main action on the right.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SecondaryButton(t("取消", "Cancel"), Modifier.weight(1f)) { onDone() }
+            PrimaryButton(t("保存", "Save"), Modifier.weight(1f)) {
                 Settings.save(v.toMap())
                 v["ball"]?.let { MacBall.pickLook(it) }
                 Thread { Assistant.ensure() }.start()
                 onDone()
             }
-            Pill(t("取消", "Cancel")) { onDone() }
         }
         Spacer(Modifier.height(12.dp))
         Text(
@@ -120,21 +115,6 @@ fun SettingsScreen(
             color = Palette.secondary, fontSize = 12.sp,
         )
     }
-}
-
-@Composable
-private fun MoreRow(title: String, subtitle: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().glassPanel(14).clickable { onClick() }.padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Palette.label, fontSize = 14.sp)
-            Text(subtitle, color = Palette.secondary, fontSize = 11.sp)
-        }
-        Text("›", color = Palette.secondary, fontSize = 18.sp)
-    }
-    Spacer(Modifier.height(8.dp))
 }
 
 @Composable
@@ -155,9 +135,9 @@ private fun FullOpenConfirm(zh: Boolean, onYes: () -> Unit, onNo: () -> Unit) {
             cursorBrush = androidx.compose.ui.graphics.SolidColor(Palette.accent),
             modifier = Modifier.fillMaxWidth().glassWell(10).padding(10.dp),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (typed.trim() == "开启" || typed.trim().equals("enable", true)) PrimaryButton(t("开启完全开放", "Enable full access")) { onYes() }
-            Pill(t("取消", "Cancel")) { onNo() }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryButton(t("取消", "Cancel"), Modifier.weight(1f)) { onNo() }
+            if (typed.trim() == "开启" || typed.trim().equals("enable", true)) PrimaryButton(t("开启完全开放", "Enable full access"), Modifier.weight(1f)) { onYes() }
         }
     }
 }

@@ -56,6 +56,39 @@ class PagesTest {
     }
 
     @Test
+    fun `a target carried from a tap survives the turn start exactly once`() {
+        Pages.resetForTest(fresh())
+        val a = Pages.add("a", "<html>", null)!!
+        Pages.armNextTurn(a.groupId)
+        Pages.beginTurn()                                    // the turn the tap started
+        assertEquals(a.groupId, Pages.armOrResolve(null))
+        Pages.beginTurn()                                    // the turn after is unrelated
+        assertNull(Pages.armOrResolve(null))
+    }
+
+    @Test
+    fun `a split artifact on disk is folded back into one`() {
+        val dir = fresh()
+        Pages.resetForTest(dir)
+        File(dir, "pages").mkdirs()
+        // What the shelf looked like: 3 and 4 were revisions of page 2, filed under a group named "2".
+        for (id in 1..4) File(dir, "pages/page_$id.html").writeText("x")
+        File(dir, "pages.json").writeText(
+            """{"next":5,"pages":[
+              {"id":1,"ts":1,"title":"s","group":1,"version":1,"file":true},
+              {"id":2,"ts":2,"title":"s","group":1,"version":2,"file":true},
+              {"id":3,"ts":3,"title":"s","group":2,"version":1,"file":true},
+              {"id":4,"ts":4,"title":"s","group":2,"version":2,"file":true}]}""",
+        )
+        Pages.reloadForTest()
+        assertEquals(1, Pages.artifacts().size)
+        assertEquals(listOf(4, 3, 2, 1), Pages.versionsOf(1).map { it.version })
+        assertEquals(4L, Pages.artifacts().single().id)
+        // and a healthy shelf is left alone
+        assertTrue(!Pages.repairMisfiled())
+    }
+
+    @Test
     fun `the armed target is cleared at the turn boundary`() {
         Pages.resetForTest(fresh())
         val a = Pages.add("a", "<html>", null)!!

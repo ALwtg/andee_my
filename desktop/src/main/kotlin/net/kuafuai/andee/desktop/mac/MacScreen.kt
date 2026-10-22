@@ -29,6 +29,11 @@ import javax.imageio.ImageIO
 class MacScreen(
     /** Hide our own windows for a gesture or a capture, and show them again after. */
     private val hideOwnWindows: (Boolean) -> Unit,
+    /**
+     * Called before any screen tool runs: gets the chat window off the screen, as the phone folds its
+     * card. Otherwise it covers the app being driven and, when it is frontmost, takes the keystrokes.
+     */
+    private val yieldScreen: () -> Unit = {},
 ) : DesktopBrainHost.ToolProvider {
 
     private data class El(val eid: String, val cx: Double, val cy: Double, val press: Boolean, val editable: Boolean, val label: String)
@@ -43,6 +48,7 @@ class MacScreen(
     override fun dispatch(method: String, p: JSONObject, silent: Boolean, untrusted: Boolean): Any? {
         if (!Bridge.available) throw IllegalStateException("The Mac screen bridge did not load; screen tools cannot run here.")
         if (!Bridge.axTrusted()) throw IllegalStateException(PermissionHelp.ACCESSIBILITY)
+        yieldScreen()
         return when (method) {
             "screen.ui_tree" -> uiTree(p.optBoolean("with_shot", false))
             "screen.tap_id" -> tapId(req(p, "eid"), long = false)
@@ -302,7 +308,8 @@ class MacScreen(
         requireNorm(cx, "x"); requireNorm(cy, "y")
         val left = (cx - w / 2).coerceIn(0, 999); val top = (cy - h / 2).coerceIn(0, 999)
         val right = (left + w).coerceAtMost(1000); val bottom = (top + h).coerceAtMost(1000)
-        val full = capture()
+        // Native resolution: a crop of an already-shrunk picture magnifies blur, not detail.
+        val full = capture(0)
         val sx = full.width / 1000.0; val sy = full.height / 1000.0
         val sub = full.getSubimage((left * sx).toInt(), (top * sy).toInt(), ((right - left) * sx).toInt().coerceAtLeast(4), ((bottom - top) * sy).toInt().coerceAtLeast(4))
         val k = SHOT_MAX_SIDE.toDouble() / maxOf(sub.width, sub.height)
@@ -356,14 +363,24 @@ class MacScreen(
             g.color = Color(255, 255, 255, 38); g.stroke = BasicStroke(3f); g.drawLine(0, y, img.width, y)
             g.color = Color(0, 0, 0, 96); g.stroke = BasicStroke(1f); g.drawLine(0, y, img.width, y)
         }
-        val size = (minOf(cw, ch) * 0.2).coerceIn(9.0, 24.0).toFloat()
+        // Rulers on the top and left edges only, never inside a cell: a label at a cell's centre sat on
+        // whatever that cell held, and the picture the brain aimed from had its target covered.
+        val size = (minOf(cw, ch) * 0.2).coerceIn(10.0, 24.0).toFloat()
         g.font = Font(Font.SANS_SERIF, Font.BOLD, size.toInt())
-        for (r in 0 until GRID_ROWS) for (c in 0 until GRID_COLS) {
-            val label = "${'A' + c}${r + 1}".let { if (zoom) it.lowercase() else it }
-            val w = g.fontMetrics.stringWidth(label)
-            val tx = ((c + 0.5) * cw - w / 2).toInt(); val ty = ((r + 0.5) * ch + size * 0.35).toInt()
-            g.color = Color(0, 0, 0, 165); for (dx in -1..1) for (dy in -1..1) g.drawString(label, tx + dx, ty + dy)
-            g.color = Color(255, 255, 255, 175); g.drawString(label, tx, ty)
+        val fm = g.fontMetrics
+        fun mark(label: String, cx: Double, baseline: Double) {
+            val w = fm.stringWidth(label)
+            val pad = size * 0.25
+            g.color = Color(0, 0, 0, 150)
+            g.fillRoundRect((cx - w / 2 - pad).toInt(), (baseline - size * 1.02).toInt(), (w + 2 * pad).toInt(), (size * 1.32).toInt(), (size * 0.6).toInt(), (size * 0.6).toInt())
+            g.color = Color(255, 255, 255, 235)
+            g.drawString(label, (cx - w / 2).toInt(), baseline.toInt())
+        }
+        val top = size * 1.25
+        for (c in 0 until GRID_COLS) { val l = ('A' + c).toString(); mark(if (zoom) l.lowercase() else l, (c + 0.5) * cw, top) }
+        for (r in 0 until GRID_ROWS) {
+            val l = (r + 1).toString()
+            mark(l, fm.stringWidth(l) / 2.0 + size * 0.35, (r + 0.5) * ch + size * 0.35)
         }
         g.dispose()
     }
@@ -404,7 +421,7 @@ class MacScreen(
     companion object {
         private const val GRID_COLS = 8
         private const val GRID_ROWS = 12
-        private const val SHOT_MAX_SIDE = 1280
+        private const val SHOT_MAX_SIDE = 1600
         private const val MAX_LINES = 300
 
         val METHODS = setOf(
@@ -416,7 +433,8 @@ class MacScreen(
         val SCREEN_RECORDING_NOTE: String get() = PermissionHelp.SCREEN_RECORDING
 
         private const val AIM_GRID_NOTE =
-            "This image carries an 8x12 aim grid, A1 (top-left) to H12 (bottom-right), each label at the centre of its cell. " +
+            "This image carries an 8x12 aim grid, A1 (top-left) to H12 (bottom-right): letters run along the TOP edge and numbers " +
+                "down the LEFT edge like a map's rulers, and nothing is printed inside a cell. " +
                 "To click something, name its cell and which part of the cell — {\"cell\": \"D7\", \"part\": \"bottom-right\"} on " +
                 "tap_by_coordinates. Andee's own windows are never in this picture."
 

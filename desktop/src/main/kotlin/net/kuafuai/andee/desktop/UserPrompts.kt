@@ -89,14 +89,18 @@ class UiTools : DesktopBrainHost.ToolProvider {
         val title = p.optString("title").ifEmpty { defaultTitle }
         // Ownership is decided here, never by the model: get_page armed a group,
         // an explicit `revise` wins, and either way the target is consumed.
-        val group = Pages.armOrResolve(p.optString("revise").trim().ifEmpty { null }?.toLongOrNull())
+        // `revise` is a page id (what list_pages shows), not a group id: translate it, or an id that
+        // happens to equal some other artifact's group files the page under the wrong artifact.
+        // An id that names nothing is ignored rather than refused — the page is still worth showing.
+        val explicit = p.optString("revise").trim().toLongOrNull()?.let { Pages.pageById(it)?.groupId }
+        val group = Pages.armOrResolve(explicit)
         val page = Pages.add(title, html, group) ?: throw IllegalStateException("the page could not be saved")
         // The phone renders in an in-app WebView; the Mac's honest first cut opens
         // the page in the default browser. The shelf (list_pages / get_page / the
         // per-turn index) is what the model reads back, and that works the same.
         runCatching { net.kuafuai.andee.desktop.mac.Bridge.open(page.file!!.absolutePath) }
             .onFailure { Log.w("UiTools", "could not open the page: ${it.message}") }
-        Scrollback.add(Scrollback.Role.ASSISTANT, "📄 ${title}")
+        Scrollback.add(Scrollback.Role.ASSISTANT, title)
         return JSONObject().put("opened", true).put("id", page.id).put("title", title)
             .put("version", page.version).put("closed", false)
     }
@@ -249,9 +253,9 @@ fun AskCard(p: AskGate.Pending) {
     val zh = Strings.lang() == "zh"
     fun t(a: String, b: String) = if (zh) a else b
     val isAlert = p.buttons.isEmpty()
-    Box(Modifier.fillMaxSize().background(Color(0xB3000000)), contentAlignment = Alignment.Center) {
+    run {
         Column(
-            Modifier.widthIn(max = 440.dp).fillMaxWidth().padding(20.dp)
+            Modifier.fillMaxWidth()
                 .background(Palette.card, RoundedCornerShape(18.dp))
                 .border(1.dp, Palette.hairline, RoundedCornerShape(18.dp)).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

@@ -5,7 +5,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.onExternalDrag
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +39,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -79,19 +84,25 @@ object Palette {
     val card get() = cardSolid
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-fun ChatScreen(onOpenArtifacts: () -> Unit) {
+fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, onContinueTopic: (Scrollback.Topic) -> Unit = {}) {
     var rows by remember { mutableStateOf(Scrollback.snapshot()) }
     var progress by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
     var voice by remember { mutableStateOf(net.kuafuai.andee.desktop.voice.MacVoice.State.IDLE) }
     var heard by remember { mutableStateOf("") }
+    var pending by remember { mutableStateOf(Assistant.pending) }
+    val attached = remember { androidx.compose.runtime.mutableStateListOf<Attachment>().apply { addAll(ChatPreview.attachments) } }
+    var dropping by remember { mutableStateOf(false) }
+    var muted by remember { mutableStateOf(Assistant.muted) }
     var artifacts by remember { mutableStateOf(Pages.artifacts()) }
     var recording by remember { mutableStateOf(Meeting.isActive()) }
     val list = rememberLazyListState()
-    // Folded stretches live in the sidebar's topic list; the chat is the conversation in progress.
-    val items = rows.filter { it.topicId == null }
+    // A folded stretch is one card standing where its messages stood — the phone's rule, so the
+    // conversation still reads top to bottom. The sidebar's topic list is only another way in.
+    val items = remember(rows) { chatItems(rows) }
 
     // Registered on enter, removed on leave: the sidebar remounts this screen on every
     // navigation, and a listener left behind per visit is a leak that grows all day.
@@ -107,13 +118,16 @@ fun ChatScreen(onOpenArtifacts: () -> Unit) {
         Assistant.onProgress = { progress = it }
         Assistant.onFinal = { progress = "" }
         Assistant.onBusy = { b -> busy = b; if (!b) progress = "" }
+        Assistant.onPendingChanged = { pending = Assistant.pending }
+        Assistant.onMuteChanged = { muted = Assistant.muted }
         net.kuafuai.andee.desktop.voice.MacVoice.onState = { voice = it }
         net.kuafuai.andee.desktop.voice.MacVoice.onPartial = { heard = it }
         net.kuafuai.andee.desktop.voice.MacVoice.onFinal = { said ->
             heard = ""
-            Thread { Assistant.say(said, spoken = true) }.start()
+            Thread { Assistant.say(said) }.start()
         }
     }
+    LaunchedEffect(Unit) { pending = Assistant.pending }
     LaunchedEffect(items.size) { if (items.isNotEmpty()) list.animateScrollToItem(items.size - 1) }
 
     // The ball is the phone's way in: a tap talks, a second tap says "done".
@@ -122,38 +136,86 @@ fun ChatScreen(onOpenArtifacts: () -> Unit) {
         if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) progress = noVoiceKey()
     }
 
-    fun send() {
-        val t = input.trim()
-        if (t.isEmpty() || busy) return
-        input = ""
-        Thread { Assistant.say(t) }.start()
+    /** Pictures and files from any door — the clip button, a paste, a drop — end up on the same strip. */
+    fun attach(items: List<Attachment>) {
+        for (a in items) if (attached.size < Attachments.MAX) attached += a
+    }
+    fun attachFiles(files: List<java.io.File>) {
+        Thread {
+            val got = files.mapNotNull { Attachments.fromFile(it) }
+            javax.swing.SwingUtilities.invokeLater { attach(got) }
+        }.start()
+    }
+    fun choose() {
+        Thread {
+            val files = Attachments.choose()
+            if (files.isNotEmpty()) attachFiles(files)
+        }.start()
+    }
+    /** ⌘V: a picture or copied files are taken; plain text is left for the field to paste. True if handled. */
+    fun pasteAttachment(): Boolean {
+        val files = Attachments.filesFromClipboard()
+        if (files.isNotEmpty()) { attachFiles(files); return true }
+        val pic = Attachments.fromClipboard() ?: return false
+        attach(listOf(pic)); return true
     }
 
+    fun send() {
+        val t = input.trim()
+        if ((t.isEmpty() && attached.isEmpty()) || busy) return
+        val sending = attached.toList()
+        input = ""
+        attached.clear()
+        Thread { Assistant.say(t, attachments = sending) }.start()
+    }
+
+    Box(
+        Modifier.fillMaxSize().onExternalDrag(
+            onDragStart = { dropping = true },
+            onDragExit = { dropping = false },
+            onDrop = { v ->
+                dropping = false
+                val data = v.dragData
+                if (data is androidx.compose.ui.DragData.FilesList) {
+                    attachFiles(data.readFiles().mapNotNull { runCatching { java.io.File(java.net.URI(it)) }.getOrNull() })
+                }
+            },
+        ),
+    ) {
     Column(Modifier.fillMaxSize()) {
         Header(
+            muted = muted, onToggleMute = { Assistant.setMuted(!muted) },
+            live = recording || voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING,
             status = when {
-                recording -> if (Strings.lang() == "zh") "● 正在录音" else "● Recording"
-                voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING -> if (Strings.lang() == "zh") "● 正在听" else "● Listening"
+                recording -> if (Strings.lang() == "zh") "正在录音" else "Recording"
+                voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING -> if (Strings.lang() == "zh") "正在听" else "Listening"
                 busy -> if (Strings.lang() == "zh") "思考中…" else "Thinking…"
                 voice == net.kuafuai.andee.desktop.voice.MacVoice.State.SPEAKING -> if (Strings.lang() == "zh") "正在说" else "Speaking"
                 else -> null
-            },
-            stoppable = recording || busy,
-            onStop = {
-                if (recording) Meeting.stopFromUser() else if (busy) Assistant.stop()
             },
         )
 
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
             if (artifacts.isNotEmpty()) {
-                Text(
-                    "📄 " + (if (Strings.lang() == "zh") "产物" else "Artifacts") + " (${artifacts.size})",
-                    color = Palette.accent, fontSize = 13.sp,
-                    modifier = Modifier.fillMaxWidth().glassSurface(12).clickable { onOpenArtifacts() }.padding(12.dp),
-                )
+                Row(
+                    Modifier.fillMaxWidth().glassSurface(12).clickable { onOpenArtifacts() }.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(AndeeIcon.DOCUMENT, Palette.accent, 16.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        (if (Strings.lang() == "zh") "产物" else "Artifacts") + " (${artifacts.size})",
+                        color = Palette.accent, fontSize = 13.sp, modifier = Modifier.weight(1f),
+                    )
+                    Icon(AndeeIcon.CHEVRON, Palette.accent, 14.dp)
+                }
                 Spacer(Modifier.height(10.dp))
             }
-            LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(
+                state = list, modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 4.dp, bottom = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 if (items.isEmpty()) {
                     item {
                         Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
@@ -164,57 +226,128 @@ fun ChatScreen(onOpenArtifacts: () -> Unit) {
                         }
                     }
                 }
-                items(items, key = { it.id }) { Bubble(it) }
+                items(items, key = { it.key }) { it ->
+                    when (it) {
+                        is ChatItem.Message -> Bubble(it.row)
+                        is ChatItem.Folded -> TopicCard(it.topic, it.count, onOpen = { onOpenTopic(it.topic.id) }, onContinue = { onContinueTopic(it.topic) })
+                    }
+                }
             }
         }
 
         if (heard.isNotEmpty()) {
-            Text("🎤 $heard", color = Palette.text, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp))
+            Row(Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(AndeeIcon.MIC, Palette.accent, 14.dp)
+                Spacer(Modifier.width(6.dp))
+                Text(heard, color = Palette.text, fontSize = 13.sp)
+            }
         }
         if (progress.isNotEmpty()) {
             Text(progress, color = Palette.secondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp))
         }
 
+        pending?.let { p ->
+            val zh = Strings.lang() == "zh"
+            Row(
+                Modifier.padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 8.dp).fillMaxWidth().glassSurface(12).padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(AndeeIcon.DOCUMENT, Palette.accent, 16.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    when (p) {
+                        is Assistant.Pending.Edit -> if (zh) "修改「${p.page.title}」：说说想怎么改" else "Revising “${p.page.title}”: say what to change"
+                        is Assistant.Pending.Topic -> if (zh) "继续「${p.topic.title}」：想从哪接着聊" else "Continuing “${p.topic.title}”: where to take it"
+                    },
+                    color = Palette.label, fontSize = 13.sp, modifier = Modifier.weight(1f),
+                )
+                Box(Modifier.clickable { Assistant.cancelPending() }.padding(4.dp)) { Icon(AndeeIcon.CLOSE, Palette.secondary, 14.dp) }
+            }
+        }
         InputBar(
             input = input,
             onInput = { input = it },
             listening = voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING,
-            canSend = input.isNotBlank() && !busy,
+            canSend = (input.isNotBlank() || attached.isNotEmpty()) && !busy,
+            attached = attached,
+            onRemove = { attached.remove(it) },
+            onAttach = { choose() },
+            onPaste = { pasteAttachment() },
+            stoppable = recording || busy,
+            onStop = { if (recording) Meeting.stopFromUser() else if (busy) Assistant.stop() },
             onMic = { toggleMic() },
             onSend = { send() },
         )
     }
+    if (dropping) {
+        Box(
+            Modifier.fillMaxSize().padding(10.dp)
+                .background(Palette.accent.copy(alpha = 0.14f), RoundedCornerShape(18.dp))
+                .border(2.dp, Palette.accent, RoundedCornerShape(18.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(if (Strings.lang() == "zh") "松开，加到这条消息里" else "Drop to add to this message", color = Palette.title, fontSize = 16.sp)
+        }
+    }
+    }
 }
 
-/** Title plus a one-line status, with stop and settings on the right — the phone's control bar. */
+/** Title, or a one-line status when something is live. Stop is with the input box, where the hand already is. */
 @Composable
-private fun Header(status: String?, stoppable: Boolean, onStop: () -> Unit) {
+private fun Header(status: String?, live: Boolean, muted: Boolean, onToggleMute: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (live) {
+            Box(Modifier.size(8.dp).background(Palette.accent, CircleShape))
+            Spacer(Modifier.width(8.dp))
+        }
         Text(
             status ?: (if (Strings.lang() == "zh") "对话" else "Chat"),
-            color = if (status?.startsWith("●") == true) Palette.accent else Palette.title,
+            color = if (live) Palette.accent else Palette.title,
             fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
         )
         Spacer(Modifier.weight(1f))
-        if (stoppable) {
-            Pill(if (Strings.lang() == "zh") "■ 停止" else "■ Stop") { onStop() }
-            Spacer(Modifier.width(8.dp))
+        val zh = Strings.lang() == "zh"
+        Row(
+            Modifier.clip(RoundedCornerShape(16.dp)).clickable { onToggleMute() }.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(if (muted) AndeeIcon.VOLUME_OFF else AndeeIcon.VOLUME, if (muted) Palette.secondary else Palette.label, 18.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                if (muted) (if (zh) "静音" else "Muted") else (if (zh) "朗读" else "Voice on"),
+                color = if (muted) Palette.secondary else Palette.label, fontSize = 12.sp,
+            )
         }
     }
 }
 
 /** The mic and send live with the text field, as a chat app's composer does. */
 @Composable
-private fun InputBar(input: String, onInput: (String) -> Unit, listening: Boolean, canSend: Boolean, onMic: () -> Unit, onSend: () -> Unit) {
+private fun InputBar(
+    input: String, onInput: (String) -> Unit, listening: Boolean, canSend: Boolean,
+    attached: List<Attachment>, onRemove: (Attachment) -> Unit, onAttach: () -> Unit, onPaste: () -> Boolean,
+    stoppable: Boolean, onStop: () -> Unit, onMic: () -> Unit, onSend: () -> Unit,
+) {
+    Column {
+    if (attached.isNotEmpty()) AttachmentStrip(attached, onRemove)
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(ComposerFocus.pending) {
+        if (ComposerFocus.pending) {
+            kotlinx.coroutines.delay(120)   // the window has to be up before it can take focus
+            runCatching { focus.requestFocus() }
+            ComposerFocus.pending = false
+        }
+    }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        RoundButton(listening, onMic) { if (listening) "◼" else "🎤" }
+        RoundButton(false.not(), onAttach, AndeeIcon.PAPERCLIP, quiet = true)
+        RoundButton(listening, onMic, if (listening) AndeeIcon.STOP else AndeeIcon.MIC)
         Box(
             Modifier.weight(1f).background(Palette.well, RoundedCornerShape(18.dp))
                 .border(1.dp, Palette.hairline, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
@@ -224,9 +357,12 @@ private fun InputBar(input: String, onInput: (String) -> Unit, listening: Boolea
                 onValueChange = onInput,
                 textStyle = TextStyle(color = Palette.text, fontSize = 15.sp),
                 cursorBrush = SolidColor(Palette.accent),
-                modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { e ->
+                modifier = Modifier.fillMaxWidth().focusRequester(focus).onPreviewKeyEvent { e ->
                     if (e.type == KeyEventType.KeyDown && e.key == Key.Enter && !e.isShiftPressed) {
                         if (canSend) onSend(); true
+                    } else if (e.type == KeyEventType.KeyDown && e.key == Key.V && (e.isMetaPressed || e.isCtrlPressed)) {
+                        // A copied picture or file is ours; copied text falls through to the field.
+                        onPaste()
                     } else false
                 },
             )
@@ -237,25 +373,132 @@ private fun InputBar(input: String, onInput: (String) -> Unit, listening: Boolea
                 )
             }
         }
-        RoundButton(canSend, onSend) { "↑" }
+        if (stoppable) RoundButton(true, onStop, AndeeIcon.STOP, danger = true)
+        RoundButton(canSend, onSend, AndeeIcon.SEND)
+    }
+    }
+}
+
+/** What is about to go: a thumbnail per picture, a name and size per file, each with a way to take it off. */
+@Composable
+private fun AttachmentStrip(items: List<Attachment>, onRemove: (Attachment) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 6.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        for (a in items) {
+            Box {
+                when (a) {
+                    is Attachment.Photo -> androidx.compose.foundation.Image(
+                        a.thumb, a.label,
+                        Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).border(1.dp, Palette.glassEdge, RoundedCornerShape(10.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
+                    is Attachment.FileRef -> Row(
+                        Modifier.height(56.dp).widthIn(max = 240.dp).glassSurface(10).padding(start = 12.dp, end = 26.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(AndeeIcon.FILE, Palette.accent, 18.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(a.label, color = Palette.label, fontSize = 13.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(Attachments.size(a.bytes), color = Palette.secondary, fontSize = 11.sp)
+                        }
+                    }
+                }
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(3.dp).size(18.dp)
+                        .background(Color(0xCC000000), CircleShape).clickable { onRemove(a) },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(AndeeIcon.CLOSE, Color.White, 10.dp) }
+            }
+        }
     }
 }
 
 @Composable
-private fun RoundButton(enabled: Boolean, onClick: () -> Unit, glyph: () -> String) {
+private fun RoundButton(enabled: Boolean, onClick: () -> Unit, icon: AndeeIcon, danger: Boolean = false, quiet: Boolean = false) {
+    // A quiet button is always available but never the main action: no fill, the same rim as a disabled one.
+    val filled = enabled && !quiet
     Box(
         Modifier.size(40.dp)
-            .background(if (enabled) Palette.accent else Palette.well, CircleShape)
-            .border(1.dp, if (enabled) Color.Transparent else Palette.hairline, CircleShape)
+            .background(if (!filled) Palette.well else if (danger) Palette.danger else Palette.accent, CircleShape)
+            .border(1.dp, if (filled) Color.Transparent else Palette.hairline, CircleShape)
             .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph(), color = if (enabled) Color(0xFF0A2540) else Palette.secondary, fontSize = 17.sp)
+        Icon(icon, if (filled) Color(0xFF0A2540) else if (quiet) Palette.label else Palette.secondary, 18.dp)
     }
 }
 
+/** Preview-only: what the offscreen render starts the strip with. Empty in the app. */
+object ChatPreview { var attachments: List<Attachment> = emptyList() }
+
+sealed class ChatItem(val key: String) {
+    class Message(val row: Scrollback.Row) : ChatItem("m${row.id}")
+    class Folded(val topic: Scrollback.Topic, val count: Int) : ChatItem("t${topic.id}")
+}
+
+/**
+ * Rows in order, with each folded stretch collapsed to one entry at the place of its first row.
+ * A topic whose rows have all aged out of the record is not drawn — it stays reachable from the
+ * sidebar and through list_topics.
+ */
+fun chatItems(rows: List<Scrollback.Row>): List<ChatItem> {
+    val topics = Scrollback.topics().associateBy { it.id }
+    val counts = rows.mapNotNull { it.topicId }.groupingBy { it }.eachCount()
+    val seen = HashSet<Long>()
+    val out = ArrayList<ChatItem>()
+    for (r in rows) {
+        val t = r.topicId
+        if (t == null) { out += ChatItem.Message(r); continue }
+        val topic = topics[t] ?: continue
+        if (seen.add(t)) out += ChatItem.Folded(topic, counts[t] ?: 0)
+    }
+    return out
+}
+
+/** One finished topic, standing where its messages stood: what it was, how long, and the two ways back in. */
+@Composable
+private fun TopicCard(topic: Scrollback.Topic, count: Int, onOpen: () -> Unit, onContinue: () -> Unit) {
+    val zh = Strings.lang() == "zh"
+    val fmt = remember { java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.US) }
+    Column(
+        Modifier.fillMaxWidth().glassPanel(16).padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(AndeeIcon.CHAT, Palette.secondary, 14.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(if (zh) "话题" else "Topic", color = Palette.secondary, fontSize = 12.sp)
+            Spacer(Modifier.weight(1f))
+            Text(
+                fmt.format(java.util.Date(topic.endedAt)) + " · " + (if (zh) "$count 条" else "$count msgs"),
+                color = Palette.photoInk, fontSize = 12.sp,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(topic.title, color = Palette.title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        if (topic.summary.isNotBlank() && topic.summary != topic.title) {
+            Spacer(Modifier.height(2.dp))
+            Text(topic.summary, color = Palette.label, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(if (zh) "继续话题" else "Continue", color = Palette.accent, fontSize = 13.sp,
+                modifier = Modifier.clickable { onContinue() }.padding(vertical = 4.dp))
+            Text(if (zh) "对话记录" else "Transcript", color = Palette.accent, fontSize = 13.sp,
+                modifier = Modifier.clickable { onOpen() }.padding(vertical = 4.dp))
+        }
+    }
+}
+
+/** Asked for by the ball's double-tap: the next time the composer is on screen, put the cursor in it. */
+object ComposerFocus {
+    var pending by androidx.compose.runtime.mutableStateOf(false)
+}
+
 fun noVoiceKey() =
-    if (Strings.lang() == "zh") "还没配语音 Key：在 ⚙ 设置的「语音」里填上。" else "No voice key yet: add it under Voice in ⚙ Settings."
+    if (Strings.lang() == "zh") "还没配语音 Key：在设置的「语音」里填上。" else "No voice key yet: add it under Voice in Settings."
 
 @Composable
 private fun Bubble(r: Scrollback.Row) {

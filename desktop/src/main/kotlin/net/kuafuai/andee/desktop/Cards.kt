@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -66,7 +69,7 @@ fun SelfCheckCard(onDone: () -> Unit, onOpenSettings: () -> Unit) {
                 Modifier.fillMaxWidth().glassPanel(14).padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(if (r.ok) "✓" else "!", color = if (r.ok) Palette.ok else Palette.warn, fontSize = 16.sp)
+                Icon(if (r.ok) AndeeIcon.CHECK_CIRCLE else AndeeIcon.ALERT_CIRCLE, if (r.ok) Palette.ok else Palette.warn, 20.dp)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(r.name, color = Palette.label, fontSize = 14.sp)
@@ -88,7 +91,7 @@ private fun openPane(anchor: String) {
 
 /** 产物: the pages Andee has made, one per artifact with its versions. */
 @Composable
-fun ArtifactsCard(onDone: () -> Unit) {
+fun ArtifactsCard(onDone: () -> Unit, onContinue: () -> Unit) {
     val zh = Strings.lang() == "zh"
     var refresh by remember { mutableStateOf(0) }
     val artifacts = Pages.artifacts()
@@ -102,7 +105,7 @@ fun ArtifactsCard(onDone: () -> Unit) {
             Column(Modifier.fillMaxWidth().glassPanel(14).padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("📄 " + a.title, color = Palette.label, fontSize = 14.sp)
+                        Text(a.title, color = Palette.label, fontSize = 14.sp)
                         Text("v${a.version} · ${LocalTime.format(a.ts)}", color = Palette.secondary, fontSize = 11.sp)
                     }
                 }
@@ -111,8 +114,8 @@ fun ArtifactsCard(onDone: () -> Unit) {
                         modifier = Modifier.clickable { runCatching { net.kuafuai.andee.desktop.mac.Bridge.open(a.file!!.absolutePath) } }.padding(vertical = 6.dp))
                     Text(if (zh) "继续" else "Edit", color = Palette.accent, fontSize = 12.sp,
                         modifier = Modifier.clickable {
-                            Thread { Assistant.say("继续修改「${a.title}」。先 get_page(id=${a.id}) 读回源码，改好后用 show_html 重画，不要新建产物。") }.start()
-                            onDone()
+                            Assistant.beginEdit(a)
+                            onContinue()
                         }.padding(vertical = 6.dp))
                     Text(if (zh) "版本" else "Versions", color = Palette.secondary, fontSize = 12.sp,
                         modifier = Modifier.clickable { showVersions = !showVersions }.padding(vertical = 6.dp))
@@ -126,7 +129,7 @@ fun ArtifactsCard(onDone: () -> Unit) {
                                 Text(if (zh) "回退到这版" else "Roll back", color = Palette.accent, fontSize = 12.sp,
                                     modifier = Modifier.clickable {
                                         Pages.restoreVersion(v.id)
-                                        Scrollback.add(Scrollback.Role.ASSISTANT, "↩️ 已把「${v.title}」回退到 v${v.version}")
+                                        Scrollback.add(Scrollback.Role.ASSISTANT, "已把「${v.title}」回退到 v${v.version}")
                                         refresh++
                                     }.padding(vertical = 3.dp))
                             }
@@ -261,7 +264,13 @@ fun ScenesCard(onDone: () -> Unit) {
             Column(Modifier.fillMaxWidth().glassPanel(14).padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text((if (isActive) "● " else "") + s.title, color = if (isActive) Palette.accent else Palette.label, fontSize = 14.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isActive) {
+                                Box(Modifier.size(7.dp).background(Palette.accent, CircleShape))
+                                Spacer(Modifier.width(7.dp))
+                            }
+                            Text(s.title, color = if (isActive) Palette.accent else Palette.label, fontSize = 14.sp)
+                        }
                         Text(s.summary + " · ${s.uses} 次", color = Palette.secondary, fontSize = 11.sp)
                     }
                 }
@@ -294,7 +303,7 @@ fun ScenesCard(onDone: () -> Unit) {
 
 /** One finished topic, read back: the verbatim text, and a way to pick it up again. */
 @Composable
-fun TopicScreen(topicId: Long, onDone: () -> Unit) {
+fun TopicScreen(topicId: Long, onDone: () -> Unit, onContinue: () -> Unit) {
     val zh = Strings.lang() == "zh"
     val topic = Scrollback.topics().firstOrNull { it.id == topicId }
     val text = Scrollback.topicText(topicId)
@@ -310,8 +319,8 @@ fun TopicScreen(topicId: Long, onDone: () -> Unit) {
             Spacer(Modifier.height(10.dp))
         }
         PrimaryButton(if (zh) "接着聊这个话题" else "Continue this topic") {
-            Thread { Assistant.say("继续聊「${topic.title}」。先 get_topic(id=${topic.id}) 读回对话再接着聊。") }.start()
-            onDone()
+            Assistant.beginTopic(topic)
+            onContinue()
         }
         Spacer(Modifier.height(12.dp))
         androidx.compose.foundation.text.selection.SelectionContainer {

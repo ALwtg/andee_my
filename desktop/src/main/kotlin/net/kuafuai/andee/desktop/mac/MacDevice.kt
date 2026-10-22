@@ -237,7 +237,7 @@ class MacDevice : DesktopBrainHost.ToolProvider {
                 return JSONObject().put("error", "The camera could not be used on this Mac (no camera, or the Camera permission is missing). Say so; do not claim to see.")
             }
             val b64 = java.util.Base64.getEncoder().encodeToString(f.readBytes())
-            Scrollback.add(Scrollback.Role.ASSISTANT, "📷 " + (if (Strings.lang() == "zh") "看了一眼（" else "Looked (") + (if (front) "front" else "back") + ")")
+            Scrollback.add(Scrollback.Role.ASSISTANT, (if (Strings.lang() == "zh") "看了一眼（" else "Looked (") + (if (front) "front" else "back") + ")")
             return JSONObject().put("png_base64", b64).put("camera", if (front) "front" else "back")
         } finally { f.delete() }
     }
@@ -370,7 +370,7 @@ object MacVault {
         val pw = find(label).optString("password")
         require(pw.isNotEmpty()) { "That entry has no password saved." }
         require(Bridge.focusedValue().optBoolean("focused")) { "Click into the password field first." }
-        Scrollback.add(Scrollback.Role.ASSISTANT, "🔐 正在填入「$label」的密码… / filling the password for “$label”…")
+        Scrollback.add(Scrollback.Role.ASSISTANT, "正在填入「$label」的密码… / filling the password for “$label”…")
         val ok = Bridge.setFocusedValue(pw) || run { Bridge.typeText(pw); true }
         val len = Bridge.focusedValue().optString("value").length
         Log.i("Vault", "filled $label (${pw.length} chars)")

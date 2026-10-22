@@ -21,8 +21,22 @@ object Assistant {
     @Volatile var onBusy: (Boolean) -> Unit = {}
     @Volatile var onSceneChanged: (String?) -> Unit = {}
 
-    /** Speak answers aloud: on after the user spoke, off after they typed (a typed question wants a quiet answer). */
-    @Volatile var speakReplies = false
+    /**
+     * Answers are read aloud however the question came in — the phone does the same, and a voice that
+     * goes quiet when you start typing reads as broken rather than polite. Quiet is the user's call:
+     * the speaker button in the chat header, remembered across launches.
+     */
+    @Volatile var muted: Boolean = Settings.get("mute") == "1"
+        private set
+    @Volatile var onMuteChanged: () -> Unit = {}
+
+    fun setMuted(m: Boolean) {
+        muted = m
+        Settings.save(mapOf("mute" to if (m) "1" else "0"))
+        // Muting means now, not after the sentence it was already saying.
+        if (m) net.kuafuai.andee.desktop.voice.MacVoice.stopSpeaking()
+        onMuteChanged()
+    }
 
     /**
      * Shows a command for approval and returns the button pressed. Set by the
@@ -43,9 +57,12 @@ object Assistant {
     /** Hides Andee's own windows for the instant of a click; set by the window. */
     @Volatile var hideWindows: (Boolean) -> Unit = {}
 
+    /** Gets the chat window out of the way before a screen tool runs; set by the window. */
+    @Volatile var yieldScreen: () -> Unit = {}
+
     /** The screen hand: accessibility tree, clicks, keys and screenshots. */
     val screen: net.kuafuai.andee.desktop.mac.MacScreen by lazy {
-        net.kuafuai.andee.desktop.mac.MacScreen { hide -> hideWindows(hide) }
+        net.kuafuai.andee.desktop.mac.MacScreen({ hide -> hideWindows(hide) }, { yieldScreen() })
     }
 
     /** Apps, calendar, reminders, contacts, volume, battery and the vault. */
@@ -111,14 +128,15 @@ object Assistant {
         val b = LocalBrain(
             cfg = cfg,
             host = DesktopBrainHost(providers(), MacPrompt.Capabilities(shell = true, screen = true, voice = true)),
-            onProgress = { onProgress(it) },
+            onProgress = { BallCaption.push(it); onProgress(it) },
             onFinal = { text ->
                 val clean = net.kuafuai.andee.brain.SpeechMood.parse(text).text.replace("[END]", "").trim()
                 Scrollback.add(Scrollback.Role.ASSISTANT, clean)
                 MacBall.onAnswer(text)
+                BallCaption.clear()
                 onFinal(clean)
                 busy(false)
-                if (speakReplies) net.kuafuai.andee.desktop.voice.MacVoice.speak(text)
+                if (!muted) net.kuafuai.andee.desktop.voice.MacVoice.speak(text)
             },
             onTurnEnd = { busy(false) },
             onSweepSpent = { Sweep.spent(it) },
@@ -155,7 +173,7 @@ object Assistant {
         progressClear()
     }
 
-    private fun progressClear() { onProgress("") }
+    private fun progressClear() { BallCaption.clear(); onProgress("") }
 
     /** The quiet-hour review (also the sidebar's 整理 button). Silent: no answer, no voice, no task light. */
     fun runSweep() {
@@ -166,20 +184,101 @@ object Assistant {
     /** A turn started or ended: the window's stop button and the ball's working face. */
     private fun busy(b: Boolean) {
         MacBall.onBusy(b)
+        if (b) BallCaption.thinking() else BallCaption.clear()
         onBusy(b)
     }
 
-    fun say(text: String, spoken: Boolean = false) {
-        speakReplies = spoken
-        val t = text.trim()
-        if (t.isEmpty()) return
-        Scrollback.add(Scrollback.Role.USER, t)
-        busy(true)
-        ensure().submit(t)
+    /** What the user tapped 继续 on and has not yet said what to do with. Cleared by the next words, or by stop. */
+    sealed class Pending {
+        data class Edit(val page: Pages.Page) : Pending()
+        data class Topic(val topic: Scrollback.Topic) : Pending()
     }
+    @Volatile var pending: Pending? = null
+        private set
+    @Volatile var onPendingChanged: () -> Unit = {}
+
+    fun beginEdit(page: Pages.Page) { pending = Pending.Edit(page); onPendingChanged() }
+    fun beginTopic(topic: Scrollback.Topic) { pending = Pending.Topic(topic); onPendingChanged() }
+    fun cancelPending() { if (pending != null) { pending = null; onPendingChanged() } }
+
+    fun say(text: String, attachments: List<Attachment> = emptyList()) {
+        val t = text.trim()
+        val photos = attachments.filterIsInstance<Attachment.Photo>()
+        val files = attachments.filterIsInstance<Attachment.FileRef>()
+        // Pictures alone are a complete message ("what is this"); so are files.
+        if (t.isEmpty() && attachments.isEmpty()) return
+        // A 继续 waiting for its words: the scrollback gets what they said, the brain gets that plus
+        // what it is about. The artifact is named here, before the brain can call show_html, so the
+        // revision is filed under it without the model having to keep an id straight.
+        val p = pending
+        pending = null
+        if (p != null) onPendingChanged()
+        val zh = Strings.lang() == "zh"
+        val row = when (p) {
+            is Pending.Edit -> if (zh) "修改「${p.page.title}」：$t" else "Revise “${p.page.title}”: $t"
+            is Pending.Topic -> if (zh) "继续「${p.topic.title}」：$t" else "Continue “${p.topic.title}”: $t"
+            null -> t
+        }
+        // The record says what was sent in words, since a picture has no text to show.
+        val zh0 = Strings.lang() == "zh"
+        val tag = buildList {
+            if (photos.isNotEmpty()) add(if (zh0) "[${photos.size} 张图片]" else "[${photos.size} picture${if (photos.size > 1) "s" else ""}]")
+            files.forEach { add("[${it.label}]") }
+        }.joinToString(" ")
+        Scrollback.add(Scrollback.Role.USER, listOf(tag, row).filter { it.isNotEmpty() }.joinToString(" "))
+        busy(true)
+        // submit() begins the turn, which clears the revision target; so arm after, from the turn's own start.
+        val forBrain = when (p) {
+            is Pending.Edit -> { Pages.armNextTurn(p.page.groupId); editQuery(p.page, row) }
+            is Pending.Topic -> topicQuery(p.topic, row)
+            null -> t
+        }
+        val withFiles = if (files.isEmpty()) forBrain else forBrain + Attachments.fileNote(files)
+        ensure().submit(withFiles, photos.map { it.jpegBase64 })
+    }
+
+    private fun editQuery(page: Pages.Page, said: String): String {
+        val cap = net.kuafuai.andee.ui.ScrollbackLimits.ARTIFACT_SOURCE_MAX
+        val html = page.file?.let { runCatching { it.readText() }.getOrNull() }.orEmpty()
+        val cut = html.length > cap
+        return buildString {
+            append(said)
+            append("\n\n(I picked this from the Artifacts panel: it is about the page you made earlier titled \"")
+            append(page.title)
+            append("\". Apply my change above to that page and show the full revised page with show_html,")
+            append(" keeping everything I did not ask to change. Its current source follows")
+            if (cut) append(" — truncated at $cap characters; rebuild the missing tail in the same style")
+            append(".)\n\n<<<CURRENT PAGE SOURCE>>>\n")
+            append(if (cut) html.take(cap) else html)
+            append("\n<<<END PAGE SOURCE>>>")
+        }
+    }
+
+    private fun topicQuery(t: Scrollback.Topic, said: String): String {
+        val cap = net.kuafuai.andee.ui.ScrollbackLimits.TOPIC_TEXT_MAX
+        val text = Scrollback.topicText(t.id)
+        return buildString {
+            append(said)
+            append("\n\n(I picked this from a finished topic in our conversation, topic #").append(t.id)
+            append(" \"").append(t.title).append("\", and want to carry on with it. What it came to: ").append(t.summary)
+            if (text == null) {
+                append("\nIts full text is no longer stored — work from the summary and say so if a detail is missing.)")
+            } else {
+                val cut = text.length > cap
+                append("\nThe conversation as it happened follows")
+                if (cut) append(" — cut at $cap characters, the beginning only")
+                append(".)\n\n<<<TOPIC CONVERSATION>>>\n").append(if (cut) text.take(cap) else text)
+                append("\n<<<END TOPIC CONVERSATION>>>")
+            }
+        }
+    }
+
+    /** A turn is running, or its answer is being read out: what a tap on the ball should cut short. */
+    fun working(): Boolean = brain?.isBusy() == true || net.kuafuai.andee.desktop.voice.MacVoice.isSpeaking()
 
     /** The user's stop: the turn ends, and every command it started ends with it. */
     fun stop() {
+        cancelPending()
         brain?.cancel()
         shell.stopAll()
         net.kuafuai.andee.desktop.voice.MacVoice.stopSpeaking()
@@ -197,11 +296,10 @@ object Assistant {
             val clean = net.kuafuai.andee.brain.SpeechMood.parse(line).text.trim()
             Scrollback.add(Scrollback.Role.ASSISTANT, clean)
             onFinal(clean)
-            net.kuafuai.andee.desktop.voice.MacVoice.speak(line)
+            if (!muted) net.kuafuai.andee.desktop.voice.MacVoice.speak(line)
         }
         override fun act(text: String) {
             busy(true)
-            speakReplies = true
             ensure().notified(text)
         }
     }
@@ -212,7 +310,6 @@ object Assistant {
             // The user ended the recording themselves, so the brain does not have the
             // transcript — ask it for the minutes on a fresh turn (the phone's asr.final path).
             busy(true)
-            speakReplies = false
             ensure().submit(meetingMinutesQuery(payload))
         }
         Meeting.onRecordingChanged = { MacBall.onRecording(it) }

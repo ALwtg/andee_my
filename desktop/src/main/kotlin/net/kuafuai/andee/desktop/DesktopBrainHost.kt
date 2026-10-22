@@ -52,7 +52,7 @@ class DesktopBrainHost(
     override fun activeSceneName(): String? = Settings.get("scene").ifEmpty { null }
         ?.takeIf { DesktopNotebook.book.scene(it) != null }
 
-    override fun persona(): String = ""
+    override fun persona(): String = net.kuafuai.andee.ui.ball.BallLooks.byName(Settings.get("ball").ifEmpty { null }).persona
 
     override fun platformPrompt(): String = MacPrompt.text(caps)
 
@@ -116,7 +116,17 @@ class DesktopBrainHost(
 object Strings {
     private val cache = HashMap<String, Properties>()
 
-    fun lang(): String = Settings.get("lang").ifEmpty {
+    /**
+     * Bumped when the language is changed from the settings picker. [lang] reads it, so every
+     * composable that asks which language it is in is subscribed and redraws at once, with no
+     * screen having to be told. (Reading Compose state off the UI thread is fine; it is a plain read.)
+     */
+    private val rev = androidx.compose.runtime.mutableStateOf(0)
+
+    /** The language was just written; redraw everything that reads it. */
+    fun changed() { rev.value++ }
+
+    fun lang(): String = rev.value.let { Settings.get("lang") }.ifEmpty {
         if (Locale.getDefault().language == "zh") "zh" else "en"
     }
 

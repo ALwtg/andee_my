@@ -55,9 +55,17 @@ object Pages {
         base = b
         synchronized(lock) { entries.clear(); nextId = 1L }
         armedGroup = null
+        carriedGroup = null
     }
 
-    fun beginTurn() { armedGroup = null }
+    /** A 继续修改 tap names the artifact before the turn exists; the turn's own start must not wipe it. */
+    @Volatile private var carriedGroup: Long? = null
+    fun armNextTurn(groupId: Long) { carriedGroup = groupId }
+
+    /** For tests: re-read the index from [base]. */
+    internal fun reloadForTest() { synchronized(lock) { entries.clear(); nextId = 1L }; load() }
+
+    fun beginTurn() { armedGroup = carriedGroup; carriedGroup = null }
     fun armGroup(id: Long) { armedGroup = id }
 
     /** The phone's resolveRevisionTarget: explicit wins, and either way the target is consumed. */
@@ -157,6 +165,40 @@ object Pages {
         }
     }
 
+    /**
+     * An early build read `show_html`'s `revise` (a *page* id) as a *group* id, so a revision of
+     * page 2 was filed under a group named "2" that nothing else belonged to, and the shelf showed
+     * one artifact as two. A real group is always named after its own first page, so a group whose
+     * name is the id of a page in a *different* group is exactly that mistake. Fold it into the
+     * group it was meant for and renumber, so the history reads v1..vN in the order it was made.
+     * Returns whether anything changed.
+     */
+    internal fun repairMisfiled(): Boolean = synchronized(lock) {
+        var changed = false
+        var moved = true
+        while (moved) {
+            moved = false
+            val ownerOf = entries.associate { it.id to it.groupId }
+            val stray = entries.groupBy { it.groupId }.keys.firstOrNull { g ->
+                val owner = ownerOf[g]
+                owner != null && owner != g && entries.none { it.id == g && it.groupId == g }
+            } ?: break
+            val target = ownerOf.getValue(stray)
+            for (i in entries.indices) if (entries[i].groupId == stray) entries[i] = entries[i].copy(groupId = target)
+            moved = true; changed = true
+        }
+        if (changed) {
+            for ((_, revs) in entries.groupBy { it.groupId }) {
+                revs.sortedWith(compareBy({ it.ts }, { it.id })).forEachIndexed { n, r ->
+                    val i = entries.indexOfFirst { it.id == r.id }
+                    entries[i] = entries[i].copy(version = n + 1)
+                }
+            }
+            Log.i(TAG, "re-filed revisions that an earlier build had split into a second artifact")
+        }
+        changed
+    }
+
     private fun save() = synchronized(lock) {
         val arr = JSONArray()
         for (e in entries) arr.put(
@@ -182,6 +224,7 @@ object Pages {
                 entries.add(Page(id, e.getLong("ts"), e.getString("title"), e.getLong("group"), e.optInt("version", 1), file))
             }
             nextId = maxOf(o.optLong("next", 1L), (entries.maxOfOrNull { it.id } ?: 0L) + 1)
+            if (repairMisfiled()) save()
         }.onFailure { Log.e(TAG, "could not read the page shelf; starting empty", it) }
     }
 }

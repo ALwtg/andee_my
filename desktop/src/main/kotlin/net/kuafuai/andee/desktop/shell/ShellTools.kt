@@ -50,7 +50,7 @@ class ShellTools(
     private val trashTool: File by lazy { locateTrashTool() }
     private val trash: TrashBroker by lazy {
         TrashBroker({ ShellPolicy.workDirs() }, { trashTool }).start()
-            .also { b -> b.onTrashed = { n -> record("🗑 moved $n item(s) to the Trash") } }
+            .also { b -> b.onTrashed = { n -> record("moved $n item(s) to the Trash") } }
     }
     /**
      * The shims and the helper sockets live outside Andee's data folder: the
@@ -75,7 +75,7 @@ class ShellTools(
     init {
         // Keys are a capability like the vault: a turn a stranger started cannot use them.
         AndeeAgent.allowSigning = { turn == Turn.USER || turn == Turn.WAKE_OWN }
-        AndeeAgent.onSign = { key, host -> record("🔑 $key" + (host?.let { " → $it" } ?: "")) }
+        AndeeAgent.onSign = { key, host -> record("key $key" + (host?.let { " → $it" } ?: "")) }
     }
 
     /** Triple-click / stop: end every running command and say the user did it. */

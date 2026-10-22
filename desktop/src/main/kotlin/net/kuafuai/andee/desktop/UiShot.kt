@@ -24,9 +24,22 @@ fun main(args: Array<String>) {
     val out = File(args.getOrElse(3) { "/tmp/ui.png" })
     System.setProperty("andee.home", File.createTempFile("andee-shot", "").also { it.delete(); it.mkdirs() }.path)
     if (args.getOrElse(4) { "" } == "empty") Scrollback.wipe() else seed()
+    @Suppress("UNUSED_VARIABLE") val unused = 0
+    if (args.getOrElse(4) { "" } == "pending") {
+        Scrollback.add(Scrollback.Role.ASSISTANT, "这一版改的是手感和反馈：\n\n" + "金豆出现了，每吃 5 个普通豆随机长出一颗金色豆子，6.5 秒后消失，最后一秒会闪，吃到 3 分。撞死时棋盘会抖一下、蛇头位置炸开一层红粒子。".repeat(4) + "\n\n要是你原本想改的是别的东西，跟我说一句我就接着改。")
+        Pages.add("贪吃蛇", "<html>", null)?.let { Assistant.beginEdit(it) }
+    }
+    if (args.getOrElse(4) { "" } == "attach") {
+        val img = java.awt.image.BufferedImage(600, 400, java.awt.image.BufferedImage.TYPE_INT_RGB).also { b ->
+            b.createGraphics().apply { paint = java.awt.GradientPaint(0f, 0f, java.awt.Color(0x2D6CDF), 600f, 400f, java.awt.Color(0xF2A33A)); fillRect(0, 0, 600, 400); dispose() }
+        }
+        val png = java.io.ByteArrayOutputStream().also { javax.imageio.ImageIO.write(img, "png", it) }.toByteArray()
+        val doc = File(System.getProperty("andee.home"), "季度复盘-final.pdf").also { it.writeText("%PDF") }
+        ChatPreview.attachments = listOfNotNull(Attachments.fromBytes("a.png", png), Attachments.fromBytes("b.png", png), Attachments.fromFile(doc))
+    }
     val nav = Nav().also { if (screen != "chat") it.go(screen) }
     val density = Density(2f)
-    val scene = ImageComposeScene(width = w * 2, height = h * 2, density = density) { AppRoot(nav, null, null) }
+    val scene = ImageComposeScene(width = w * 2, height = h * 2, density = density) { AppRoot(nav) }
     // Let the backdrop (decoded off the main thread) and the layout settle.
     repeat(12) { scene.render(it * 50_000_000L); Thread.sleep(60) }
     val img = scene.render(700_000_000L)

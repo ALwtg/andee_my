@@ -90,8 +90,9 @@ fun GlassHeader(title: String, subtitle: String? = null, onClose: () -> Unit, tr
         }
         Spacer(Modifier.weight(1f))
         trailing?.invoke()
-        Text("✕", color = Palette.secondary, fontSize = 18.sp,
-            modifier = Modifier.glassPanel(18).clickable { onClose() }.padding(horizontal = 12.dp, vertical = 6.dp))
+        Box(Modifier.glassPanel(18).clickable { onClose() }.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Icon(AndeeIcon.CLOSE, Palette.secondary, 16.dp)
+        }
     }
 }
 
@@ -142,12 +143,25 @@ fun GlassField(label: String, value: String, onValue: (String) -> Unit, secret: 
 }
 
 @Composable
-fun PrimaryButton(label: String, onClick: () -> Unit) {
+fun PrimaryButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Text(
         label, color = Palette.ON_TINT(), fontSize = 14.sp, fontWeight = FontWeight.Medium,
         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
             .background(Palette.tint, RoundedCornerShape(14.dp))
+            .clickable { onClick() }.padding(vertical = 11.dp),
+    )
+}
+
+/** The quiet twin of [PrimaryButton]: same height and width rules, glass fill instead of the tint. */
+@Composable
+fun SecondaryButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Text(
+        label, color = Palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        modifier = modifier.fillMaxWidth()
+            .background(Palette.panel, RoundedCornerShape(14.dp))
+            .border(1.dp, Palette.hairline, RoundedCornerShape(14.dp))
             .clickable { onClick() }.padding(vertical = 11.dp),
     )
 }

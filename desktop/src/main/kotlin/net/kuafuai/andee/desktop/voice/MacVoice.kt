@@ -37,7 +37,13 @@ object MacVoice {
     enum class State { IDLE, LISTENING, SPEAKING }
 
     /** Every change goes to the ball as well as the window, which has its own listener slot. */
+    @Volatile private var current = State.IDLE
+
+    /** The answer is being read out loud right now. */
+    fun isSpeaking() = current == State.SPEAKING
+
     private fun state(s: State) {
+        current = s
         net.kuafuai.andee.desktop.MacBall.onVoice(s)
         onState(s)
     }
@@ -57,7 +63,9 @@ object MacVoice {
         asrUid = Settings.uid(),
         ttsEndpoint = Settings.get("tts_endpoint").ifEmpty { "wss://openspeech.bytedance.com/api/v3/tts/bidirection" },
         ttsResourceId = Settings.get("tts_resource_id").ifEmpty { "seed-tts-2.0" },
-        ttsSpeaker = Settings.get("tts_speaker").ifEmpty { "zh_female_vv_uranus_bigtts" },
+        // The voice is the character's: read from the look the ball is wearing, per utterance, as the phone does.
+        ttsSpeaker = net.kuafuai.andee.ui.ball.BallLooks.byName(Settings.get("ball").ifEmpty { null }).voice
+            .ifEmpty { "zh_female_vv_uranus_bigtts" },
         ttsSampleRate = 24_000,
         voiceProvider = Settings.get("voice_provider").ifEmpty { VoiceSettings.VOICE_HUOSHAN },
         googleApiKey = Settings.get("google_api_key"),
@@ -142,10 +150,20 @@ object MacVoice {
 
     // ---- speaking ---------------------------------------------------------------
 
-    /** Speak [raw] (mood markers are stripped first). Returns at once; audio plays in the background. */
+    /** The brain's "this settles it" sentinel; the phone strips it before speaking too (case-insensitive). */
+    private val END_MARKER = Regex("""(?i)\[END]""")
+
+    /**
+     * What the mouth gets: the same three steps the phone takes, in the same order — the end
+     * sentinel, then Markdown, then mood markers. Whatever survives is read out loud as a word.
+     */
+    internal fun speakable(raw: String): String =
+        SpeechMood.parse(net.kuafuai.andee.text.stripMarkdown(END_MARKER.replace(raw, ""))).text.trim()
+
+    /** Speak [raw] (sentinel, Markdown and mood markers are stripped first). Returns at once; audio plays in the background. */
     fun speak(raw: String) {
         if (net.kuafuai.andee.desktop.Meeting.isActive()) return  // never speak into the recording
-        val text = SpeechMood.parse(raw).text.trim()
+        val text = speakable(raw)
         if (text.isEmpty() || !configured()) return
         stopSpeaking()
         val cfg = settings()

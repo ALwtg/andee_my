@@ -13,11 +13,11 @@ import androidx.compose.ui.unit.dp
 
 /**
  * The window body: one photograph behind everything, the sidebar and the content
- * as glass on it, the approval and question cards above both. Its own function so
+ * as glass on it, (the approval and question cards are their own window beside the ball). Its own function so
  * the screenshot harness draws exactly what the app draws.
  */
 @Composable
-fun AppRoot(nav: Nav, pending: ApprovalGate.Pending?, ask: AskGate.Pending?) {
+fun AppRoot(nav: Nav) {
     Box(Modifier.fillMaxSize()) {
         BackdropLayer()
         Row(Modifier.fillMaxSize()) {
@@ -28,27 +28,24 @@ fun AppRoot(nav: Nav, pending: ApprovalGate.Pending?, ask: AskGate.Pending?) {
                 val card = if (screen == "chat") Modifier else Modifier.padding(14.dp).frostedCard()
                 Box(Modifier.widthIn(max = 900.dp).fillMaxHeight().then(card)) {
                     when {
-                        screen == "settings" -> SettingsScreen(
-                            onDone = { nav.back() },
-                            onOpenNotebook = { nav.push("notebook") },
-                            onOpenVault = { nav.push("vault") },
-                            onOpenScenes = { nav.push("scenes") },
-                            onOpenExpressions = { nav.push("expressions") },
-                            onOpenSelfCheck = { nav.push("selfcheck") },
-                        )
+                        screen == "settings" -> SettingsScreen(onDone = { nav.back() })
                         screen == "selfcheck" -> SelfCheckCard(onDone = { nav.back() }, onOpenSettings = { nav.push("settings") })
                         screen == "notebook" -> NotebookCard(onDone = { nav.back() })
                         screen == "vault" -> VaultCard(onDone = { nav.back() })
                         screen == "scenes" -> ScenesCard(onDone = { nav.back() })
                         screen == "expressions" -> ExpressionsCard(onDone = { nav.back() })
-                        screen == "artifacts" -> ArtifactsCard(onDone = { nav.back() })
-                        screen.startsWith("topic:") -> TopicScreen(screen.removePrefix("topic:").toLongOrNull() ?: -1L, onDone = { nav.back() })
-                        else -> ChatScreen(onOpenArtifacts = { nav.go("artifacts") })
+                        screen == "artifacts" -> ArtifactsCard(onDone = { nav.back() }, onContinue = { nav.go("chat"); ComposerFocus.pending = true })
+                        screen.startsWith("topic:") -> TopicScreen(screen.removePrefix("topic:").toLongOrNull() ?: -1L, onDone = { nav.back() },
+                            onContinue = { nav.go("chat"); ComposerFocus.pending = true })
+                        else -> ChatScreen(
+                            onOpenArtifacts = { nav.go("artifacts") },
+                            onOpenTopic = { nav.push("topic:$it") },
+                            // 继续话题 from the card itself: the same two steps as on the topic page.
+                            onContinueTopic = { Assistant.beginTopic(it); ComposerFocus.pending = true },
+                        )
                     }
                 }
             }
         }
-        pending?.let { ApprovalCard(it) }
-        ask?.let { AskCard(it) }
     }
 }
