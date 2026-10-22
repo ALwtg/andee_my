@@ -36,8 +36,11 @@ object Pages {
     private val entries = mutableListOf<Page>()
     private var nextId = 1L
 
-    private val dir get() = File(AppDirs.root, "pages").apply { mkdirs() }
-    private val indexFile get() = AppDirs.file("pages.json")
+    /** Overridable for tests; the shelf's files live under here. */
+    @Volatile var base: File = AppDirs.root
+
+    private val dir get() = File(base, "pages").apply { mkdirs() }
+    private val indexFile get() = File(base, "pages.json")
 
     init { load() }
 
@@ -46,6 +49,13 @@ object Pages {
 
     /** Fired on the UI thread's behalf after the shelf changes; the panel reads [artifacts] on it. */
     @Volatile var onChange: () -> Unit = {}
+
+    /** For tests: point the shelf at a fresh directory and drop everything in memory. */
+    fun resetForTest(b: File) {
+        base = b
+        synchronized(lock) { entries.clear(); nextId = 1L }
+        armedGroup = null
+    }
 
     fun beginTurn() { armedGroup = null }
     fun armGroup(id: Long) { armedGroup = id }
@@ -62,8 +72,9 @@ object Pages {
 
     fun add(title: String, html: String, groupId: Long?): Page? {
         val (id, group, version) = synchronized(lock) {
-            val g = groupId ?: nextId
-            Triple(nextId, g, nextVersionOf(g))
+            val id = nextId++
+            val g = groupId ?: id
+            Triple(id, g, nextVersionOf(g))
         }
         val file = runCatching { File(dir, "page_$id.html").also { it.writeText(html) } }.getOrElse {
             Log.w(TAG, "could not archive page: ${it.message}")
@@ -111,7 +122,7 @@ object Pages {
         return add(source.title, html, groupId = source.groupId)
     }
 
-    private fun nextVersionOf(groupId: Long): Int = synchronized(lock) {
+    internal fun nextVersionOf(groupId: Long): Int = synchronized(lock) {
         entries.filter { it.groupId == groupId }.maxOfOrNull { it.version }?.plus(1) ?: 1
     }
 
