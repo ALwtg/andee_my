@@ -64,11 +64,13 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
     var voice by remember { mutableStateOf(net.kuafuai.andee.desktop.voice.MacVoice.State.IDLE) }
     var heard by remember { mutableStateOf("") }
     var artifacts by remember { mutableStateOf(Pages.artifacts()) }
+    var recording by remember { mutableStateOf(Meeting.isActive()) }
     val list = rememberLazyListState()
 
     LaunchedEffect(Unit) {
         Scrollback.addListener { rows = Scrollback.snapshot() }
         Pages.onChange = { artifacts = Pages.artifacts() }
+        Meeting.onRecordingChanged = { recording = it }
         Assistant.onProgress = { progress = it }
         Assistant.onFinal = { progress = "" }
         Assistant.onBusy = { b -> busy = b; if (!b) progress = "" }
@@ -97,7 +99,10 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Andee", color = Palette.text, fontSize = 20.sp)
             Spacer(Modifier.weight(1f))
-            if (busy) {
+            if (recording) {
+                Pill(if (Strings.lang() == "zh") "■ 停止录音" else "■ Stop recording") { Meeting.stopFromUser() }
+                Spacer(Modifier.width(8.dp))
+            } else if (busy) {
                 Pill(if (Strings.lang() == "zh") "■ 停止" else "■ Stop") { Assistant.stop() }
                 Spacer(Modifier.width(8.dp))
             }

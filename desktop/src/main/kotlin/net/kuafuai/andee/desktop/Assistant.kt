@@ -83,6 +83,7 @@ object Assistant {
         val notes = NotebookTools { onSceneChanged(it) }
         return listOf(
             UiTools(),
+            MeetingTools(),
             object : DesktopBrainHost.ToolProvider {
                 override fun handles(method: String) = notes.handles(method)
                 override fun dispatch(method: String, p: JSONObject, silent: Boolean, untrusted: Boolean) =
@@ -170,6 +171,14 @@ object Assistant {
     }
 
     fun start() {
+        Meeting.onUserEnded = { payload ->
+            // The user ended the recording themselves, so the brain does not have the
+            // transcript — ask it for the minutes on a fresh turn (the phone's asr.final path).
+            busy(true)
+            speakReplies = false
+            ensure().submit(meetingMinutesQuery(payload))
+        }
+        Meeting.onRecordingChanged = { MacBall.onRecording(it) }
         net.kuafuai.andee.desktop.mac.MacNotifications.start(notifyHost)
         DesktopScheduler.onDue = { todo -> busy(true); ensure().wake(dueText(todo), untrusted = todo.untrusted) }
         DesktopScheduler.catchUp()

@@ -79,6 +79,7 @@ object MacVoice {
 
     /** Start listening; [stopListening] (or the engine's own end-of-turn) delivers [onFinal]. */
     fun startListening() {
+        if (net.kuafuai.andee.desktop.Meeting.isActive()) return  // the meeting holds the microphone
         if (!listening.compareAndSet(false, true)) return
         stopSpeaking()
         val cfg = settings()
@@ -117,6 +118,8 @@ object MacVoice {
         return true
     }
 
+    fun recordingMeeting(): Boolean = net.kuafuai.andee.desktop.Meeting.isActive()
+
     fun stopListening() {
         if (listening.compareAndSet(true, false)) asr?.endOfTurn(bySilence = false)
     }
@@ -141,6 +144,7 @@ object MacVoice {
 
     /** Speak [raw] (mood markers are stripped first). Returns at once; audio plays in the background. */
     fun speak(raw: String) {
+        if (net.kuafuai.andee.desktop.Meeting.isActive()) return  // never speak into the recording
         val text = SpeechMood.parse(raw).text.trim()
         if (text.isEmpty() || !configured()) return
         stopSpeaking()

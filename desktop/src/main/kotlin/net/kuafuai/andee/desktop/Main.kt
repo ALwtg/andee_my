@@ -35,7 +35,10 @@ fun main() {
         Assistant.hideWindows = { hide -> net.kuafuai.andee.desktop.mac.Bridge.setOwnAlpha(if (hide) 0.0 else 1.0) }
 
         FloatingBall(
-            onTap = { if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) { chat = true; settings = true } },
+            onTap = {
+                if (Meeting.isActive()) Meeting.stopFromUser()
+                else if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) { chat = true; settings = true }
+            },
             onLongPress = { chat = !chat },
             onWindow = { ballWindow = it },
         )

@@ -40,6 +40,7 @@ object MacBall {
     @Volatile private var renderer: BallRenderer? = null
     @Volatile private var voice = MacVoice.State.IDLE
     @Volatile private var busy = false
+    @Volatile private var recording = false
     @Volatile private var emotion: Mood? = null
 
     /** The face the model asked for in the reply about to be spoken. */
@@ -69,6 +70,12 @@ object MacBall {
         apply()
     }
 
+    /** A meeting is being recorded: the ball is listening, whatever else is happening. */
+    fun onRecording(b: Boolean) {
+        recording = b
+        apply()
+    }
+
     /** A tool ran: a nod, then back to the working face on its own. */
     fun onTool() { renderer?.pulseTool() }
 
@@ -95,6 +102,7 @@ object MacBall {
     private fun apply() {
         val r = renderer ?: return
         val mood = when {
+            recording -> Mood.LISTENING
             voice == MacVoice.State.LISTENING -> Mood.LISTENING
             voice == MacVoice.State.SPEAKING -> Mood.SPEAKING
             busy -> Mood.THINKING
