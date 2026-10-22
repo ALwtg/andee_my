@@ -45,22 +45,40 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** The phone's `Glass` palette, so the two apps look like one product. */
+/** The phone's `Glass` night palette, exactly — so the two apps read as one product. */
 object Palette {
     val base = Color(0xFF000000)
-    val card = Color(0xF20A0A0C)
-    val panel = Color(0x0FFFFFFF)
-    val well = Color(0x14FFFFFF)
-    val hairline = Color(0x1AFFFFFF)
-    val text = Color(0xFFF2F2F7)
-    val secondary = Color(0x99EBEBF5)
-    val accent = Color(0xFF0A84FF)
-    val accentSoft = Color(0x330A84FF)
-    val user = Color(0xFF0A84FF)
-    val error = Color(0xFFFF453A)
+    val cardSolid = Color(0xF2060608)
+    val cardFrosted = Color(0x99000000)
+    val panel = Color(0x0FFFFFFF)          // 6% white
+    val panelEdge = Color(0x17FFFFFF)       // 9% white
+    val glass = Color(0x1FFFFFFF)           // 12% white
+    val glassEdge = Color(0x38FFFFFF)       // 22% white
+    val well = Color(0x59000000)            // 35% black
+    val wellEdge = Color(0x1AFFFFFF)        // 10% white
+    val thumb = Color(0x2EFFFFFF)           // 18% white
+    val thumbEdge = Color(0x40FFFFFF)
+    val hairline = Color(0x2BFFFFFF)        // 17% white
+    val title = Color(0xFFFFFFFF)
+    val label = Color(0xFFDCE1EA)
+    val secondary = Color(0xFF8F97A6)
+    val muted = Color(0xFF5F6775)
+    val accent = Color(0xFF7FA5FF)
+    val tint = Color(0xFF4C6FFF)
+    val danger = Color(0xFFFF6B6B)
+    val ok = Color(0xFF4ADE80)
+    val warn = Color(0xFFFBBF24)
+
+    // kept for existing call sites
+    val text get() = title
+    val accentSoft = Color(0x267FA5FF)
+    val user = accent
+    val error get() = danger
+    val card get() = cardSolid
 }
 
 @Composable
-fun ChatScreen(onOpenSettings: () -> Unit) {
+fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit) {
     var rows by remember { mutableStateOf(Scrollback.snapshot()) }
     var progress by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -115,6 +133,7 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
                 if (recording) Meeting.stopFromUser() else if (busy) Assistant.stop()
             },
             onSettings = onOpenSettings,
+            onSelfCheck = onOpenSelfCheck,
         )
 
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -172,7 +191,7 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
 
 /** Title plus a one-line status, with stop and settings on the right — the phone's control bar. */
 @Composable
-private fun Header(status: String?, stoppable: Boolean, onStop: () -> Unit, onSettings: () -> Unit) {
+private fun Header(status: String?, stoppable: Boolean, onStop: () -> Unit, onSettings: () -> Unit, onSelfCheck: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -188,6 +207,8 @@ private fun Header(status: String?, stoppable: Boolean, onStop: () -> Unit, onSe
             Pill(if (Strings.lang() == "zh") "■ 停止" else "■ Stop") { onStop() }
             Spacer(Modifier.width(8.dp))
         }
+        Pill("✓") { onSelfCheck() }
+        Spacer(Modifier.width(8.dp))
         Pill("⚙") { onSettings() }
     }
 }
