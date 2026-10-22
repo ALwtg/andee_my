@@ -45,6 +45,7 @@ object Scrollback {
     }
 
     fun addListener(l: () -> Unit) = synchronized(lock) { listeners += l }
+    fun removeListener(l: () -> Unit) = synchronized(lock) { listeners -= l }
 
     fun snapshot(): List<Row> = synchronized(lock) { rows.toList() }
 

@@ -63,6 +63,8 @@ object Palette {
     val label = Color(0xFFDCE1EA)
     val secondary = Color(0xFF8F97A6)
     val muted = Color(0xFF5F6775)
+    /** Text sitting directly on the photograph. [muted] is chosen against a card and has no ground to stand on here. */
+    val photoInk = Color(0xFF98A0AE)
     val accent = Color(0xFF7FA5FF)
     val tint = Color(0xFF4C6FFF)
     val danger = Color(0xFFFF6B6B)
@@ -78,7 +80,7 @@ object Palette {
 }
 
 @Composable
-fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit, onOpenArtifacts: () -> Unit) {
+fun ChatScreen(onOpenArtifacts: () -> Unit) {
     var rows by remember { mutableStateOf(Scrollback.snapshot()) }
     var progress by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -88,10 +90,18 @@ fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit, onOpenAr
     var artifacts by remember { mutableStateOf(Pages.artifacts()) }
     var recording by remember { mutableStateOf(Meeting.isActive()) }
     val list = rememberLazyListState()
-    val items = displayItems(rows)
+    // Folded stretches live in the sidebar's topic list; the chat is the conversation in progress.
+    val items = rows.filter { it.topicId == null }
 
+    // Registered on enter, removed on leave: the sidebar remounts this screen on every
+    // navigation, and a listener left behind per visit is a leak that grows all day.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val l: () -> Unit = { rows = Scrollback.snapshot() }
+        Scrollback.addListener(l)
+        onDispose { Scrollback.removeListener(l) }
+    }
     LaunchedEffect(Unit) {
-        Scrollback.addListener { rows = Scrollback.snapshot() }
+        rows = Scrollback.snapshot()
         Pages.onChange = { artifacts = Pages.artifacts() }
         Meeting.onRecordingChanged = { recording = it }
         Assistant.onProgress = { progress = it }
@@ -119,7 +129,7 @@ fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit, onOpenAr
         Thread { Assistant.say(t) }.start()
     }
 
-    Column(Modifier.fillMaxSize().background(Palette.base)) {
+    Column(Modifier.fillMaxSize()) {
         Header(
             status = when {
                 recording -> if (Strings.lang() == "zh") "● 正在录音" else "● Recording"
@@ -132,8 +142,6 @@ fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit, onOpenAr
             onStop = {
                 if (recording) Meeting.stopFromUser() else if (busy) Assistant.stop()
             },
-            onSettings = onOpenSettings,
-            onSelfCheck = onOpenSelfCheck,
         )
 
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -141,7 +149,7 @@ fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit, onOpenAr
                 Text(
                     "📄 " + (if (Strings.lang() == "zh") "产物" else "Artifacts") + " (${artifacts.size})",
                     color = Palette.accent, fontSize = 13.sp,
-                    modifier = Modifier.fillMaxWidth().glassPanel(12).clickable { onOpenArtifacts() }.padding(12.dp),
+                    modifier = Modifier.fillMaxWidth().glassSurface(12).clickable { onOpenArtifacts() }.padding(12.dp),
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -156,14 +164,7 @@ fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit, onOpenAr
                         }
                     }
                 }
-                items(items, key = { itemKey(it) }) { it ->
-                    when (it) {
-                        is Scrollback.Row -> Bubble(it)
-                        is TopicRow -> TopicCard(it.topic, it.count) {
-                            Thread { Assistant.say("继续聊「${it.topic.title}」。先 get_topic(id=${it.topic.id}) 读回对话再接着聊。") }.start()
-                        }
-                    }
-                }
+                items(items, key = { it.id }) { Bubble(it) }
             }
         }
 
@@ -187,25 +188,21 @@ fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit, onOpenAr
 
 /** Title plus a one-line status, with stop and settings on the right — the phone's control bar. */
 @Composable
-private fun Header(status: String?, stoppable: Boolean, onStop: () -> Unit, onSettings: () -> Unit, onSelfCheck: () -> Unit) {
+private fun Header(status: String?, stoppable: Boolean, onStop: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
-            Text("Andee", color = Palette.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            if (status != null) {
-                Text(status, color = if (status.startsWith("●")) Palette.accent else Palette.secondary, fontSize = 12.sp)
-            }
-        }
+        Text(
+            status ?: (if (Strings.lang() == "zh") "对话" else "Chat"),
+            color = if (status?.startsWith("●") == true) Palette.accent else Palette.title,
+            fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+        )
         Spacer(Modifier.weight(1f))
         if (stoppable) {
             Pill(if (Strings.lang() == "zh") "■ 停止" else "■ Stop") { onStop() }
             Spacer(Modifier.width(8.dp))
         }
-        Pill("✓") { onSelfCheck() }
-        Spacer(Modifier.width(8.dp))
-        Pill("⚙") { onSettings() }
     }
 }
 
@@ -257,29 +254,6 @@ private fun RoundButton(enabled: Boolean, onClick: () -> Unit, glyph: () -> Stri
     }
 }
 
-/** One folded stretch rendered as a single card, at the position of its first row. */
-private data class TopicRow(val topic: Scrollback.Topic, val count: Int)
-
-private fun displayItems(rows: List<Scrollback.Row>): List<Any> {
-    val topics = Scrollback.topics().associateBy { it.id }
-    val seen = mutableSetOf<Long>()
-    val out = mutableListOf<Any>()
-    for (r in rows) {
-        val tid = r.topicId
-        if (tid == null) { out += r; continue }
-        if (seen.add(tid)) {
-            topics[tid]?.let { out += TopicRow(it, rows.count { x -> x.topicId == tid }) }
-        }
-    }
-    return out
-}
-
-private fun itemKey(it: Any): Any = when (it) {
-    is Scrollback.Row -> "r${it.id}"
-    is TopicRow -> "t${it.topic.id}"
-    else -> it
-}
-
 fun noVoiceKey() =
     if (Strings.lang() == "zh") "还没配语音 Key：在 ⚙ 设置的「语音」里填上。" else "No voice key yet: add it under Voice in ⚙ Settings."
 
@@ -299,11 +273,11 @@ private fun Bubble(r: Scrollback.Row) {
                         when {
                             error -> Palette.error.copy(alpha = 0.12f)
                             mine -> Palette.accentSoft
-                            else -> Palette.panel
+                            else -> Palette.glass
                         },
-                        RoundedCornerShape(if (mine) 16.dp else 16.dp),
+                        RoundedCornerShape(16.dp),
                     )
-                    .border(1.dp, if (error) Palette.error.copy(alpha = 0.4f) else Palette.hairline, RoundedCornerShape(16.dp))
+                    .border(1.dp, if (error) Palette.error.copy(alpha = 0.4f) else Palette.glassEdge, RoundedCornerShape(16.dp))
                     .padding(horizontal = 14.dp, vertical = 9.dp),
             )
         }

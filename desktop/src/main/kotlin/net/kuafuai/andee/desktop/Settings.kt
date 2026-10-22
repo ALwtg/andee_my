@@ -10,6 +10,9 @@ import java.util.UUID
  */
 object AppDirs {
     val root: File by lazy {
+        // `andee.home` is for the screenshot harness and tests: a throwaway directory, so
+        // drawing the UI never reads or writes the user's real conversation.
+        System.getProperty("andee.home")?.let { return@lazy File(it).apply { mkdirs() } }
         val home = System.getProperty("user.home")
         File(home, "Library/Application Support/Andee").apply { mkdirs() }
     }
@@ -30,7 +33,7 @@ object Settings {
     val KEYS = setOf(
         "brain", "llm_api_key", "llm_base_url", "llm_model", "llm_thinking", "llm_reasoning_effort",
         "api_key", "asr_endpoint", "tts_endpoint", "asr_resource_id", "tts_resource_id", "tts_speaker",
-        "voice_provider", "lang", "max_steps", "scene", "ball", "ball_pos", "notify",
+        "voice_provider", "lang", "max_steps", "scene", "ball", "ball_pos", "notify", "sweep", "sweep_quiet_minutes", "sweep_daily_cap",
         "shell_mode", "shell_workdirs", "shell_critical_confirm",
     )
 

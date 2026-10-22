@@ -121,10 +121,46 @@ object Assistant {
                 if (speakReplies) net.kuafuai.andee.desktop.voice.MacVoice.speak(text)
             },
             onTurnEnd = { busy(false) },
+            onSweepSpent = { Sweep.spent(it) },
         )
         brain = b
         builtFor = cfg
         return b
+    }
+
+    /**
+     * 新对话. Puts the stretch on screen away as a topic (no model call: the title is the
+     * first thing the user said, the text is the verbatim exchange) and gives the brain a
+     * clean context. Same fold the quiet-hour review makes, started by the user instead.
+     * Does nothing to a conversation too short to be worth keeping; never touches a turn
+     * that is still running — that one is stopped first, as ■ would.
+     */
+    @Synchronized
+    fun newConversation() {
+        if (brain?.isBusy() == true) stop()
+        val open = Scrollback.snapshot().filter { it.topicId == null && it.role != Scrollback.Role.ERROR }
+        if (open.count { it.role == Scrollback.Role.USER } >= 1 && open.size >= 2) {
+            val first = open.first { it.role == Scrollback.Role.USER }.text.replace('\n', ' ').trim()
+            val text = open.joinToString("\n\n") { (if (it.role == Scrollback.Role.USER) "User: " else "Andee: ") + it.text }
+            Scrollback.fold(
+                title = first.take(28) + if (first.length > 28) "…" else "",
+                summary = first.take(120),
+                members = open.map { it.id },
+                text = text,
+            )
+        }
+        brain?.stop()
+        brain = null
+        builtFor = null
+        progressClear()
+    }
+
+    private fun progressClear() { onProgress("") }
+
+    /** The quiet-hour review (also the sidebar's 整理 button). Silent: no answer, no voice, no task light. */
+    fun runSweep() {
+        if (config().apiKey.isEmpty()) { Log.i(TAG, "sweep skipped: no API key"); return }
+        ensure().runSweep()
     }
 
     /** A turn started or ended: the window's stop button and the ball's working face. */
@@ -171,6 +207,7 @@ object Assistant {
     }
 
     fun start() {
+        Sweep.start()
         Meeting.onUserEnded = { payload ->
             // The user ended the recording themselves, so the brain does not have the
             // transcript — ask it for the minutes on a fresh turn (the phone's asr.final path).

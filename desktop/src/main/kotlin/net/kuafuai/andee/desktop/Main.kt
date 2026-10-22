@@ -4,6 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.MenuBar
@@ -22,18 +25,14 @@ fun main() {
     Assistant.start()
     application {
         var pending by remember { mutableStateOf(ApprovalGate.current) }
-        // The chat is the phone's unfolded card: the ball is always there, the chat comes and goes.
+        // The chat window comes and goes (the ball is always there); the nav says what it shows.
         var chat by remember { mutableStateOf(true) }
-        // The card stack: each card is a full-window surface, opened on top of the last.
-        val stack = remember { androidx.compose.runtime.mutableStateListOf("chat") }
-        fun push(s: String) { stack.add(s) }
-        fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
-        val screen = stack.last()
-        ApprovalGate.onChange = { pending = ApprovalGate.current; if (pending != null) { chat = true; stack.clear(); stack.add("chat") } }
+        val nav = remember { Nav() }
+        ApprovalGate.onChange = { pending = ApprovalGate.current; if (pending != null) { chat = true; nav.go("chat") } }
         var ballWindow by remember { mutableStateOf<java.awt.Window?>(null) }
         var chatWindow by remember { mutableStateOf<java.awt.Window?>(null) }
         var ask by remember { mutableStateOf(AskGate.current) }
-        AskGate.onChange = { ask = AskGate.current; if (ask != null) { chat = true; stack.clear(); stack.add("chat") } }
+        AskGate.onChange = { ask = AskGate.current; if (ask != null) { chat = true; nav.go("chat") } }
         // A click aimed at another app must not land on Andee: both windows step aside for the instant of it.
         // (Native, not Window.opacity: AWT refuses that on the decorated chat window.)
         Assistant.hideWindows = { hide -> net.kuafuai.andee.desktop.mac.Bridge.setOwnAlpha(if (hide) 0.0 else 1.0) }
@@ -41,7 +40,7 @@ fun main() {
         FloatingBall(
             onTap = {
                 if (Meeting.isActive()) Meeting.stopFromUser()
-                else if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) { chat = true; stack.clear(); stack.add("chat"); push("settings") }
+                else if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) { chat = true; nav.go("settings") }
             },
             onLongPress = { chat = !chat },
             onWindow = { ballWindow = it },
@@ -51,38 +50,23 @@ fun main() {
             onCloseRequest = { chat = false },
             visible = chat,
             title = "Andee",
-            state = rememberWindowState(width = 620.dp, height = 820.dp),
+            state = rememberWindowState(width = 1020.dp, height = 820.dp),
             resizable = true,
         ) {
             chatWindow = window
+            window.minimumSize = java.awt.Dimension(760, 520)
             MenuBar {
                 Menu("Andee") {
-                    Item(if (Strings.lang() == "zh") "显示对话" else "Show chat", onClick = { chat = true; stack.clear(); stack.add("chat") })
+                    Item(if (Strings.lang() == "zh") "新对话" else "New chat", onClick = { Assistant.newConversation(); chat = true; nav.go("chat") },
+                        shortcut = androidx.compose.ui.input.key.KeyShortcut(androidx.compose.ui.input.key.Key.N, meta = true))
+                    Item(if (Strings.lang() == "zh") "显示对话" else "Show chat", onClick = { chat = true; nav.go("chat") })
+                    Item(if (Strings.lang() == "zh") "设置" else "Settings", onClick = { chat = true; nav.go("settings") },
+                        shortcut = androidx.compose.ui.input.key.KeyShortcut(androidx.compose.ui.input.key.Key.Comma, meta = true))
                     Item(if (Strings.lang() == "zh") "退出 Andee" else "Quit Andee", onClick = ::exitApplication,
                         shortcut = androidx.compose.ui.input.key.KeyShortcut(androidx.compose.ui.input.key.Key.Q, meta = true))
                 }
             }
-            androidx.compose.foundation.layout.Box {
-                when (screen) {
-                    "settings" -> SettingsScreen(
-                        onDone = { pop() },
-                        onOpenNotebook = { push("notebook") },
-                        onOpenVault = { push("vault") },
-                        onOpenScenes = { push("scenes") },
-                        onOpenExpressions = { push("expressions") },
-                        onOpenSelfCheck = { push("selfcheck") },
-                    )
-                    "selfcheck" -> SelfCheckCard(onDone = { pop() }, onOpenSettings = { push("settings") })
-                    "notebook" -> NotebookCard(onDone = { pop() })
-                    "vault" -> VaultCard(onDone = { pop() })
-                    "scenes" -> ScenesCard(onDone = { pop() })
-                    "expressions" -> ExpressionsCard(onDone = { pop() })
-                    "artifacts" -> ArtifactsCard(onDone = { pop() })
-                    else -> ChatScreen(onOpenSettings = { push("settings") }, onOpenSelfCheck = { push("selfcheck") }, onOpenArtifacts = { push("artifacts") })
-                }
-                pending?.let { ApprovalCard(it) }
-                ask?.let { AskCard(it) }
-            }
+            AppRoot(nav, pending, ask)
         }
     }
 }

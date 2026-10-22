@@ -17,8 +17,6 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -48,24 +46,40 @@ fun Modifier.glassPanel(radius: Int = 14): Modifier = this
     .background(Palette.panel, RoundedCornerShape(radius.dp))
     .border(1.dp, Palette.panelEdge, RoundedCornerShape(radius.dp))
 
+/**
+ * A surface sitting directly on the photograph rather than inside a card: 12% white, not
+ * the 6% film that is right one level down. 6% on a blurred photograph is a card that has
+ * quietly stopped existing — the phone's Glass.GLASS note, and the reason there are two.
+ */
+fun Modifier.glassSurface(radius: Int = 14): Modifier = this
+    .background(Palette.glass, RoundedCornerShape(radius.dp))
+    .border(1.dp, Palette.glassEdge, RoundedCornerShape(radius.dp))
+
+/**
+ * The frosted card the form screens sit in: 60% black over the photograph, the phone's
+ * CARD_FROSTED. Text is chosen against a dark ground; left directly on the photograph it
+ * is legible on the dark half and gone on the bright one.
+ */
+fun Modifier.frostedCard(radius: Int = 20): Modifier = this
+    .background(Palette.cardFrosted, RoundedCornerShape(radius.dp))
+    .border(1.dp, Palette.hairline, RoundedCornerShape(radius.dp))
+    .then(sheen(radius))
+
 /** A recessed surface: text fields and picker tracks. */
 fun Modifier.glassWell(radius: Int = 12): Modifier = this
     .background(Palette.well, RoundedCornerShape(radius.dp))
     .border(1.dp, Palette.wellEdge, RoundedCornerShape(radius.dp))
 
-/** The lit top edge — the one piece that reads as glass on a flat backdrop. */
-private fun Modifier.sheen(radius: Int): Modifier = this.drawBehind {
-    val h = size.height * 0.5f
-    drawRect(
-        brush = Brush.verticalGradient(
-            0f to Color(0x1FFFFFFF),
-            h / size.height to Color(0x00FFFFFF),
-            endY = h,
-        ),
-        topLeft = Offset(0f, 0f),
-        size = androidx.compose.ui.geometry.Size(size.width, h),
-    )
-}
+/**
+ * The lit top edge — the one piece that reads as glass on a flat backdrop. A gradient
+ * *background in the card's own shape*. It returns a fresh [Modifier], not an extension on the
+ * receiver: used as `.then(sheen(r))` an extension would re-append the receiver's whole chain
+ * (padding included), which painted a second card inset by the padding.
+ */
+private fun sheen(radius: Int): Modifier = Modifier.background(
+    Brush.verticalGradient(0f to Color(0x1FFFFFFF), 0.45f to Color(0x00FFFFFF)),
+    RoundedCornerShape(radius.dp),
+)
 
 @Composable
 fun GlassHeader(title: String, subtitle: String? = null, onClose: () -> Unit, trailing: @Composable (() -> Unit)? = null) {

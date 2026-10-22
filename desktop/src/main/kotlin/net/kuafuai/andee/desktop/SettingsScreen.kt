@@ -44,7 +44,7 @@ fun SettingsScreen(
     var lang by remember { mutableStateOf(Strings.lang()) }
     var fullOpenAsk by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         GlassHeader(t("设置", "Settings"), subtitle = t("所有设置都存在本机", "Everything stays on this Mac"), onClose = onDone)
 
         SectionTitle(t("界面语言", "Language"))
@@ -73,7 +73,7 @@ fun SettingsScreen(
                 "full" -> t("不进沙箱、不问：Andee 能改动这台 Mac 上的任何文件。", "No sandbox, no asking: Andee can change any file.")
                 else -> t("只读命令直接跑，其它每条先问你。", "Read-only commands run; everything else asks first.")
             },
-            color = Palette.secondary, fontSize = 12.sp,
+            color = Palette.secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp),
         )
         GlassField(t("工作文件夹（逗号分隔，留空用 ~/Andee）", "Work folders (comma-separated; blank = ~/Andee)"), v["shell_workdirs"].orEmpty(), { v["shell_workdirs"] = it })
         SectionTitle(t("SSH 钥匙", "SSH keys"))

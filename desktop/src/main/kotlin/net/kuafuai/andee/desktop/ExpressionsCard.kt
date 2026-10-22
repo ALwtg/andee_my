@@ -48,7 +48,7 @@ fun ExpressionsCard(onDone: () -> Unit) {
     val zh = Strings.lang() == "zh"
     var pickedMood by remember { mutableStateOf(Mood.CALM) }
     val currentLook = Settings.get("ball").ifEmpty { BallLooks.active.name }
-    Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         GlassHeader(if (zh) "形象与表情" else "Look & expressions", if (zh) "选一个形象，表情跟着它变" else "Pick a look; the face follows", onClose = onDone)
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             BallPreview(pickedMood, 168.dp)

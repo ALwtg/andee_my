@@ -59,7 +59,7 @@ fun SelfCheckCard(onDone: () -> Unit, onOpenSettings: () -> Unit) {
             if (voice) if (zh) "能听能说" else "Can hear and speak" else if (zh) "还没配，说不了话" else "Missing — Andee cannot speak",
             { onOpenSettings() }))
     }
-    Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         GlassHeader(if (zh) "自检" else "Self-check", if (zh) "每一项都可能悄悄坏掉" else "Each of these can fail silently", onClose = onDone)
         for (r in rows) {
             Row(
@@ -92,10 +92,10 @@ fun ArtifactsCard(onDone: () -> Unit) {
     val zh = Strings.lang() == "zh"
     var refresh by remember { mutableStateOf(0) }
     val artifacts = Pages.artifacts()
-    Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         GlassHeader(if (zh) "产物" else "Artifacts", if (zh) "它做出来的页面" else "Pages it has built", onClose = onDone)
         if (artifacts.isEmpty()) {
-            Text(if (zh) "还没有产物。让 Andee 用 show_html 画一页。" else "Nothing yet. Ask Andee to draw a page with show_html.", color = Palette.muted, fontSize = 13.sp)
+            Text(if (zh) "还没有产物。让 Andee 用 show_html 画一页。" else "Nothing yet. Ask Andee to draw a page with show_html.", color = Palette.photoInk, fontSize = 13.sp)
         }
         for (a in artifacts) {
             var showVersions by remember { mutableStateOf(false) }
@@ -149,7 +149,7 @@ fun VaultCard(onDone: () -> Unit) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val entries = net.kuafuai.andee.desktop.mac.MacVault.entries()
-    Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         GlassHeader(if (zh) "保险箱" else "Vault", if (zh) "你的账号，密码只用来填，从不读出来" else "Your accounts; passwords are filled, never read out", onClose = onDone,
             trailing = { Text("+ " + (if (zh) "添加" else "Add"), color = Palette.accent, fontSize = 13.sp, modifier = Modifier.clickable { adding = !adding }.padding(6.dp)) })
         if (adding) {
@@ -168,7 +168,7 @@ fun VaultCard(onDone: () -> Unit) {
             Spacer(Modifier.height(8.dp))
         }
         if (entries.isEmpty()) {
-            Text(if (zh) "保险箱是空的。" else "The vault is empty.", color = Palette.muted, fontSize = 13.sp)
+            Text(if (zh) "保险箱是空的。" else "The vault is empty.", color = Palette.photoInk, fontSize = 13.sp)
         }
         for (e in entries) {
             val l = e.optString("label")
@@ -197,7 +197,7 @@ fun NotebookCard(onDone: () -> Unit) {
     val memories = DesktopNotebook.book.memories().sortedByDescending { it.importance }
     val todos = DesktopNotebook.book.todos("pending").filter { it.status in listOf("active", "paused") }
         .sortedBy { if (it.nextRunAt > 0) it.nextRunAt else Long.MAX_VALUE }
-    Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         GlassHeader(if (zh) "小本本" else "Notebook", if (zh) "它记得的事" else "What it remembers", onClose = onDone,
             trailing = {
                 Text(if (zh) "复制全部" else "Copy all", color = Palette.accent, fontSize = 13.sp,
@@ -210,7 +210,7 @@ fun NotebookCard(onDone: () -> Unit) {
 
         SectionTitle(if (zh) "记忆" else "Memories")
         if (memories.isEmpty()) {
-            Text(if (zh) "还没有记住什么。" else "Nothing remembered yet.", color = Palette.muted, fontSize = 13.sp)
+            Text(if (zh) "还没有记住什么。" else "Nothing remembered yet.", color = Palette.photoInk, fontSize = 13.sp)
         }
         for (m in memories) {
             Column(Modifier.fillMaxWidth().glassPanel(14).padding(12.dp)) {
@@ -228,7 +228,7 @@ fun NotebookCard(onDone: () -> Unit) {
 
         SectionTitle(if (zh) "待办" else "Todos")
         if (todos.isEmpty()) {
-            Text(if (zh) "没有待办。" else "Nothing pending.", color = Palette.muted, fontSize = 13.sp)
+            Text(if (zh) "没有待办。" else "Nothing pending.", color = Palette.photoInk, fontSize = 13.sp)
         }
         for (t in todos) {
             Row(Modifier.fillMaxWidth().glassPanel(14).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -250,10 +250,10 @@ fun ScenesCard(onDone: () -> Unit) {
     var refresh by remember { mutableStateOf(0) }
     val scenes = DesktopNotebook.book.scenes().sortedByDescending { it.lastUsedAt }
     val active = Settings.get("scene").ifEmpty { null }
-    Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         GlassHeader(if (zh) "情景" else "Scenes", if (zh) "它和你一起学会的做事方式" else "Ways of working it learned", onClose = onDone)
         if (scenes.isEmpty()) {
-            Text(if (zh) "还没有情景。空对话里可以选一个预设，或让它学着提一个。" else "No scenes yet. Pick a preset from an empty chat, or let Andee propose one.", color = Palette.muted, fontSize = 13.sp)
+            Text(if (zh) "还没有情景。空对话里可以选一个预设，或让它学着提一个。" else "No scenes yet. Pick a preset from an empty chat, or let Andee propose one.", color = Palette.photoInk, fontSize = 13.sp)
         }
         for (s in scenes) {
             var expanded by remember { mutableStateOf(false) }
@@ -288,6 +288,35 @@ fun ScenesCard(onDone: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+/** One finished topic, read back: the verbatim text, and a way to pick it up again. */
+@Composable
+fun TopicScreen(topicId: Long, onDone: () -> Unit) {
+    val zh = Strings.lang() == "zh"
+    val topic = Scrollback.topics().firstOrNull { it.id == topicId }
+    val text = Scrollback.topicText(topicId)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
+        GlassHeader(topic?.title ?: (if (zh) "话题" else "Topic"),
+            topic?.let { java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(it.endedAt)) }, onClose = onDone)
+        if (topic == null) {
+            Text(if (zh) "这个话题已经不在了。" else "This topic is gone.", color = Palette.photoInk, fontSize = 13.sp)
+            return@Column
+        }
+        if (topic.summary.isNotBlank()) {
+            Text(topic.summary, color = Palette.label, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().glassPanel(14).padding(12.dp))
+            Spacer(Modifier.height(10.dp))
+        }
+        PrimaryButton(if (zh) "接着聊这个话题" else "Continue this topic") {
+            Thread { Assistant.say("继续聊「${topic.title}」。先 get_topic(id=${topic.id}) 读回对话再接着聊。") }.start()
+            onDone()
+        }
+        Spacer(Modifier.height(12.dp))
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            Text(text ?: (if (zh) "（记录已经不在了）" else "(the transcript is gone)"), color = Palette.label, fontSize = 13.sp, lineHeight = 19.sp,
+                modifier = Modifier.fillMaxWidth().glassWell(14).padding(14.dp))
         }
     }
 }

@@ -144,3 +144,11 @@ tasks.register('signApp') {
     }
 }
 tasks.matching { it.name == 'createDistributable' }.configureEach { finalizedBy('signApp') }
+
+// The real window body, drawn offscreen against seeded throwaway data:
+//   ./gradlew :desktop:uishot --args='chat 1020 820 /tmp/ui.png'
+tasks.register('uishot', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'net.kuafuai.andee.desktop.UiShotKt'
+    jvmArgs '-Dapple.awt.UIElement=true'
+}
