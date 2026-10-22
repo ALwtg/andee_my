@@ -405,6 +405,99 @@ public func andee_set_own_alpha(_ alpha: Double) -> Int32 {
     return done.wait(timeout: .now() + 0.5) == .success ? 1 : 0
 }
 
+// MARK: - notifications (the system's own delivered-notification store)
+
+/// macOS has no notification-listener API for third-party apps, but every
+/// notification any app posts is written by `usernoted` into one SQLite file.
+/// Watching that file's directory tells us within moments that something new
+/// arrived, whether or not a banner was shown (Focus and per-app banner
+/// settings do not stop the write). Read-only; never touches the file.
+private let notifDir = (NSHomeDirectory() as NSString)
+    .appendingPathComponent("Library/Group Containers/group.com.apple.usernoted/db2")
+
+private func notifQuery(_ sql: String) -> [[String: Any]]? {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+    p.arguments = ["-readonly", "-json", "file:\(notifDir)/db?mode=ro", sql]
+    let out = Pipe(), err = Pipe()
+    p.standardOutput = out; p.standardError = err
+    do { try p.run() } catch { return nil }
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    if p.terminationStatus != 0 { return nil }
+    if data.isEmpty { return [] }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
+}
+
+/// Can the store be read at all (Full Disk Access may be required): -1 unreadable, else the newest record id.
+@_cdecl("andee_notif_latest_id")
+public func andee_notif_latest_id() -> Int64 {
+    guard let rows = notifQuery("select coalesce(max(rec_id),0) m from record"),
+          let m = (rows.first?["m"] as? NSNumber)?.int64Value else { return -1 }
+    return m
+}
+
+private func hexData(_ s: String) -> Data? {
+    var d = Data(capacity: s.count / 2)
+    var i = s.startIndex
+    while i < s.endIndex {
+        let j = s.index(i, offsetBy: 2)
+        guard let b = UInt8(s[i..<j], radix: 16) else { return nil }
+        d.append(b); i = j
+    }
+    return d
+}
+
+/// Every record newer than [afterId], decoded: id, app bundle id, app name, title, subtitle, body, delivered (epoch ms).
+@_cdecl("andee_notif_since")
+public func andee_notif_since(_ afterId: Int64) -> UnsafeMutablePointer<CChar> {
+    let sql = "select r.rec_id id, a.identifier bundle, r.delivered_date d, hex(r.data) data from record r join app a using(app_id) where r.rec_id > \(afterId) order by r.rec_id limit 50"
+    guard let rows = notifQuery(sql) else { return json(["error": "unreadable"]) }
+    var out: [[String: Any]] = []
+    for r in rows {
+        let id = (r["id"] as? NSNumber)?.int64Value ?? 0
+        let bundle = (r["bundle"] as? String) ?? ""
+        var o: [String: Any] = ["id": id, "bundle": bundle]
+        if let d = (r["d"] as? NSNumber)?.doubleValue { o["when"] = Int64((d + 978_307_200) * 1000) }
+        if let h = r["data"] as? String, let blob = hexData(h),
+           let pl = try? PropertyListSerialization.propertyList(from: blob, format: nil) as? [String: Any],
+           let req = pl["req"] as? [String: Any] {
+            o["title"] = req["titl"] as? String ?? ""
+            o["subtitle"] = req["subt"] as? String ?? ""
+            o["body"] = req["body"] as? String ?? ""
+        }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
+            o["app"] = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+        }
+        out.append(o)
+    }
+    return json(["items": out])
+}
+
+public typealias NotifCallback = @convention(c) () -> Void
+
+/// Call [cb] (on a background queue) whenever the store's directory or its WAL
+/// changes. The WAL is where new rows land first; the directory catches the WAL
+/// being created or replaced. Returns 0 when the directory cannot be opened.
+@_cdecl("andee_notif_watch")
+public func andee_notif_watch(_ cb: NotifCallback) -> Int32 {
+    notifKeep.forEach { $0.cancel() }
+    let q = DispatchQueue(label: "andee.notif")
+    var sources: [DispatchSourceFileSystemObject] = []
+    for path in [notifDir, notifDir + "/db-wal", notifDir + "/db"] {
+        let fd = open(path, O_EVTONLY)
+        if fd < 0 { continue }
+        let s = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend, .rename, .delete], queue: q)
+        s.setEventHandler { cb() }
+        s.setCancelHandler { close(fd) }
+        s.resume()
+        sources.append(s)
+    }
+    notifKeep = sources
+    return sources.isEmpty ? 0 : 1
+}
+private var notifKeep: [DispatchSourceFileSystemObject] = []
+
 /// Whether a visible window of ours covers this point — only then does a click need us out of the way.
 @_cdecl("andee_own_window_at")
 public func andee_own_window_at(_ x: Double, _ y: Double) -> Int32 {

@@ -43,6 +43,7 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         "device.alarm" -> reminder(p)
         "device.contacts" -> contacts(p.optString("query"))
         "device.permissions" -> permissions()
+        "device.notifications" -> MacNotifications.snapshot(p.optLong("since_ms", 0L), p.optInt("limit", 20).coerceIn(1, 50))
         "device.vault.list" -> MacVault.list()
         "device.vault.get" -> MacVault.get(p.optString("entry"), p.optString("field"))
         "device.vault.fill" -> MacVault.fill(p.optString("entry"))
@@ -211,11 +212,14 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         val granted = JSONArray(); val missing = JSONArray()
         (if (Bridge.axTrusted()) granted else missing).put(JSONObject().put("id", "accessibility").put("feature", "operate other apps"))
         (if (Bridge.screenCaptureAllowed()) granted else missing).put(JSONObject().put("id", "screen_recording").put("feature", "see the screen"))
+        (if (MacNotifications.state != MacNotifications.State.NO_ACCESS) granted else missing)
+            .put(JSONObject().put("id", "full_disk_access").put("feature", "read notifications"))
         return JSONObject().put("granted", granted).put("missing", missing)
             .put("note", "Calendar, Reminders and Contacts ask for permission the first time they are used.")
             .also { o ->
                 if (!Bridge.axTrusted()) o.put("accessibility_fix", PermissionHelp.ACCESSIBILITY)
                 if (!Bridge.screenCaptureAllowed()) o.put("screen_recording_fix", PermissionHelp.SCREEN_RECORDING)
+                if (MacNotifications.state == MacNotifications.State.NO_ACCESS) o.put("full_disk_access_fix", MacNotifications.NO_ACCESS_NOTE)
             }
     }
 
@@ -245,7 +249,7 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         val METHODS = setOf(
             "device.launch", "device.open_url", "device.apps", "device.battery", "device.connectivity", "device.volume",
             "device.facts", "device.calendar", "device.calendar.add", "device.alarm", "device.contacts",
-            "device.permissions", "device.vault.list", "device.vault.get", "device.vault.fill",
+            "device.permissions", "device.notifications", "device.vault.list", "device.vault.get", "device.vault.fill",
         )
     }
 }

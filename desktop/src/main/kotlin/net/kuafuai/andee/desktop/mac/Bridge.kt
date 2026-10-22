@@ -14,6 +14,9 @@ import java.io.File
  */
 object Bridge {
 
+    /** Called on a background queue when the notification store changes. */
+    fun interface NotifCallback : com.sun.jna.Callback { fun invoke() }
+
     private interface Lib : Library {
         fun andee_free(p: Pointer?)
         fun andee_ax_trusted(prompt: Int): Int
@@ -34,7 +37,10 @@ object Bridge {
         fun andee_open(target: String): Int
         fun andee_float_window(title: String): Int
         fun andee_set_own_alpha(alpha: Double): Int
+        fun andee_notif_latest_id(): Long
         fun andee_own_window_at(x: Double, y: Double): Int
+        fun andee_notif_since(afterId: Long): Pointer
+        fun andee_notif_watch(cb: NotifCallback): Int
     }
 
     private val lib: Lib? by lazy {
@@ -90,6 +96,12 @@ object Bridge {
     /** True when one of Andee's visible windows covers (x, y); unknown counts as yes. */
     fun ownWindowAt(x: Double, y: Double) = lib?.andee_own_window_at(x, y) != 0
 
+    /** Newest record id in the system notification store; -1 when it cannot be read (Full Disk Access). */
+    fun notifLatestId(): Long = lib?.andee_notif_latest_id() ?: -1
+    /** Records after [afterId]: id, bundle, app, title, subtitle, body, when. */
+    fun notifSince(afterId: Long): JSONObject = JSONObject(str(need().andee_notif_since(afterId)))
+    /** Keep a strong reference to [cb]: JNA does not, and a collected callback is a crash. */
+    fun notifWatch(cb: NotifCallback): Boolean = lib?.andee_notif_watch(cb) == 1
 
     /** macOS virtual key codes the tools use. */
     object Keys {

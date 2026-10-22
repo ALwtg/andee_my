@@ -148,7 +148,28 @@ object Assistant {
         busy(false)
     }
 
+    /** Notifications the triage judged worth acting on, or telling. */
+    private val notifyHost = object : net.kuafuai.andee.desktop.mac.MacNotifications.Host {
+        override fun brainConfig() = config()
+        override fun langTag() = Strings.lang()
+        override fun scene() = Settings.get("scene").ifEmpty { null }?.let { DesktopNotebook.book.scene(it) }
+        override fun busy() = brain?.isBusy() == true
+        override fun tell(n: JSONObject, line: String) {
+            // No turn and no task light: the sentence is already written, nothing is being driven.
+            val clean = net.kuafuai.andee.brain.SpeechMood.parse(line).text.trim()
+            Scrollback.add(Scrollback.Role.ASSISTANT, clean)
+            onFinal(clean)
+            net.kuafuai.andee.desktop.voice.MacVoice.speak(line)
+        }
+        override fun act(text: String) {
+            busy(true)
+            speakReplies = true
+            ensure().notified(text)
+        }
+    }
+
     fun start() {
+        net.kuafuai.andee.desktop.mac.MacNotifications.start(notifyHost)
         DesktopScheduler.onDue = { todo -> busy(true); ensure().wake(dueText(todo), untrusted = todo.untrusted) }
         DesktopScheduler.catchUp()
     }

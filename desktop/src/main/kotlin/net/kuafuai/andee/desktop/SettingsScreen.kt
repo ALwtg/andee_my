@@ -102,6 +102,23 @@ fun SettingsScreen(onDone: () -> Unit) {
             FullOpenConfirm(zh, onYes = { v["shell_mode"] = "full"; fullOpenAsk = false }, onNo = { fullOpenAsk = false })
         }
 
+        Section(t("通知", "Notifications"))
+        Picker(
+            listOf("off" to t("关", "Off"), "chat" to t("聊天类", "Chats"), "all" to t("全部", "All")),
+            v["notify"].orEmpty().ifEmpty { "off" },
+        ) { v["notify"] = it }
+        Text(
+            when (net.kuafuai.andee.desktop.mac.MacNotifications.state) {
+                net.kuafuai.andee.desktop.mac.MacNotifications.State.NO_ACCESS -> t(
+                    "读不到通知：在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 里加上 Andee，然后退出重开。",
+                    "Can't read notifications: add Andee under System Settings → Privacy & Security → Full Disk Access, then reopen it.")
+                else -> t(
+                    "打开后，Andee 先自己判断：忽略、告诉你一声，还是动手处理。微信要在它自己的设置里打开「通知显示消息详情」，否则只看得到「收到一条消息」。",
+                    "When on, Andee decides for itself: ignore, tell you, or deal with it. WeChat shows only \"new message\" unless message details are on in its own settings.")
+            },
+            color = Palette.secondary, fontSize = 12.sp,
+        )
+
         Section(t("语音（火山）", "Voice (Volcengine)"))
         Field(t("火山 Key", "Volcengine key"), v, "api_key", secret = true)
 
