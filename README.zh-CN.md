@@ -121,7 +121,7 @@ https://github.com/user-attachments/assets/866e8333-e97b-4bf5-9525-540f9fdb01cd
 它把屏幕读成一份精简的元素提纲 —— 每个元素一行、按层级缩进、带一个能直接点的编号；遇到 App 自己
 画像素的地方（小程序、WebView、游戏）就退回看截图。通用大模型**算**坐标很差、**读**坐标很好，所以
 它**从不做这道数学题**：它看到的每张截图上都叠着一层淡淡的、带标号的 8×12 网格，点按时报的是
-「第几格 + 格子里的哪三分之一」；目标太小时它会先放大，看到一个红色十字标出"会点在这儿"，确认了再
+「第几格 + 格子里的哪一份」；目标太小时它会先放大，看到一个品红十字标出"会点在这儿"，确认了再
 下手。同一个位置点到第四次会被拦下，糊涂了的模型只能停下来问你，而不是一直戳。
 
 **2. 能打字，但它不是输入法。**
@@ -424,7 +424,7 @@ Google），再填该服务商的密钥。这是两个独立的服务，条款�
 | minSdk | 30 | Android 11 —— 因为要用 `AccessibilityAction.ACTION_IME_ENTER`（API 30+）和 `takeScreenshot`（API 30+） |
 | Java / Kotlin JVM target | 1.8 | `sourceCompatibility` 1.8、`jvmTarget = '1.8'` |
 | **构建用 JDK** | **17–20** | 见[配 JDK](#配-jdk)，这是最容易卡住的一步 |
-| versionCode / versionName | 11 / 0.5.2 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
+| versionCode / versionName | 12 / 0.5.3 | 策略见 [CHANGELOG.md](CHANGELOG.md) |
 | applicationId / namespace | `net.kuafuai.andee` | 从模板里没改，不影响功能 |
 
 **运行库依赖**（`app/build.gradle`）：
@@ -887,7 +887,7 @@ CLAUDE.md               给 AI 编码助手看的架构说明（英文）
 随包分发的第三方组件清单在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。再分发之前请先看：
 **ML Kit 扫码 SDK 和 `play-services-*` 不是开源许可**，而且扫码模型是运行时从 Google 拉的。
 
-改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.5.2`**，故意停在
+改了什么、以及版本号策略见 [CHANGELOG.md](CHANGELOG.md) —— 当前版本是 **`v0.5.3`**，故意停在
 pre-1.0：线上协议和构建开关都还在动。
 
 ## 相关文档

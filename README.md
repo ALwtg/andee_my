@@ -28,7 +28,7 @@
 
 <p align="center">  
   <a href="./README.md"><img alt="README in English" src="https://img.shields.io/badge/English-d9d9d9"></a>  
-  <a href="./README.zh-CN.md"><img alt="Chinese" src="https://img.shields.io/badge/中文文档-d9d9d9"></a>  
+  <a href="./README.zh-CN.md"><img alt="Chinese" src="https://img.shields.io/badge/Chinese-d9d9d9"></a>  
 </p>
 
 <p align="center">
@@ -140,7 +140,7 @@ It reads the screen as a compact element outline — one indented line per eleme
 tap — and when the app draws its own pixels (mini-programs, WebViews, games) it falls back to the  
 screenshot. General-purpose models are bad at computing coordinates and good at reading them, so it  
 **never does the maths**: every screenshot it sees carries a faint labelled 8×12 grid, it taps by  
-*cell + which third of it*, and for tight targets it zooms in and sees a red crosshair where the tap  
+*cell + which part of it*, and for tight targets it zooms in and sees a magenta crosshair where the tap  
 would land before committing. A per-location guard refuses the fourth tap on the same spot, so a  
 confused model stops and asks instead of hammering.
 
@@ -587,7 +587,7 @@ Pure Kotlin, no Compose; the whole thing hangs off two pillars, `WindowManager` 
 | minSdk                    | 30                  | Android 11 — `AccessibilityAction.ACTION_IME_ENTER` and `takeScreenshot` are both API 30+ |
 | Java / Kotlin JVM target  | 1.8                 | `sourceCompatibility` 1.8, `jvmTarget = '1.8'`                                            |
 | **Build JDK**             | **17–20**           | see [Which JDK](#which-jdk) — this is the step people get stuck on                        |
-| versionCode / versionName | 11 / 0.5.2          | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
+| versionCode / versionName | 12 / 0.5.3          | see [CHANGELOG.md](CHANGELOG.md) for the policy                                           |
 | applicationId / namespace | `net.kuafuai.andee` | never changed from the template. It affects nothing                                       |
 
 **Runtime dependencies** (`app/build.gradle`):
@@ -1016,7 +1016,7 @@ Read it before redistributing: **the ML Kit barcode SDK and the `play-services-*
 open-source**, and the barcode model is fetched from Google at runtime.
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed and for the versioning policy. The latest release is
-**`v0.5.2`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
+**`v0.5.3`** — pre-1.0 on purpose, because the wire contract and the build flags are still moving.
 
 ## Related documents
 

@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`11` / `"0.5.2"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`12` / `"0.5.3"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -27,6 +27,71 @@ anything not built at a tag, identify it by the short commit hash it was built f
 hash into `versionName` at build time would close this hole; it is not implemented yet.)
 
 ## [Unreleased]
+
+## [0.5.3] - 2026-10-22
+
+**You can now tell it to stop, out loud, and it will.** "Exit Andee" / "Take a break" (and their
+Chinese equivalents) ends the current task and closes the assistant — microphone and wake word
+included — with no model call in the path. The rest of the delta is aiming: a large fix for apps that
+hand accessibility a blank root, and a documentation pass on the grid it aims with.
+
+The version number is **a deliberate departure from the policy below**. The policy says MINOR for a new
+capability and this delta has one, which would make it `0.6.0`; it is `0.5.3` because the capability is
+an escape hatch rather than a new way of working, and the two things it is most likely to be confused
+with — asking how to exit, or cancelling a subscription — are deliberately *not* commands. Recording it
+here rather than leaving a `feat` under a patch for a reader to wonder at.
+
+**This release carries work from a teammate.** The voice-exit feature arrived as [PR
+#14](https://github.com/kuafuai/andee/pull/14) from [@lirongkuafuai](https://github.com/lirongkuafuai),
+closing [issue #13](https://github.com/kuafuai/andee/issues/13) — fifteen commits, reviewed and merged
+rather than imported wholesale.
+
+### Added
+
+- **Voice exit: say it and it stops** (`asr/VoiceExitCommand.kt`). Recognized **on the device, without a
+  model call** — an utterance that matches is handled before any card answer or brain submission, so it
+  works even when the model is unreachable. It cancels the running task, stops the service and closes
+  the assistant, which also **stops the microphone and the wake word**; the app icon starts it again.
+  The match is **whole-utterance and user-initiated only**: *"how do I exit Andee"*, *"cancel my
+  subscription"* and a quoted command all stay ordinary turns, and a phrase that arrives on an
+  automatic follow-up window is ignored (that one has its own test). While a meeting is recording it
+  refuses and says why — end the meeting and save the minutes first. Teardown is guarded so a late
+  transcript, wake callback or TTS fallback cannot reopen an overlay after the exit was asked for.
+- **`popup_open` / `popups` on tap, long-press and screenshot results**, read from the window list,
+  which survives a withheld tree. The model could not tell an open menu from a closed one by eye and
+  reopened one **six times**; a blind tap aimed *inside* a popup is now refused, with the reason.
+
+### Fixed
+
+- **Aiming on an app that withholds its tree** (measured on WeChat 8.0.79 / HONOR, where accessibility
+  gets a blank root and every tap is aimed by eye off a screenshot downscaled to ~0.48×). The injection
+  itself was already exact — the misses were all aiming, and this is a large fix:
+  - **The grid labels moved to the edges.** Printed at each cell's centre, the `H` column's label sat
+    exactly on WeChat's 「··」 button and **hid it**. They are now rulers — letters along the top,
+    numbers down the left — and nothing printed inside a cell belongs to the device.
+  - **A gesture on a tree-blind app must fall inside a zoom taken since the last one.** Measured:
+    zoom-aimed taps changed the screen **33/41** times, screenshot-aimed **124/211**, and the misses
+    opened profiles, followed people and deleted comments.
+  - **A cell is now fifteen parts, not nine** (`3 × 5`: `top-left` … `bottom-right`). The old nine names
+    still parse as aliases mapped to the outer rows, so anything written against the previous
+    vocabulary aims where it used to.
+  - **The markers are magenta (`#E000FF`), not red** — red is every unread badge in every Chinese app,
+    and a red crosshair beside WeChat's red dot read as part of the app. The caption also moved above
+    the ring, because below is where the next target is.
+  - **Prompt side:** close a small menu by tapping its opener again rather than with `back` (the menu is
+    unfocused, so `back` left Moments entirely), and keep list progress instead of restarting at item 1.
+
+### Changed
+
+- **The READMEs' description of aiming was corrected.** They said it taps by *"which third of it"* and
+  that the crosshair is *red*; both stopped being true in this release. They now say "which part of it"
+  and magenta. Found by re-reading the sentence against the code, not by a search.
+- **The English README's language badge is back to ASCII.** A web edit on 2026-10-21 changed the badge
+  label from `Chinese` to the Chinese characters for it, which put Han characters back into a file that
+  is checked for zero of them. The link target was never in question and did not move. If a Chinese
+  label on the English page is actually wanted, that is a decision to make deliberately — the badge is
+  the one place a reader who cannot read English has to be able to see themselves — and not something
+  to arrive at by accident.
 
 ## [0.5.2] - 2026-10-19
 
