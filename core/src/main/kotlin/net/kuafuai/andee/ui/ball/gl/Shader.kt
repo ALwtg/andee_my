@@ -1,6 +1,5 @@
 package net.kuafuai.andee.ui.ball.gl
 
-import android.opengl.GLES20
 
 /**
  * Compiles + links a vertex/fragment shader pair. Caches attribute and
@@ -40,7 +39,7 @@ class Shader(vertSrc: String, fragSrc: String) {
     companion object {
         private fun compile(type: Int, src: String): Int {
             val id = GLES20.glCreateShader(type)
-            GLES20.glShaderSource(id, src)
+            GLES20.glShaderSource(id, GLES20.backend.adaptShader(src, fragment = type == GLES20.GL_FRAGMENT_SHADER))
             GLES20.glCompileShader(id)
             val status = IntArray(1)
             GLES20.glGetShaderiv(id, GLES20.GL_COMPILE_STATUS, status, 0)

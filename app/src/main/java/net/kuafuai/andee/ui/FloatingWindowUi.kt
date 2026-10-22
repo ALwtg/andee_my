@@ -1,5 +1,6 @@
 package net.kuafuai.andee.ui
 
+import net.kuafuai.andee.ui.ball.label
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
@@ -1061,7 +1062,7 @@ class FloatingWindowUi(
         val next = BallLooks.step(delta)
         VoiceConfig.save(context, mapOf("ball" to next.name))
         ball?.trigger(Action.POP)
-        setSubtitle(AppLocale.str(context, next.labelRes), SubtitleKind.FINAL)
+        setSubtitle(next.label(context), SubtitleKind.FINAL)
     }
 
     /**

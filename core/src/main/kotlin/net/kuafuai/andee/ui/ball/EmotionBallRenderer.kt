@@ -1,8 +1,7 @@
 package net.kuafuai.andee.ui.ball
 
-import android.opengl.GLES20
-import android.opengl.GLSurfaceView
-import android.opengl.Matrix
+import net.kuafuai.andee.ui.ball.gl.GLES20
+import net.kuafuai.andee.ui.ball.gl.Matrix
 import net.kuafuai.andee.ui.ball.gl.Capsule
 import net.kuafuai.andee.ui.ball.gl.Ear
 import net.kuafuai.andee.ui.ball.gl.Eye
@@ -14,8 +13,6 @@ import net.kuafuai.andee.ui.ball.gl.Puff
 import net.kuafuai.andee.ui.ball.gl.Shader
 import net.kuafuai.andee.ui.ball.gl.Torus
 import net.kuafuai.andee.ui.ball.gl.UvSphere
-import javax.microedition.khronos.egl.EGLConfig
-import javax.microedition.khronos.opengles.GL10
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.acos
@@ -56,7 +53,7 @@ import kotlin.math.tan
  * The core and ring passes below are built but not drawn; each is one line in
  * [onDrawFrame] away from coming back.
  */
-class EmotionBallRenderer : GLSurfaceView.Renderer {
+class EmotionBallRenderer {
 
     // Public knobs (safe to write from UI thread)
     @Volatile
@@ -428,7 +425,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
     private val start = System.nanoTime()
     private var last = start
 
-    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+    fun onSurfaceCreated() {
         GLES20.glClearColor(0f, 0f, 0f, 0f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         GLES20.glEnable(GLES20.GL_BLEND)
@@ -478,7 +475,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         Matrix.setLookAtM(view, 0, 0f, 0f, CAM_Z, 0f, 0f, 0f, 0f, 1f, 0f)
     }
 
-    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+    fun onSurfaceChanged(width: Int, height: Int) {
         GLES20.glViewport(0, 0, width, height)
         vw = width
         vh = height
@@ -488,7 +485,7 @@ class EmotionBallRenderer : GLSurfaceView.Renderer {
         pointFactor = height / (2f * tan(fovRad / 2f))
     }
 
-    override fun onDrawFrame(gl: GL10?) {
+    fun onDrawFrame() {
         val nowNs = System.nanoTime()
         val dt = min(0.1f, (nowNs - last) / 1e9f)
         last = nowNs

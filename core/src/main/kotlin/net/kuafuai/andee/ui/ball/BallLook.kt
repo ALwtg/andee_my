@@ -1,6 +1,5 @@
 package net.kuafuai.andee.ui.ball
 
-import net.kuafuai.andee.R
 
 /**
  * Everything that makes one ball a different *character* from another.
@@ -204,12 +203,6 @@ class BallLook(
     // built for it, so [BallLooks.ALL] is what the renderer iterates at surface
     // creation rather than one look.
 
-    /**
-     * Name shown to the user when they swipe to this look. A resource, not a
-     * string: the settings card taught us that a surface which can be read in
-     * two languages must not carry finished sentences.
-     */
-    val labelRes: Int,
 
     /**
      * Horizontal squash on the pupil, 1 = round.
@@ -995,7 +988,6 @@ val BAJIE = BallLook(
     rimDark = true,
     rimGain = 1.00f,
     rimPow = 5.6f,
-    labelRes = R.string.ball_look_bajie,
 
     // The muzzle, lower and bigger than the first build's: a pig's face is a
     // nose with a head attached. Nostrils big enough to read at thumbnail
@@ -1164,7 +1156,6 @@ val ANDEE = BallLook(
     rimDark = false,
     rimGain = 0.80f,
     rimPow = 4.4f,
-    labelRes = R.string.ball_look_andee,
 
     // See the class note: fitted to the picture's horn, then raised twice on request
     // — the second time (0.477 → 0.53, tilt 50 → 38, bend −80 → −62, a longer horn)
@@ -1247,7 +1238,6 @@ val CREAM = BallLook(
     rimDark = true,
     rimGain = 1.00f,
     rimPow = 5.6f,
-    labelRes = R.string.ball_look_cream,
 
     // ---- Ears ----
     //
@@ -1508,7 +1498,6 @@ val IMP = BallLook(
     rimDark = false,
     rimGain = 0.85f,
     rimPow = 3.6f,
-    labelRes = R.string.ball_look_imp,
 
     // A vertical slit. The single cheapest change of species on the whole face.
     pupilAspect = 0.42f,
@@ -1875,7 +1864,6 @@ val RABBIT = BallLook(
     rimDark = true,
     rimGain = 1.00f,
     rimPow = 5.6f,
-    labelRes = R.string.ball_look_rabbit,
 
     // Barely lowered — enough to flatten the top of the eye, and no more. The
     // ceiling here is 1 − 0.8 × 0.092 / (0.168 + 0.026) = 0.621 (see [eyeCut]),
@@ -2186,7 +2174,6 @@ val BEAR = BallLook(
     rimDark = false,
     rimGain = 0.92f,
     rimPow = 5.0f,
-    labelRes = R.string.ball_look_bear,
 
     // ---- Muzzle ----
     //
