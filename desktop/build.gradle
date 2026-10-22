@@ -30,7 +30,7 @@ tasks.register('buildBridge', Exec) {
     inputs.file(src)
     outputs.file(out)
     doFirst { out.parentFile.mkdirs() }
-    commandLine 'swiftc', '-O', '-target', 'arm64-apple-macos14', '-emit-library', src.path, '-o', out.path
+    commandLine 'swiftc', '-O', '-target', 'arm64-apple-macos14', '-emit-library', '-framework', 'CoreDisplay', '-framework', 'CoreLocation', src.path, '-o', out.path
 }
 tasks.register('buildNative') { dependsOn('buildTrashTool', 'buildBridge') }
 sourceSets.main.resources.srcDir(nativeOut)
@@ -84,6 +84,8 @@ compose.desktop {
                         <string>Andee looks up contacts when you ask it to.</string>
                         <key>NSCameraUsageDescription</key>
                         <string>Andee looks through the camera only when you ask it to.</string>
+                        <key>NSLocationUsageDescription</key>
+                        <string>Andee reads this Mac's location only when you ask where it is.</string>
                     '''
                 }
             }

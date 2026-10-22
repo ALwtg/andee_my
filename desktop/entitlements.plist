@@ -20,6 +20,9 @@
     <!-- Looking through the camera when asked. -->
     <key>com.apple.security.device.camera</key>
     <true/>
+    <!-- device.location: where this Mac is, when asked. -->
+    <key>com.apple.security.personal-information.location</key>
+    <true/>
     <!-- Calendar, Reminders, Contacts and other apps, via AppleScript. -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>

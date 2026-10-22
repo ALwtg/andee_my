@@ -53,6 +53,10 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         "device.permissions" -> permissions()
         "device.permissions.request" -> requestPermissions(p)
         "device.notifications" -> MacNotifications.snapshot(p.optLong("since_ms", 0L), p.optInt("limit", 20).coerceIn(1, 50))
+        "device.look" -> look(p.optBoolean("front", false))
+        "device.look_stop" -> JSONObject().put("closed", true)
+        "device.brightness" -> brightness(p)
+        "device.location" -> Bridge.location()
         "device.vault.list" -> MacVault.list()
         "device.vault.get" -> MacVault.get(p.optString("entry"), p.optString("field"))
         "device.vault.fill" -> MacVault.fill(p.optString("entry"))
@@ -217,6 +221,27 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         return JSONObject().put("contacts", arr).put("count", arr.length())
     }
 
+    /** Brightness uses the phone's 1..255 scale on the wire; CoreDisplay wants 0–1. */
+    private fun brightness(p: JSONObject): JSONObject {
+        val raw = p.optInt("brightness", -1)
+        if (raw < 0) return JSONObject().put("brightness", (Bridge.brightnessGet() * 255).toInt().coerceIn(1, 255))
+        Bridge.brightnessSet(raw / 255.0)
+        return JSONObject().put("brightness", raw)
+    }
+
+    /** One frame through the lens. The Mac has no persistent viewfinder, so each call is one shot; the privacy tell is the scrollback row. */
+    private fun look(front: Boolean): JSONObject {
+        val f = File.createTempFile("andee-look", ".png")
+        try {
+            if (!Bridge.cameraShot(f.path, front)) {
+                return JSONObject().put("error", "The camera could not be used on this Mac (no camera, or the Camera permission is missing). Say so; do not claim to see.")
+            }
+            val b64 = java.util.Base64.getEncoder().encodeToString(f.readBytes())
+            Scrollback.add(Scrollback.Role.ASSISTANT, "📷 " + (if (Strings.lang() == "zh") "看了一眼（" else "Looked (") + (if (front) "front" else "back") + ")")
+            return JSONObject().put("png_base64", b64).put("camera", if (front) "front" else "back")
+        } finally { f.delete() }
+    }
+
     /**
      * The polite permission concierge, the phone's PermissionsController on the
      * Mac: says exactly what is missing in one sentence, and on confirm fires
@@ -291,7 +316,7 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         val METHODS = setOf(
             "device.launch", "device.open_url", "device.apps", "device.battery", "device.connectivity", "device.volume",
             "device.facts", "device.calendar", "device.calendar.add", "device.alarm", "device.contacts",
-            "device.permissions", "device.permissions.request", "device.notifications", "device.vault.list", "device.vault.get", "device.vault.fill",
+            "device.permissions", "device.permissions.request", "device.notifications", "device.look", "device.look_stop", "device.brightness", "device.location", "device.vault.list", "device.vault.get", "device.vault.fill",
         )
     }
 }

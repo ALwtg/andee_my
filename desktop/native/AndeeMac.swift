@@ -8,6 +8,8 @@
 
 import AppKit
 import ApplicationServices
+import AVFoundation
+import CoreLocation
 import CoreGraphics
 import Foundation
 import ScreenCaptureKit
@@ -510,4 +512,132 @@ public func andee_own_window_at(_ x: Double, _ y: Double) -> Int32 {
            r.insetBy(dx: -4, dy: -4).contains(CGPoint(x: x, y: y)) { return 1 }
     }
     return 0
+}
+
+// MARK: - camera (device.look: one frame through the lens)
+
+private final class PhotoTaker: NSObject, AVCapturePhotoCaptureDelegate {
+    let done = DispatchSemaphore(value: 0)
+    var jpeg: Data?
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        jpeg = photo.fileDataRepresentation()
+        done.signal()
+    }
+}
+
+/// Capture one frame from the camera to [path] as PNG, downscaled to [maxSide] on the long edge.
+/// The Mac's honest analog of the phone's look session: one frame per call, no
+/// persistent viewfinder. Returns 1 on success; 0 when there is no camera or
+/// permission is missing (Camera usage is in the entitlements/Info.plist).
+@_cdecl("andee_camera_shot")
+public func andee_camera_shot(_ path: UnsafePointer<CChar>, _ front: Int32, _ maxSide: Int32) -> Int32 {
+    let discovery = AVCaptureDevice.DiscoverySession(
+        deviceTypes: [.builtInWideAngleCamera],
+        mediaType: .video,
+        position: front != 0 ? .front : .back
+    )
+    guard let device = discovery.devices.first(where: { front != 0 ? $0.position == .front : $0.position == .back })
+        ?? discovery.devices.first ?? AVCaptureDevice.default(for: .video) else { return 0 }
+    let session = AVCaptureSession()
+    session.sessionPreset = .high
+    guard let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) else { return 0 }
+    session.addInput(input)
+    let output = AVCapturePhotoOutput()
+    guard session.canAddOutput(output) else { return 0 }
+    session.addOutput(output)
+    let taker = PhotoTaker()
+    session.startRunning()
+    // Give the exposure a moment to settle (the phone's EXPOSURE_SETTLE_MS, for
+    // the same reason: the first frame after start is washed out or near-black).
+    usleep(400_000)
+    output.capturePhoto(with: AVCapturePhotoSettings(), delegate: taker)
+    let got = taker.done.wait(timeout: .now() + 5) == .success
+    session.stopRunning()
+    guard got, var data = taker.jpeg else { return 0 }
+    let out = URL(fileURLWithPath: String(cString: path))
+    if maxSide > 0, let src = CGImageSourceCreateWithData(data as CFData, nil),
+       let img = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+        let w = img.width, h = img.height
+        let long = max(w, h)
+        let scale = min(1.0, Double(maxSide) / Double(long))
+        let tw = max(1, Int(Double(w) * scale)), th = max(1, Int(Double(h) * scale))
+        if let cs = CGColorSpace(name: CGColorSpace.sRGB),
+           let ctx = CGContext(data: nil, width: tw, height: th, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+                               bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) {
+            ctx.interpolationQuality = .high
+            ctx.draw(img, in: CGRect(x: 0, y: 0, width: tw, height: th))
+            if let small = ctx.makeImage(),
+               let j = CFDataCreateMutable(nil, 0) {
+                let dest = CGImageDestinationCreateWithData(j, "public.png" as CFString, 1, nil)!
+                CGImageDestinationAddImage(dest, small, nil)
+                if CGImageDestinationFinalize(dest) { data = j as Data }
+            }
+        }
+    }
+    return (try? data.write(to: out)) != nil ? 1 : 0
+}
+
+// MARK: - brightness & location (device.brightness / device.location)
+
+@_silgen_name("CoreDisplay_Display_GetUserBrightness")
+private func cdGetBrightness(_ d: CGDirectDisplayID) -> Double
+@_silgen_name("CoreDisplay_Display_SetUserBrightness")
+private func cdSetBrightness(_ d: CGDirectDisplayID, _ b: Double)
+
+/// The main display's brightness, 0–1. CoreDisplay works on the built-in panel; -1 when it cannot.
+@_cdecl("andee_brightness_get")
+public func andee_brightness_get() -> Double {
+    return cdGetBrightness(CGMainDisplayID())
+}
+
+@_cdecl("andee_brightness_set")
+public func andee_brightness_set(_ b: Double) -> Int32 {
+    cdSetBrightness(CGMainDisplayID(), min(1.0, max(0.0, b)))
+    return 1
+}
+
+private final class Locator: NSObject, CLLocationManagerDelegate {
+    let done = DispatchSemaphore(value: 0)
+    var loc: CLLocation?
+    var err: String?
+    func locationManager(_ m: CLLocationManager, didUpdateLocations locs: [CLLocation]) {
+        loc = locs.last; done.signal()
+    }
+    func locationManager(_ m: CLLocationManager, didFailWithError e: Error) {
+        err = e.localizedDescription; done.signal()
+    }
+}
+private var locatorKeep: (CLLocationManager, Locator)?
+
+/// One-shot location. CoreLocation on a Mac is Wi-Fi/IP-based and often off or
+/// imprecise; that is what it returns, not a phone-grade GPS fix.
+@_cdecl("andee_location")
+public func andee_location() -> UnsafeMutablePointer<CChar> {
+    let out = DispatchSemaphore(value: 0)
+    var result: [String: Any] = [:]
+    DispatchQueue.main.async {
+        guard CLLocationManager.locationServicesEnabled() else {
+            result["error"] = "Location Services are off on this Mac"
+            out.signal(); return
+        }
+        let m = CLLocationManager()
+        let l = Locator()
+        m.delegate = l
+        locatorKeep = (m, l)
+        m.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        m.requestLocation()
+        let got = l.done.wait(timeout: .now() + 8) == .success
+        locatorKeep = nil
+        if let c = l.loc {
+            result["lat"] = c.coordinate.latitude
+            result["lng"] = c.coordinate.longitude
+            result["accuracy_m"] = c.horizontalAccuracy
+        } else {
+            result["error"] = l.err ?? "no fix (Location Services may be off or not promptable here)"
+        }
+        _ = got
+        out.signal()
+    }
+    _ = out.wait(timeout: .now() + 10)
+    return json(result)
 }

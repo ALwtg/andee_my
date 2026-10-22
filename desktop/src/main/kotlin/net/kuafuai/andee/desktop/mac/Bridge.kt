@@ -39,6 +39,10 @@ object Bridge {
         fun andee_set_own_alpha(alpha: Double): Int
         fun andee_notif_latest_id(): Long
         fun andee_own_window_at(x: Double, y: Double): Int
+        fun andee_camera_shot(path: String, front: Int, maxSide: Int): Int
+        fun andee_brightness_get(): Double
+        fun andee_brightness_set(b: Double): Int
+        fun andee_location(): Pointer
         fun andee_notif_since(afterId: Long): Pointer
         fun andee_notif_watch(cb: NotifCallback): Int
     }
@@ -95,6 +99,14 @@ object Bridge {
 
     /** True when one of Andee's visible windows covers (x, y); unknown counts as yes. */
     fun ownWindowAt(x: Double, y: Double) = lib?.andee_own_window_at(x, y) != 0
+
+    /** Capture one camera frame to [path] as PNG; false when there is no camera or permission. */
+    fun cameraShot(path: String, front: Boolean, maxSide: Int = 1280) = lib?.andee_camera_shot(path, if (front) 1 else 0, maxSide) == 1
+
+    /** The main display's brightness, 0–1. */
+    fun brightnessGet(): Double = lib?.andee_brightness_get() ?: -1.0
+    fun brightnessSet(b: Double) = lib?.andee_brightness_set(b) == 1
+    fun location(): JSONObject = JSONObject(str(need().andee_location()))
 
     /** Newest record id in the system notification store; -1 when it cannot be read (Full Disk Access). */
     fun notifLatestId(): Long = lib?.andee_notif_latest_id() ?: -1
