@@ -4,6 +4,7 @@ import net.kuafuai.andee.desktop.DesktopBrainHost
 import net.kuafuai.andee.desktop.EncryptedFileStore
 import net.kuafuai.andee.desktop.AppDirs
 import net.kuafuai.andee.desktop.Scrollback
+import net.kuafuai.andee.desktop.Strings
 import net.kuafuai.andee.desktop.VaultSecrets
 import net.kuafuai.andee.util.Log
 import org.json.JSONArray
@@ -30,6 +31,13 @@ class MacDevice : DesktopBrainHost.ToolProvider {
 
     override fun handles(method: String) = method in METHODS
 
+    /** id -> (english, chinese). The Mac's three special grants; the concierge only knows these. */
+    private val CATALOG = mapOf(
+        "accessibility" to ("operate other apps" to "控制其它 app（辅助功能）"),
+        "screen_recording" to ("see the screen" to "看屏幕（录屏）"),
+        "full_disk_access" to ("read notifications" to "读通知（完全磁盘访问）"),
+    )
+
     override fun dispatch(method: String, p: JSONObject, silent: Boolean, untrusted: Boolean): Any? = when (method) {
         "device.launch" -> launch(p)
         "device.open_url" -> openUrl(p.optString("url"))
@@ -43,6 +51,7 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         "device.alarm" -> reminder(p)
         "device.contacts" -> contacts(p.optString("query"))
         "device.permissions" -> permissions()
+        "device.permissions.request" -> requestPermissions(p)
         "device.notifications" -> MacNotifications.snapshot(p.optLong("since_ms", 0L), p.optInt("limit", 20).coerceIn(1, 50))
         "device.vault.list" -> MacVault.list()
         "device.vault.get" -> MacVault.get(p.optString("entry"), p.optString("field"))
@@ -208,6 +217,39 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         return JSONObject().put("contacts", arr).put("count", arr.length())
     }
 
+    /**
+     * The polite permission concierge, the phone's PermissionsController on the
+     * Mac: says exactly what is missing in one sentence, and on confirm fires
+     * the system prompt (accessibility, screen recording) or the Settings pane
+     * (full disk access). `confirm=false` answers with a `say` line the brain
+     * reads aloud and asks; `confirm=true` reports what actually happened, not a
+     * hard-coded "started".
+     */
+    private fun requestPermissions(p: JSONObject): JSONObject {
+        val confirm = p.optBoolean("confirm", false)
+        val ids = p.optJSONArray("ids") ?: throw IllegalArgumentException("device.permissions.request requires ids[]")
+        val wanted = (0 until ids.length()).map { ids.optString(it) }.filter { it in CATALOG }
+        if (wanted.isEmpty()) return JSONObject().put("error", "no known permission ids in request")
+        val zh = Strings.lang() == "zh"
+        val names = wanted.joinToString(if (zh) "、" else ", ") { val (en, zh2) = CATALOG[it]!!; if (zh) zh2 else en }
+        val say = (if (zh) "还差这几项权限：" else "Andee still needs: ") + names + ". " +
+            (if (zh) "要我现在打开系统设置，你来开一下吗？" else "Shall I open System Settings for you to allow them?")
+        if (!confirm) return JSONObject().put("say", say).put("confirm_needed", true).put("ids", ids)
+        var result = "waiting"
+        var next = if (zh) "系统已经弹出提示或打开了设置页。等你看完，再用 device.permissions 确认是否已经开好。" else
+            "The prompt is up or the Settings pane is open. Once you are done, check device.permissions again."
+        for (id in wanted) {
+            when (id) {
+                "accessibility" -> if (Bridge.axTrusted(prompt = true)) { result = "granted"; next = if (zh) "已经开好了，继续。" else "Already on — carry on." }
+                "screen_recording" -> if (Bridge.screenCaptureAllowed(request = true)) { result = "granted"; next = if (zh) "已经开好了，继续。" else "Already on — carry on." }
+                "full_disk_access" -> runCatching {
+                    Bridge.open("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+                }.onFailure { Log.w("MacDevice", "could not open Full Disk Access pane", it) }
+            }
+        }
+        return JSONObject().put("result", result).put("next", next).put("say", say)
+    }
+
     private fun permissions(): JSONObject {
         val granted = JSONArray(); val missing = JSONArray()
         (if (Bridge.axTrusted()) granted else missing).put(JSONObject().put("id", "accessibility").put("feature", "operate other apps"))
@@ -249,7 +291,7 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         val METHODS = setOf(
             "device.launch", "device.open_url", "device.apps", "device.battery", "device.connectivity", "device.volume",
             "device.facts", "device.calendar", "device.calendar.add", "device.alarm", "device.contacts",
-            "device.permissions", "device.notifications", "device.vault.list", "device.vault.get", "device.vault.fill",
+            "device.permissions", "device.permissions.request", "device.notifications", "device.vault.list", "device.vault.get", "device.vault.fill",
         )
     }
 }
