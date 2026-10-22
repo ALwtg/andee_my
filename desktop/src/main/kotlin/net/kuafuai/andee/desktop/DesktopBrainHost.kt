@@ -75,7 +75,7 @@ class DesktopBrainHost(
         )
     }
 
-    override fun pagesIndex(): String = ""
+    override fun pagesIndex(): String = Pages.indexForPrompt()
     override fun topicsIndex(): String = Scrollback.topicsIndex()
 
     override fun foldTopic(title: String, summary: String, rows: List<ScrollRow>, text: String): FoldedTopic? {

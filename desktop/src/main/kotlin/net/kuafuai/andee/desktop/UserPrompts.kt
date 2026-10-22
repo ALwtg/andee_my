@@ -42,9 +42,16 @@ import java.util.concurrent.TimeUnit
  */
 class UiTools : DesktopBrainHost.ToolProvider {
 
-    override fun handles(method: String) = method == "ui.ask" || method == "ui.alert"
+    override fun handles(method: String) = method.startsWith("ui.")
+
+    override fun turnStarted(kind: String) = Pages.beginTurn()
 
     override fun dispatch(method: String, p: JSONObject, silent: Boolean, untrusted: Boolean): Any? = when (method) {
+        "ui.show_html" -> showHtml(p)
+        "ui.list_pages" -> listPages()
+        "ui.get_page" -> getPage(p)
+        "ui.list_topics" -> listTopics()
+        "ui.get_topic" -> getTopic(p)
         "ui.ask" -> {
             val question = p.optString("question").trim().ifEmpty { throw IllegalArgumentException("ui.ask requires question") }
             // Caller-supplied buttons pass through untouched — those are the model's
@@ -72,6 +79,116 @@ class UiTools : DesktopBrainHost.ToolProvider {
             JSONObject().put("how", r.how).put("read", true)
         }
         else -> throw IllegalArgumentException("unknown method $method")
+    }
+
+    // ---- pages: the artifacts it made --------------------------------------
+
+    private fun showHtml(p: JSONObject): JSONObject {
+        val html = p.optString("html").ifEmpty { throw IllegalArgumentException("ui.show_html requires html") }
+        val defaultTitle = if (Strings.lang() == "zh") "AI 界面" else "AI page"
+        val title = p.optString("title").ifEmpty { defaultTitle }
+        // Ownership is decided here, never by the model: get_page armed a group,
+        // an explicit `revise` wins, and either way the target is consumed.
+        val group = Pages.armOrResolve(p.optString("revise").trim().ifEmpty { null }?.toLongOrNull())
+        val page = Pages.add(title, html, group) ?: throw IllegalStateException("the page could not be saved")
+        // The phone renders in an in-app WebView; the Mac's honest first cut opens
+        // the page in the default browser. The shelf (list_pages / get_page / the
+        // per-turn index) is what the model reads back, and that works the same.
+        runCatching { net.kuafuai.andee.desktop.mac.Bridge.open(page.file!!.absolutePath) }
+            .onFailure { Log.w("UiTools", "could not open the page: ${it.message}") }
+        Scrollback.add(Scrollback.Role.ASSISTANT, "📄 ${title}")
+        return JSONObject().put("opened", true).put("id", page.id).put("title", title)
+            .put("version", page.version).put("closed", false)
+    }
+
+    private fun listPages(): JSONObject {
+        val arr = org.json.JSONArray()
+        for (e in Pages.pages()) {
+            arr.put(
+                JSONObject().put("id", e.id).put("title", e.title)
+                    .put("created", LocalTime.format(e.ts)).put("bytes", e.file?.length() ?: 0L)
+                    .put("available", e.file != null).put("version", e.version)
+                    .put("versions", Pages.versionsOf(e.groupId).size),
+            )
+        }
+        return JSONObject().put("items", arr).put("count", arr.length()).put(
+            "note",
+            when {
+                arr.length() == 0 -> "No pages have been made yet. Build one with show_html; do not describe a page that does not exist."
+                else -> "Newest first, one row per page — the id is the CURRENT version. available:false means the page's file is gone. Use get_page for the source of one you are going to change."
+            },
+        )
+    }
+
+    private fun getPage(p: JSONObject): JSONObject {
+        val id = p.optLong("id", Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }
+            ?: throw IllegalArgumentException("ui.get_page requires integer id, from list_pages")
+        val entry = Pages.pageById(id)
+        val file = entry?.file
+        return when {
+            entry == null -> JSONObject().put("found", false)
+                .put("note", "No page has that id. list_pages shows what there is — take an id from there, and do not make one up.")
+            file == null -> JSONObject().put("found", false).put("id", entry.id).put("title", entry.title)
+                .put("note", "That page was made, but its file is gone — there is nothing to read back. Say so; do not reconstruct it from impression.")
+            else -> {
+                val html = runCatching { file.readText() }.getOrNull()
+                if (html == null) {
+                    JSONObject().put("found", false).put("id", entry.id)
+                        .put("note", "The page is listed but its file could not be read. Do not invent its contents.")
+                } else {
+                    // Reading back has one purpose: the show_html that follows is the revision.
+                    Pages.armGroup(entry.groupId)
+                    val cap = net.kuafuai.andee.ui.ScrollbackLimits.ARTIFACT_SOURCE_MAX
+                    val cut = html.length > cap
+                    JSONObject().put("found", true).put("id", entry.id).put("title", entry.title)
+                        .put("created", LocalTime.format(entry.ts)).put("truncated", cut)
+                        .put("version", entry.version).put("versions", Pages.versionsOf(entry.groupId).size)
+                        .put("html", if (cut) html.take(cap) else html)
+                        .put("note", "The page's current source, verbatim. To change it, send the whole revised page with show_html — not a diff. This call showed the user nothing." + if (cut) " Cut at $cap characters; rebuild the missing tail in the same style." else "")
+                }
+            }
+        }
+    }
+
+    // ---- topics: the finished conversations, read back ----------------------
+
+    private fun listTopics(): JSONObject {
+        val arr = org.json.JSONArray()
+        for (t in Scrollback.topics()) {
+            arr.put(
+                JSONObject().put("id", t.id).put("title", t.title).put("ended", LocalTime.format(t.endedAt))
+                    .put("messages", Scrollback.snapshot().count { it.topicId == t.id })
+                    .put("available", Scrollback.topicText(t.id) != null),
+            )
+        }
+        return JSONObject().put("items", arr).put("count", arr.length()).put(
+            "note",
+            when {
+                arr.length() == 0 -> "No conversations have been put away yet. Nothing is missing."
+                else -> "Newest first. These are FINISHED conversations; the one-line summary in your context is not the whole story. Read one back with get_topic before answering about a detail."
+            },
+        )
+    }
+
+    private fun getTopic(p: JSONObject): JSONObject {
+        val id = p.optLong("id", Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }
+            ?: throw IllegalArgumentException("ui.get_topic requires integer id, from list_topics")
+        val topic = Scrollback.topics().firstOrNull { it.id == id }
+        val text = Scrollback.topicText(id)
+        return when {
+            topic == null -> JSONObject().put("found", false)
+                .put("note", "No topic has that id. list_topics shows what there is — take an id from there, and do not make one up.")
+            text == null -> JSONObject().put("found", false).put("id", topic.id).put("title", topic.title)
+                .put("note", "That topic exists — 「${topic.title}」 — but its text could not be read, so the details are gone. Say so; do not reconstruct it.")
+            else -> {
+                val cap = net.kuafuai.andee.ui.ScrollbackLimits.TOPIC_TEXT_MAX
+                val cut = text.length > cap
+                JSONObject().put("found", true).put("id", topic.id).put("title", topic.title)
+                    .put("ended", LocalTime.format(topic.endedAt)).put("truncated", cut)
+                    .put("text", if (cut) text.take(cap) else text)
+                    .put("note", "The conversation as it happened. This call showed the user nothing." + if (cut) " Cut at $cap characters." else "")
+            }
+        }
     }
 }
 
