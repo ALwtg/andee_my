@@ -28,6 +28,8 @@ fun main() {
         ApprovalGate.onChange = { pending = ApprovalGate.current; if (pending != null) chat = true }
         var ballWindow by remember { mutableStateOf<java.awt.Window?>(null) }
         var chatWindow by remember { mutableStateOf<java.awt.Window?>(null) }
+        var ask by remember { mutableStateOf(AskGate.current) }
+        AskGate.onChange = { ask = AskGate.current; if (ask != null) chat = true }
         // A click aimed at another app must not land on Andee: both windows step aside for the instant of it.
         // (Native, not Window.opacity: AWT refuses that on the decorated chat window.)
         Assistant.hideWindows = { hide -> net.kuafuai.andee.desktop.mac.Bridge.setOwnAlpha(if (hide) 0.0 else 1.0) }
@@ -55,6 +57,7 @@ fun main() {
             androidx.compose.foundation.layout.Box {
                 if (settings) SettingsScreen { settings = false } else ChatScreen { settings = true }
                 pending?.let { ApprovalCard(it) }
+                ask?.let { AskCard(it) }
             }
         }
     }

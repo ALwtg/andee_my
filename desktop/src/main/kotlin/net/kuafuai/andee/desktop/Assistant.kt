@@ -82,6 +82,7 @@ object Assistant {
     private fun providers(): List<DesktopBrainHost.ToolProvider> {
         val notes = NotebookTools { onSceneChanged(it) }
         return listOf(
+            UiTools(),
             object : DesktopBrainHost.ToolProvider {
                 override fun handles(method: String) = notes.handles(method)
                 override fun dispatch(method: String, p: JSONObject, silent: Boolean, untrusted: Boolean) =
