@@ -67,12 +67,14 @@ fun main() {
                     "settings" -> SettingsScreen(
                         onDone = { pop() },
                         onOpenNotebook = { push("notebook") },
+                        onOpenVault = { push("vault") },
                         onOpenScenes = { push("scenes") },
                         onOpenExpressions = { push("expressions") },
                         onOpenSelfCheck = { push("selfcheck") },
                     )
                     "selfcheck" -> SelfCheckCard(onDone = { pop() }, onOpenSettings = { push("settings") })
                     "notebook" -> NotebookCard(onDone = { pop() })
+                    "vault" -> VaultCard(onDone = { pop() })
                     "scenes" -> ScenesCard(onDone = { pop() })
                     "expressions" -> ExpressionsCard(onDone = { pop() })
                     "artifacts" -> ArtifactsCard(onDone = { pop() })

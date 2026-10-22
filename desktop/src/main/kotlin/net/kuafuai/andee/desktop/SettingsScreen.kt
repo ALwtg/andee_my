@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 fun SettingsScreen(
     onDone: () -> Unit,
     onOpenNotebook: () -> Unit,
+    onOpenVault: () -> Unit,
     onOpenScenes: () -> Unit,
     onOpenExpressions: () -> Unit,
     onOpenSelfCheck: () -> Unit,
@@ -98,6 +99,7 @@ fun SettingsScreen(
 
         SectionTitle(t("更多", "More"))
         MoreRow(t("小本本", "Notebook"), t("它记得的事", "What it remembers"), onOpenNotebook)
+        MoreRow(t("保险箱", "Vault"), t("你自己的账号", "Your own accounts"), onOpenVault)
         MoreRow(t("情景", "Scenes"), t("和它一起学会的做事方式", "Ways of working it learned"), onOpenScenes)
         MoreRow(t("形象与表情", "Look & expressions"), t("换一个样子", "Pick a face"), onOpenExpressions)
         MoreRow(t("自检", "Self-check"), t("看看哪里没开", "What is missing"), onOpenSelfCheck)

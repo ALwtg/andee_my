@@ -139,6 +139,56 @@ fun ArtifactsCard(onDone: () -> Unit) {
     }
 }
 
+/** 保险箱: the user's own accounts, browsable and editable; the brain only fills, never reads a password. */
+@Composable
+fun VaultCard(onDone: () -> Unit) {
+    val zh = Strings.lang() == "zh"
+    var refresh by remember { mutableStateOf(0) }
+    var adding by remember { mutableStateOf(false) }
+    var label by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    val entries = net.kuafuai.andee.desktop.mac.MacVault.entries()
+    Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
+        GlassHeader(if (zh) "保险箱" else "Vault", if (zh) "你的账号，密码只用来填，从不读出来" else "Your accounts; passwords are filled, never read out", onClose = onDone,
+            trailing = { Text("+ " + (if (zh) "添加" else "Add"), color = Palette.accent, fontSize = 13.sp, modifier = Modifier.clickable { adding = !adding }.padding(6.dp)) })
+        if (adding) {
+            Column(Modifier.fillMaxWidth().glassPanel(14).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                GlassField(if (zh) "名称" else "Label", label, { label = it })
+                GlassField(if (zh) "用户名" else "Username", username, { username = it })
+                GlassField(if (zh) "密码" else "Password", password, { password = it }, secret = true)
+                PrimaryButton(if (zh) "保存" else "Save") {
+                    val all = entries.toMutableList()
+                    all.removeAll { it.optString("label") == label }
+                    all.add(org.json.JSONObject().put("label", label).put("username", username).put("phone", "").put("email", "").put("note", "").put("password", password))
+                    net.kuafuai.andee.desktop.mac.MacVault.save(all)
+                    adding = false; label = ""; username = ""; password = ""; refresh++
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        if (entries.isEmpty()) {
+            Text(if (zh) "保险箱是空的。" else "The vault is empty.", color = Palette.muted, fontSize = 13.sp)
+        }
+        for (e in entries) {
+            val l = e.optString("label")
+            Row(Modifier.fillMaxWidth().glassPanel(14).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(l, color = Palette.label, fontSize = 14.sp)
+                    val uname = e.optString("username").ifBlank { e.optString("email").ifBlank { e.optString("phone") } }
+                    Text(if (uname.isBlank()) (if (zh) "无账号" else "no username") else uname, color = Palette.secondary, fontSize = 11.sp)
+                }
+                Text(if (zh) "删除" else "Delete", color = Palette.danger, fontSize = 12.sp,
+                    modifier = Modifier.clickable {
+                        val all = entries.toMutableList().also { it.removeAll { x -> x.optString("label") == l } }
+                        net.kuafuai.andee.desktop.mac.MacVault.save(all); refresh++
+                    }.padding(6.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
 /** 小本本: what Andee remembers, browsable and deletable — plus the todos it owes. */
 @Composable
 fun NotebookCard(onDone: () -> Unit) {
