@@ -2,6 +2,7 @@ package net.kuafuai.andee.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,11 +12,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -37,9 +40,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.clickable
 
 /** The phone's `Glass` palette, so the two apps look like one product. */
 object Palette {
@@ -51,6 +54,7 @@ object Palette {
     val text = Color(0xFFF2F2F7)
     val secondary = Color(0x99EBEBF5)
     val accent = Color(0xFF0A84FF)
+    val accentSoft = Color(0x330A84FF)
     val user = Color(0xFF0A84FF)
     val error = Color(0xFFFF453A)
 }
@@ -66,6 +70,7 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
     var artifacts by remember { mutableStateOf(Pages.artifacts()) }
     var recording by remember { mutableStateOf(Meeting.isActive()) }
     val list = rememberLazyListState()
+    val items = displayItems(rows)
 
     LaunchedEffect(Unit) {
         Scrollback.addListener { rows = Scrollback.snapshot() }
@@ -81,10 +86,11 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
             Thread { Assistant.say(said, spoken = true) }.start()
         }
     }
-    LaunchedEffect(rows.size) { if (rows.isNotEmpty()) list.animateScrollToItem(rows.size - 1) }
+    LaunchedEffect(items.size) { if (items.isNotEmpty()) list.animateScrollToItem(items.size - 1) }
 
     // The ball is the phone's way in: a tap talks, a second tap says "done".
     fun toggleMic() {
+        if (Meeting.isActive()) { Meeting.stopFromUser(); return }
         if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) progress = noVoiceKey()
     }
 
@@ -95,81 +101,142 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
         Thread { Assistant.say(t) }.start()
     }
 
-    Column(Modifier.fillMaxSize().background(Palette.base).padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Andee", color = Palette.text, fontSize = 20.sp)
-            Spacer(Modifier.weight(1f))
-            if (recording) {
-                Pill(if (Strings.lang() == "zh") "■ 停止录音" else "■ Stop recording") { Meeting.stopFromUser() }
-                Spacer(Modifier.width(8.dp))
-            } else if (busy) {
-                Pill(if (Strings.lang() == "zh") "■ 停止" else "■ Stop") { Assistant.stop() }
-                Spacer(Modifier.width(8.dp))
+    Column(Modifier.fillMaxSize().background(Palette.base)) {
+        Header(
+            status = when {
+                recording -> if (Strings.lang() == "zh") "● 正在录音" else "● Recording"
+                voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING -> if (Strings.lang() == "zh") "● 正在听" else "● Listening"
+                busy -> if (Strings.lang() == "zh") "思考中…" else "Thinking…"
+                voice == net.kuafuai.andee.desktop.voice.MacVoice.State.SPEAKING -> if (Strings.lang() == "zh") "正在说" else "Speaking"
+                else -> null
+            },
+            stoppable = recording || busy,
+            onStop = {
+                if (recording) Meeting.stopFromUser() else if (busy) Assistant.stop()
+            },
+            onSettings = onOpenSettings,
+        )
+
+        Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
+            if (artifacts.isNotEmpty()) {
+                ArtifactsPanel(
+                    artifacts,
+                    onOpen = { a -> runCatching { net.kuafuai.andee.desktop.mac.Bridge.open(a.file!!.absolutePath) } },
+                    onRevise = { a -> Thread { Assistant.say("继续修改「${a.title}」。先 get_page(id=${a.id}) 读回源码，改好后用 show_html 重画，不要新建产物。") }.start() },
+                    onRollback = { v ->
+                        Pages.restoreVersion(v.id)
+                        Scrollback.add(Scrollback.Role.ASSISTANT, "↩️ 已把「${v.title}」回退到 v${v.version}")
+                    },
+                )
+                Spacer(Modifier.height(10.dp))
             }
-            val listening = voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING
-            Pill(if (listening) (if (Strings.lang() == "zh") "● 说完了" else "● Done") else "🎤") { toggleMic() }
-            Spacer(Modifier.width(8.dp))
-            Pill("⚙") { onOpenSettings() }
-        }
-        Spacer(Modifier.height(12.dp))
-        if (artifacts.isNotEmpty()) {
-            ArtifactsPanel(
-                artifacts,
-                onOpen = { a -> runCatching { net.kuafuai.andee.desktop.mac.Bridge.open(a.file!!.absolutePath) } },
-                onRevise = { a -> Thread { Assistant.say("继续修改「${a.title}」。先 get_page(id=${a.id}) 读回源码，改好后用 show_html 重画，不要新建产物。") }.start() },
-                onRollback = { v ->
-                    Pages.restoreVersion(v.id)
-                    Scrollback.add(Scrollback.Role.ASSISTANT, "↩️ 已把「${v.title}」回退到 v${v.version}")
-                },
-            )
-            Spacer(Modifier.height(8.dp))
-        }
-        LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (rows.isEmpty()) {
-                item {
-                    SceneOffer { p ->
-                        ScenePresets.adoptIfMissing(p.name)
-                        Thread { Assistant.say("进入「${p.title}」情景。${p.example}") }.start()
+            LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (items.isEmpty()) {
+                    item {
+                        Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
+                            SceneOffer { p ->
+                                ScenePresets.adoptIfMissing(p.name)
+                                Thread { Assistant.say("进入「${p.title}」情景。${p.example}") }.start()
+                            }
+                        }
+                    }
+                }
+                items(items, key = { itemKey(it) }) { it ->
+                    when (it) {
+                        is Scrollback.Row -> Bubble(it)
+                        is TopicRow -> TopicCard(it.topic, it.count) {
+                            Thread { Assistant.say("继续聊「${it.topic.title}」。先 get_topic(id=${it.topic.id}) 读回对话再接着聊。") }.start()
+                        }
                     }
                 }
             }
-            items(displayItems(rows), key = { itemKey(it) }) { it ->
-                when (it) {
-                    is Scrollback.Row -> Bubble(it)
-                    is TopicRow -> TopicCard(it.topic, it.count) {
-                        Thread { Assistant.say("继续聊「${it.topic.title}」。先 get_topic(id=${it.topic.id}) 读回对话再接着聊。") }.start()
-                    }
-                }
-            }
         }
+
         if (heard.isNotEmpty()) {
-            Text("🎤 $heard", color = Palette.text, fontSize = 14.sp, modifier = Modifier.padding(vertical = 6.dp))
+            Text("🎤 $heard", color = Palette.text, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp))
         }
         if (progress.isNotEmpty()) {
-            Text(progress, color = Palette.secondary, fontSize = 13.sp, modifier = Modifier.padding(vertical = 6.dp))
+            Text(progress, color = Palette.secondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp))
         }
+
+        InputBar(
+            input = input,
+            onInput = { input = it },
+            listening = voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING,
+            canSend = input.isNotBlank() && !busy,
+            onMic = { toggleMic() },
+            onSend = { send() },
+        )
+    }
+}
+
+/** Title plus a one-line status, with stop and settings on the right — the phone's control bar. */
+@Composable
+private fun Header(status: String?, stoppable: Boolean, onStop: () -> Unit, onSettings: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column {
+            Text("Andee", color = Palette.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            if (status != null) {
+                Text(status, color = if (status.startsWith("●")) Palette.accent else Palette.secondary, fontSize = 12.sp)
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        if (stoppable) {
+            Pill(if (Strings.lang() == "zh") "■ 停止" else "■ Stop") { onStop() }
+            Spacer(Modifier.width(8.dp))
+        }
+        Pill("⚙") { onSettings() }
+    }
+}
+
+/** The mic and send live with the text field, as a chat app's composer does. */
+@Composable
+private fun InputBar(input: String, onInput: (String) -> Unit, listening: Boolean, canSend: Boolean, onMic: () -> Unit, onSend: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RoundButton(listening, onMic) { if (listening) "◼" else "🎤" }
         Box(
-            Modifier.fillMaxWidth().background(Palette.well, RoundedCornerShape(14.dp))
-                .border(1.dp, Palette.hairline, RoundedCornerShape(14.dp)).padding(12.dp),
+            Modifier.weight(1f).background(Palette.well, RoundedCornerShape(18.dp))
+                .border(1.dp, Palette.hairline, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
             BasicTextField(
                 value = input,
-                onValueChange = { input = it },
+                onValueChange = onInput,
                 textStyle = TextStyle(color = Palette.text, fontSize = 15.sp),
                 cursorBrush = SolidColor(Palette.accent),
                 modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { e ->
                     if (e.type == KeyEventType.KeyDown && e.key == Key.Enter && !e.isShiftPressed) {
-                        send(); true
+                        if (canSend) onSend(); true
                     } else false
                 },
             )
             if (input.isEmpty()) {
                 Text(
-                    if (Strings.lang() == "zh") "输入后按回车发送（Shift+回车换行）" else "Type and press Return (Shift+Return for a new line)",
-                    color = Palette.secondary, fontSize = 15.sp,
+                    if (Strings.lang() == "zh") "说点什么，或输入后回车发送" else "Say something, or type and press Return",
+                    color = Palette.secondary, fontSize = 14.sp,
                 )
             }
         }
+        RoundButton(canSend, onSend) { "↑" }
+    }
+}
+
+@Composable
+private fun RoundButton(enabled: Boolean, onClick: () -> Unit, glyph: () -> String) {
+    Box(
+        Modifier.size(40.dp)
+            .background(if (enabled) Palette.accent else Palette.well, CircleShape)
+            .border(1.dp, if (enabled) Color.Transparent else Palette.hairline, CircleShape)
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(glyph(), color = if (enabled) Color(0xFF0A2540) else Palette.secondary, fontSize = 17.sp)
     }
 }
 
@@ -202,16 +269,25 @@ fun noVoiceKey() =
 @Composable
 private fun Bubble(r: Scrollback.Row) {
     val mine = r.role == Scrollback.Role.USER
+    val error = r.role == Scrollback.Role.ERROR
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         SelectionContainer {
             Text(
                 r.text,
-                color = if (r.role == Scrollback.Role.ERROR) Palette.error else Palette.text,
+                color = when { error -> Palette.error; mine -> Palette.text; else -> Palette.text },
                 fontSize = 15.sp,
+                lineHeight = 21.sp,
                 modifier = Modifier.widthIn(max = 560.dp)
-                    .background(if (mine) Palette.user.copy(alpha = 0.35f) else Palette.panel, RoundedCornerShape(14.dp))
-                    .border(1.dp, Palette.hairline, RoundedCornerShape(14.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .background(
+                        when {
+                            error -> Palette.error.copy(alpha = 0.12f)
+                            mine -> Palette.accentSoft
+                            else -> Palette.panel
+                        },
+                        RoundedCornerShape(if (mine) 16.dp else 16.dp),
+                    )
+                    .border(1.dp, if (error) Palette.error.copy(alpha = 0.4f) else Palette.hairline, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
             )
         }
     }
@@ -220,9 +296,9 @@ private fun Bubble(r: Scrollback.Row) {
 @Composable
 fun Pill(label: String, onClick: () -> Unit) {
     Text(
-        label, color = Palette.text, fontSize = 14.sp,
-        modifier = Modifier.background(Palette.panel, RoundedCornerShape(16.dp))
-            .border(1.dp, Palette.hairline, RoundedCornerShape(16.dp))
+        label, color = Palette.text, fontSize = 13.sp,
+        modifier = Modifier.background(Palette.panel, RoundedCornerShape(15.dp))
+            .border(1.dp, Palette.hairline, RoundedCornerShape(15.dp))
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )

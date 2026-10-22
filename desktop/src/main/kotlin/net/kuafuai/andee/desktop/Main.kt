@@ -47,7 +47,8 @@ fun main() {
             onCloseRequest = { chat = false },
             visible = chat,
             title = "Andee",
-            state = rememberWindowState(width = 520.dp, height = 760.dp),
+            state = rememberWindowState(width = 620.dp, height = 820.dp),
+            resizable = true,
         ) {
             chatWindow = window
             MenuBar {

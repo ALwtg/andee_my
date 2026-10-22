@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -46,7 +47,14 @@ fun SettingsScreen(onDone: () -> Unit) {
     var fullOpenAsk by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
-        Text(t("设置", "Settings"), color = Palette.text, fontSize = 22.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(t("设置", "Settings"), color = Palette.text, fontSize = 22.sp)
+            Spacer(Modifier.weight(1f))
+            Text("✕", color = Palette.secondary, fontSize = 18.sp,
+                modifier = Modifier.background(Palette.panel, RoundedCornerShape(18.dp))
+                    .border(1.dp, Palette.hairline, RoundedCornerShape(18.dp))
+                    .clickable { onDone() }.padding(horizontal = 12.dp, vertical = 6.dp))
+        }
         Spacer(Modifier.height(16.dp))
 
         Section(t("界面语言", "Language"))
@@ -124,7 +132,7 @@ fun SettingsScreen(onDone: () -> Unit) {
 
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Pill(t("保存", "Save")) {
+            PrimaryPill(t("保存", "Save")) {
                 Settings.save(v.toMap())
                 v["ball"]?.let { MacBall.pickLook(it) }
                 Thread { Assistant.ensure() }.start()
@@ -139,6 +147,15 @@ fun SettingsScreen(onDone: () -> Unit) {
             color = Palette.secondary, fontSize = 12.sp,
         )
     }
+}
+
+@Composable
+private fun PrimaryPill(label: String, onClick: () -> Unit) {
+    Text(
+        label, color = Color(0xFF0A2540), fontSize = 14.sp,
+        modifier = Modifier.background(Palette.accent, RoundedCornerShape(15.dp))
+            .clickable { onClick() }.padding(horizontal = 16.dp, vertical = 7.dp),
+    )
 }
 
 @Composable
@@ -158,10 +175,10 @@ private fun Picker(options: List<Pair<String, String>>, selected: String, onPick
         for ((value, label) in options) {
             val on = value == current
             Text(
-                label, color = Palette.text, fontSize = 14.sp,
+                label, color = if (on) Palette.accent else Palette.text, fontSize = 14.sp,
                 modifier = Modifier
-                    .background(if (on) Palette.panel else Palette.well.copy(alpha = 0f), RoundedCornerShape(8.dp))
-                    .border(1.dp, if (on) Palette.hairline else Palette.hairline.copy(alpha = 0f), RoundedCornerShape(8.dp))
+                    .background(if (on) Palette.accentSoft else Palette.well.copy(alpha = 0f), RoundedCornerShape(8.dp))
+                    .border(1.dp, if (on) Palette.accent.copy(alpha = 0.5f) else Palette.hairline.copy(alpha = 0f), RoundedCornerShape(8.dp))
                     .clickable { onPick(value) }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
