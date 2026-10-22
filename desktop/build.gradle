@@ -111,3 +111,34 @@ tasks.register('ballshot', JavaExec) {
     mainClass = 'net.kuafuai.andee.desktop.BallShotKt'
 }
 
+// One fixed signing identity, so macOS keeps Accessibility and Screen Recording
+// across rebuilds: an ad-hoc signature is a new app every build, and every grant
+// silently lapses. Signed here with codesign rather than through Compose's own
+// signing, which only accepts Apple "Developer ID Application" names.
+//
+// The identity is the packager's alone (see desktop/README-signing.md); users of
+// the built app never need it. Without it the app stays ad-hoc and still builds.
+def signIdentity = providers.gradleProperty('andee.signing.identity').orElse('Andee Local Signing')
+def signKeychain = providers.gradleProperty('andee.signing.keychain')
+    .orElse("${System.getProperty('user.home')}/Library/Keychains/andee-signing.keychain-db")
+def signPasswordFile = file("${System.getProperty('user.home')}/Andee-signing/keychain-password")
+
+tasks.register('signApp') {
+    def app = layout.buildDirectory.dir('compose/binaries/main/app/Andee.app')
+    def entitlements = file('entitlements.plist')
+    onlyIf { file(signKeychain.get()).exists() }
+    doLast {
+        def kc = signKeychain.get()
+        if (signPasswordFile.exists()) {
+            exec { commandLine 'security', 'unlock-keychain', '-p', signPasswordFile.text.trim(), kc }
+        }
+        exec {
+            commandLine 'codesign', '--force', '--deep', '--options', 'runtime', '--timestamp=none',
+                '--entitlements', entitlements.path, '--keychain', kc,
+                '--sign', signIdentity.get(), app.get().asFile.path
+        }
+        exec { commandLine 'codesign', '--verify', '--deep', '--strict', app.get().asFile.path }
+        logger.lifecycle("Andee.app signed as '${signIdentity.get()}'")
+    }
+}
+tasks.matching { it.name == 'createDistributable' }.configureEach { finalizedBy('signApp') }
