@@ -66,8 +66,8 @@ object MacVoice {
         // The voice is the character's: read from the look the ball is wearing, per utterance, as the phone does.
         ttsSpeaker = net.kuafuai.andee.ui.ball.BallLooks.byName(Settings.get("ball").ifEmpty { null }).voice
             .ifEmpty { "zh_female_vv_uranus_bigtts" },
-        ttsSampleRate = 24_000,
-        voiceProvider = Settings.get("voice_provider").ifEmpty { VoiceSettings.VOICE_HUOSHAN },
+        ttsSampleRate = Settings.get("tts_sample_rate").toIntOrNull()?.takeIf { it in 8_000..48_000 } ?: 24_000,
+        voiceProvider = Settings.voiceProvider(),
         googleApiKey = Settings.get("google_api_key"),
         googleBaseUrl = Settings.get("google_base_url").ifEmpty { "https://aiplatform.googleapis.com" },
         googleProject = Settings.get("google_project"),

@@ -127,7 +127,7 @@ fun SegmentedPicker(options: List<Pair<String, String>>, selected: String, onPic
 }
 
 @Composable
-fun GlassField(label: String, value: String, onValue: (String) -> Unit, secret: Boolean = false) {
+fun GlassField(label: String, value: String, onValue: (String) -> Unit, secret: Boolean = false, hint: String = "") {
     Spacer(Modifier.height(8.dp))
     Text(label, color = Palette.secondary, fontSize = 12.sp)
     Spacer(Modifier.height(4.dp))
@@ -139,6 +139,10 @@ fun GlassField(label: String, value: String, onValue: (String) -> Unit, secret: 
         textStyle = TextStyle(color = Palette.label, fontSize = 14.sp),
         cursorBrush = SolidColor(Palette.accent),
         modifier = Modifier.fillMaxWidth().glassWell(12).padding(horizontal = 12.dp, vertical = 10.dp),
+        decorationBox = { inner ->
+            // A blank row shows what it resolves to, as on the phone: the hint is the value in force.
+            Box { if (value.isEmpty() && hint.isNotEmpty()) Text(hint, color = Palette.muted, fontSize = 14.sp, maxLines = 1); inner() }
+        },
     )
 }
 

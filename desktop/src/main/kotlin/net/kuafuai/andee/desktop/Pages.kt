@@ -42,6 +42,17 @@ object Pages {
     private val dir get() = File(base, "pages").apply { mkdirs() }
     private val indexFile get() = File(base, "pages.json")
 
+    /** 清空聊天记录 / 恢复出厂: every page and version goes, and the shelf starts again from 1. */
+    fun wipe() {
+        synchronized(lock) {
+            entries.clear()
+            nextId = 1L
+        }
+        dir.listFiles()?.forEach { it.delete() }
+        indexFile.delete()
+        onChange()
+    }
+
     init { load() }
 
     /** The id a `show_html` in this turn should file under; null = new artifact. Set by get_page, cleared each turn. */

@@ -340,6 +340,9 @@ object MacVault {
         return (0 until a.length()).map { a.getJSONObject(it) }
     }
 
+    /** 恢复出厂: the encrypted file goes, and the Keychain key opens nothing. */
+    fun wipe() = store.wipe()
+
     fun save(all: List<JSONObject>) {
         check(store.write(JSONArray(all).toString())) { "the vault could not be saved (is the login Keychain locked?)" }
     }

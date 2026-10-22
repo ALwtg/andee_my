@@ -49,37 +49,54 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** The phone's `Glass` palette, so the two apps look like one product. */
-/** The phone's `Glass` night palette, exactly — so the two apps read as one product. */
+/**
+ * The phone's `Glass` palette, both of them — day (dark ink on a white card) and night — so the two
+ * apps read as one product. Every name is a getter over [night], which is Compose state: whatever
+ * reads a colour is subscribed, so flipping the theme redraws the whole window at once with no call
+ * site told.
+ */
 object Palette {
-    val base = Color(0xFF000000)
-    val cardSolid = Color(0xF2060608)
-    val cardFrosted = Color(0x99000000)
-    val panel = Color(0x0FFFFFFF)          // 6% white
-    val panelEdge = Color(0x17FFFFFF)       // 9% white
-    val glass = Color(0x1FFFFFFF)           // 12% white
-    val glassEdge = Color(0x38FFFFFF)       // 22% white
-    val well = Color(0x59000000)            // 35% black
-    val wellEdge = Color(0x1AFFFFFF)        // 10% white
-    val thumb = Color(0x2EFFFFFF)           // 18% white
-    val thumbEdge = Color(0x40FFFFFF)
-    val hairline = Color(0x2BFFFFFF)        // 17% white
-    val title = Color(0xFFFFFFFF)
-    val label = Color(0xFFDCE1EA)
-    val secondary = Color(0xFF8F97A6)
-    val muted = Color(0xFF5F6775)
+    private val nightState = androidx.compose.runtime.mutableStateOf(Settings.get("theme") == "night")
+
+    /** Night is the default, as it was before the light theme existed; only an explicit `day` is light. */
+    val night: Boolean get() = nightState.value
+    fun setNight(on: Boolean) {
+        // The cached backdrop carries the old veil colour; drop it before anything redraws from it.
+        Settings.save(mapOf("theme" to if (on) "night" else "day"))
+        Backdrop.reset()
+        nightState.value = on
+    }
+
+    private fun pick(day: Long, nightV: Long) = Color(if (night) nightV else day)
+
+    val base get() = pick(0xFFFFFFFF, 0xFF000000)
+    val cardSolid get() = pick(0xFFFFFFFF, 0xF2060608)
+    val cardFrosted get() = pick(0xF2FFFFFF, 0x99000000)
+    val panel get() = pick(0x0A000000, 0x0FFFFFFF)
+    val panelEdge get() = pick(0x14000000, 0x17FFFFFF)
+    val glass get() = pick(0x0F000000, 0x1FFFFFFF)
+    val glassEdge get() = pick(0x24000000, 0x38FFFFFF)
+    val well get() = pick(0x0D000000, 0x59000000)
+    val wellEdge get() = pick(0x1A000000, 0x1AFFFFFF)
+    val thumb get() = pick(0xFFFFFFFF, 0x2EFFFFFF)
+    val thumbEdge get() = pick(0x2E000000, 0x40FFFFFF)
+    val hairline get() = pick(0x24000000, 0x2BFFFFFF)
+    val title get() = pick(0xFF0E1116, 0xFFFFFFFF)
+    val label get() = pick(0xFF2B313B, 0xFFDCE1EA)
+    val secondary get() = pick(0xFF5A6270, 0xFF8F97A6)
+    val muted get() = pick(0xFF7D8592, 0xFF5F6775)
     /** Text sitting directly on the photograph. [muted] is chosen against a card and has no ground to stand on here. */
-    val photoInk = Color(0xFF98A0AE)
-    val accent = Color(0xFF7FA5FF)
-    val tint = Color(0xFF4C6FFF)
-    val danger = Color(0xFFFF6B6B)
-    val ok = Color(0xFF4ADE80)
-    val warn = Color(0xFFFBBF24)
+    val photoInk get() = pick(0xFF252A33, 0xFF98A0AE)
+    val accent get() = pick(0xFF3B62E0, 0xFF7FA5FF)
+    val tint get() = pick(0xFF3B62E0, 0xFF4C6FFF)
+    val danger get() = pick(0xFFDC2626, 0xFFFF6B6B)
+    val ok get() = pick(0xFF16A34A, 0xFF4ADE80)
+    val warn get() = pick(0xFFD97706, 0xFFFBBF24)
 
     // kept for existing call sites
     val text get() = title
-    val accentSoft = Color(0x267FA5FF)
-    val user = accent
+    val accentSoft get() = pick(0x263B62E0, 0x267FA5FF)
+    val user get() = accent
     val error get() = danger
     val card get() = cardSolid
 }

@@ -91,7 +91,8 @@ object Assistant {
                 if (zh) "https://api.deepseek.com" else "https://api.openai.com/v1"
             },
             model = Settings.get("llm_model").ifEmpty { if (zh) "deepseek-flash" else "gpt-4o-mini" },
-            thinking = Settings.get("llm_thinking") == "enabled",
+            // Unset reads as on, as on the phone (its build default is on); only an explicit "disabled" turns it off.
+            thinking = Settings.get("llm_thinking") != "disabled",
             reasoningEffort = Settings.get("llm_reasoning_effort").ifEmpty { "high" },
         )
     }

@@ -35,7 +35,21 @@ object Settings {
         "api_key", "asr_endpoint", "tts_endpoint", "asr_resource_id", "tts_resource_id", "tts_speaker",
         "voice_provider", "lang", "max_steps", "scene", "ball", "ball_pos", "notify", "sweep", "sweep_quiet_minutes", "sweep_daily_cap",
         "shell_mode", "shell_workdirs", "shell_critical_confirm", "mute",
+        "google_api_key", "google_project", "google_location", "google_asr_model", "google_tts_model", "google_base_url",
+        "google_language", "tts_sample_rate", "grounding", "show_hub", "hub_url", "device_name", "theme",
     )
+
+    /**
+     * Which service hears and speaks: what the user picked, else by interface language — Google
+     * for English, 火山 for Chinese. Anything saved that is not exactly `google` reads as 火山, the
+     * phone's fail-closed rule. Read per use, so the language picker moves it at once.
+     */
+    fun voiceProvider(): String = when (get("voice_provider").trim().lowercase()) {
+        "google" -> "google"
+        "huoshan" -> "huoshan"
+        "" -> if (Strings.lang() == "en") "google" else "huoshan"
+        else -> "huoshan"
+    }
 
     private val file get() = AppDirs.file("settings.properties")
     private val lock = Any()

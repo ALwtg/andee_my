@@ -41,12 +41,18 @@ object Backdrop {
     private const val TARGET_LUMA = 0.22f
     private const val VEIL_MIN = 0.38f
     private const val VEIL_MAX = 0.75f
+    // Day: the same photograph under a white veil, as on the phone (see its veilFor).
+    private const val DAY_TARGET_LUMA = 0.62f
+    private const val DAY_VEIL_MAX = 0.90f
 
-    class Built(val image: ImageBitmap, val veil: Float)
+    class Built(val image: ImageBitmap, val veil: Float, val white: Boolean)
 
     @Volatile private var built: Built? = null
 
     /** Decode, shrink, blur, measure. Off the UI thread; cached after the first call. */
+    /** The theme changed: the veil is the other colour, so the next build computes it again. */
+    fun reset() { built = null }
+
     fun build(): Built? {
         built?.let { return it }
         val src = runCatching {
@@ -65,9 +71,12 @@ object Backdrop {
         boxBlur(px, w, h)
         small.setRGB(0, 0, w, h, px, 0, w)
         val luma = meanLuma(px)
-        val veil = (1f - TARGET_LUMA / max(luma, 0.02f)).coerceIn(VEIL_MIN, VEIL_MAX)
+        val l = max(luma, 0.02f)
+        val white = !Palette.night
+        val veil = if (white) ((DAY_TARGET_LUMA - l) / (1f - l)).coerceIn(0f, DAY_VEIL_MAX)
+        else (1f - TARGET_LUMA / l).coerceIn(VEIL_MIN, VEIL_MAX)
         Log.i("Backdrop", "backdrop ${w}x$h mean luma %.3f → veil %.0f%%".format(luma, veil * 100))
-        return Built(small.toComposeImageBitmap(), veil).also { built = it }
+        return Built(small.toComposeImageBitmap(), veil, white).also { built = it }
     }
 
     private fun boxBlur(px: IntArray, w: Int, h: Int) {
@@ -113,13 +122,14 @@ object Backdrop {
 /** The photograph and its veil, filling whatever it is put in. Black until the image is ready. */
 @Composable
 fun BackdropLayer(modifier: Modifier = Modifier.fillMaxSize()) {
-    var b by remember { mutableStateOf(Backdrop.build()) }
-    LaunchedEffect(Unit) { if (b == null) b = withContext(Dispatchers.Default) { Backdrop.build() } }
+    val night = Palette.night
+    var b by remember(night) { mutableStateOf(Backdrop.build()) }
+    LaunchedEffect(night) { if (b == null) b = withContext(Dispatchers.Default) { Backdrop.build() } }
     Box(modifier.background(Palette.base)) {
         b?.let {
             Image(it.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             // The veil goes on top of the image, not under it: a background behind the image darkens nothing.
-            Box(Modifier.fillMaxSize().background(Color(0f, 0f, 0f, it.veil)))
+            Box(Modifier.fillMaxSize().background(if (it.white) Color(1f, 1f, 1f, it.veil) else Color(0f, 0f, 0f, it.veil)))
         }
     }
 }
