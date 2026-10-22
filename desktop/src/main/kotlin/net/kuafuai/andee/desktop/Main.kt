@@ -75,7 +75,8 @@ fun main() {
                     "notebook" -> NotebookCard(onDone = { pop() })
                     "scenes" -> ScenesCard(onDone = { pop() })
                     "expressions" -> ExpressionsCard(onDone = { pop() })
-                    else -> ChatScreen(onOpenSettings = { push("settings") }, onOpenSelfCheck = { push("selfcheck") })
+                    "artifacts" -> ArtifactsCard(onDone = { pop() })
+                    else -> ChatScreen(onOpenSettings = { push("settings") }, onOpenSelfCheck = { push("selfcheck") }, onOpenArtifacts = { push("artifacts") })
                 }
                 pending?.let { ApprovalCard(it) }
                 ask?.let { AskCard(it) }

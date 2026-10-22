@@ -86,6 +86,59 @@ private fun openPane(anchor: String) {
     runCatching { net.kuafuai.andee.desktop.mac.Bridge.open("x-apple.systempreferences:com.apple.preference.security?$anchor") }
 }
 
+/** 产物: the pages Andee has made, one per artifact with its versions. */
+@Composable
+fun ArtifactsCard(onDone: () -> Unit) {
+    val zh = Strings.lang() == "zh"
+    var refresh by remember { mutableStateOf(0) }
+    val artifacts = Pages.artifacts()
+    Column(Modifier.fillMaxSize().background(Palette.base).padding(20.dp).verticalScroll(rememberScrollState())) {
+        GlassHeader(if (zh) "产物" else "Artifacts", if (zh) "它做出来的页面" else "Pages it has built", onClose = onDone)
+        if (artifacts.isEmpty()) {
+            Text(if (zh) "还没有产物。让 Andee 用 show_html 画一页。" else "Nothing yet. Ask Andee to draw a page with show_html.", color = Palette.muted, fontSize = 13.sp)
+        }
+        for (a in artifacts) {
+            var showVersions by remember { mutableStateOf(false) }
+            Column(Modifier.fillMaxWidth().glassPanel(14).padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("📄 " + a.title, color = Palette.label, fontSize = 14.sp)
+                        Text("v${a.version} · ${LocalTime.format(a.ts)}", color = Palette.secondary, fontSize = 11.sp)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(if (zh) "打开" else "Open", color = Palette.accent, fontSize = 12.sp,
+                        modifier = Modifier.clickable { runCatching { net.kuafuai.andee.desktop.mac.Bridge.open(a.file!!.absolutePath) } }.padding(vertical = 6.dp))
+                    Text(if (zh) "继续" else "Edit", color = Palette.accent, fontSize = 12.sp,
+                        modifier = Modifier.clickable {
+                            Thread { Assistant.say("继续修改「${a.title}」。先 get_page(id=${a.id}) 读回源码，改好后用 show_html 重画，不要新建产物。") }.start()
+                            onDone()
+                        }.padding(vertical = 6.dp))
+                    Text(if (zh) "版本" else "Versions", color = Palette.secondary, fontSize = 12.sp,
+                        modifier = Modifier.clickable { showVersions = !showVersions }.padding(vertical = 6.dp))
+                }
+                if (showVersions) {
+                    for (v in Pages.versionsOf(a.groupId)) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("v${v.version}${if (v.file == null) "（没了）" else ""}", color = if (v.id == a.id) Palette.label else Palette.secondary, fontSize = 12.sp)
+                            Spacer(Modifier.weight(1f))
+                            if (v.id != a.id && v.file != null) {
+                                Text(if (zh) "回退到这版" else "Roll back", color = Palette.accent, fontSize = 12.sp,
+                                    modifier = Modifier.clickable {
+                                        Pages.restoreVersion(v.id)
+                                        Scrollback.add(Scrollback.Role.ASSISTANT, "↩️ 已把「${v.title}」回退到 v${v.version}")
+                                        refresh++
+                                    }.padding(vertical = 3.dp))
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
 /** 小本本: what Andee remembers, browsable and deletable — plus the todos it owes. */
 @Composable
 fun NotebookCard(onDone: () -> Unit) {

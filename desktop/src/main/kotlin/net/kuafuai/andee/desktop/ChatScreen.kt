@@ -78,7 +78,7 @@ object Palette {
 }
 
 @Composable
-fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit) {
+fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit, onOpenArtifacts: () -> Unit) {
     var rows by remember { mutableStateOf(Scrollback.snapshot()) }
     var progress by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -138,14 +138,10 @@ fun ChatScreen(onOpenSettings: () -> Unit, onOpenSelfCheck: () -> Unit) {
 
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
             if (artifacts.isNotEmpty()) {
-                ArtifactsPanel(
-                    artifacts,
-                    onOpen = { a -> runCatching { net.kuafuai.andee.desktop.mac.Bridge.open(a.file!!.absolutePath) } },
-                    onRevise = { a -> Thread { Assistant.say("继续修改「${a.title}」。先 get_page(id=${a.id}) 读回源码，改好后用 show_html 重画，不要新建产物。") }.start() },
-                    onRollback = { v ->
-                        Pages.restoreVersion(v.id)
-                        Scrollback.add(Scrollback.Role.ASSISTANT, "↩️ 已把「${v.title}」回退到 v${v.version}")
-                    },
+                Text(
+                    "📄 " + (if (Strings.lang() == "zh") "产物" else "Artifacts") + " (${artifacts.size})",
+                    color = Palette.accent, fontSize = 13.sp,
+                    modifier = Modifier.fillMaxWidth().glassPanel(12).clickable { onOpenArtifacts() }.padding(12.dp),
                 )
                 Spacer(Modifier.height(10.dp))
             }
