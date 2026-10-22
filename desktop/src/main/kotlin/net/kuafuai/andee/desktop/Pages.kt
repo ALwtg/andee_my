@@ -44,6 +44,9 @@ object Pages {
     /** The id a `show_html` in this turn should file under; null = new artifact. Set by get_page, cleared each turn. */
     @Volatile private var armedGroup: Long? = null
 
+    /** Fired on the UI thread's behalf after the shelf changes; the panel reads [artifacts] on it. */
+    @Volatile var onChange: () -> Unit = {}
+
     fun beginTurn() { armedGroup = null }
     fun armGroup(id: Long) { armedGroup = id }
 
@@ -71,6 +74,7 @@ object Pages {
             trim()
             save()
         }
+        onChange()
         return Page(id, System.currentTimeMillis(), title, group, version, file)
     }
 
@@ -78,6 +82,13 @@ object Pages {
     fun pages(): List<Page> = synchronized(lock) {
         entries.groupBy { it.groupId }.values
             .mapNotNull { revs -> revs.filter { it.file != null }.maxByOrNull { it.version } ?: revs.maxByOrNull { it.version } }
+            .sortedByDescending { it.ts }
+    }
+
+    /** The panel's list: one row per artifact, only ones whose bytes are still there (a row that opens nothing is worse than a shorter list). */
+    fun artifacts(): List<Page> = synchronized(lock) {
+        entries.groupBy { it.groupId }.values
+            .mapNotNull { revs -> revs.filter { it.file != null }.maxByOrNull { it.version } }
             .sortedByDescending { it.ts }
     }
 
@@ -90,6 +101,14 @@ object Pages {
 
     fun currentOf(groupId: Long): Page? = synchronized(lock) {
         entries.filter { it.groupId == groupId && it.file != null }.maxByOrNull { it.version }
+    }
+
+    /** Make an older revision current again — as a new revision, so the history stays append-only. */
+    fun restoreVersion(id: Long): Page? {
+        val source = synchronized(lock) { entries.firstOrNull { it.id == id } } ?: return null
+        val file = source.file ?: return null
+        val html = runCatching { file.readText() }.getOrNull() ?: return null
+        return add(source.title, html, groupId = source.groupId)
     }
 
     private fun nextVersionOf(groupId: Long): Int = synchronized(lock) {

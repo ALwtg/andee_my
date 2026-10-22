@@ -63,10 +63,12 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var voice by remember { mutableStateOf(net.kuafuai.andee.desktop.voice.MacVoice.State.IDLE) }
     var heard by remember { mutableStateOf("") }
+    var artifacts by remember { mutableStateOf(Pages.artifacts()) }
     val list = rememberLazyListState()
 
     LaunchedEffect(Unit) {
         Scrollback.addListener { rows = Scrollback.snapshot() }
+        Pages.onChange = { artifacts = Pages.artifacts() }
         Assistant.onProgress = { progress = it }
         Assistant.onFinal = { progress = "" }
         Assistant.onBusy = { b -> busy = b; if (!b) progress = "" }
@@ -105,16 +107,35 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
             Pill("⚙") { onOpenSettings() }
         }
         Spacer(Modifier.height(12.dp))
+        if (artifacts.isNotEmpty()) {
+            ArtifactsPanel(
+                artifacts,
+                onOpen = { a -> runCatching { net.kuafuai.andee.desktop.mac.Bridge.open(a.file!!.absolutePath) } },
+                onRevise = { a -> Thread { Assistant.say("继续修改「${a.title}」。先 get_page(id=${a.id}) 读回源码，改好后用 show_html 重画，不要新建产物。") }.start() },
+                onRollback = { v ->
+                    Pages.restoreVersion(v.id)
+                    Scrollback.add(Scrollback.Role.ASSISTANT, "↩️ 已把「${v.title}」回退到 v${v.version}")
+                },
+            )
+            Spacer(Modifier.height(8.dp))
+        }
         LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (rows.isEmpty()) {
                 item {
-                    Text(
-                        if (Strings.lang() == "zh") "还没有对话。说点什么吧。" else "Nothing here yet. Say something.",
-                        color = Palette.secondary, fontSize = 14.sp,
-                    )
+                    SceneOffer { p ->
+                        ScenePresets.adoptIfMissing(p.name)
+                        Thread { Assistant.say("进入「${p.title}」情景。${p.example}") }.start()
+                    }
                 }
             }
-            items(rows, key = { it.id }) { r -> Bubble(r) }
+            items(displayItems(rows), key = { itemKey(it) }) { it ->
+                when (it) {
+                    is Scrollback.Row -> Bubble(it)
+                    is TopicRow -> TopicCard(it.topic, it.count) {
+                        Thread { Assistant.say("继续聊「${it.topic.title}」。先 get_topic(id=${it.topic.id}) 读回对话再接着聊。") }.start()
+                    }
+                }
+            }
         }
         if (heard.isNotEmpty()) {
             Text("🎤 $heard", color = Palette.text, fontSize = 14.sp, modifier = Modifier.padding(vertical = 6.dp))
@@ -145,6 +166,29 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
             }
         }
     }
+}
+
+/** One folded stretch rendered as a single card, at the position of its first row. */
+private data class TopicRow(val topic: Scrollback.Topic, val count: Int)
+
+private fun displayItems(rows: List<Scrollback.Row>): List<Any> {
+    val topics = Scrollback.topics().associateBy { it.id }
+    val seen = mutableSetOf<Long>()
+    val out = mutableListOf<Any>()
+    for (r in rows) {
+        val tid = r.topicId
+        if (tid == null) { out += r; continue }
+        if (seen.add(tid)) {
+            topics[tid]?.let { out += TopicRow(it, rows.count { x -> x.topicId == tid }) }
+        }
+    }
+    return out
+}
+
+private fun itemKey(it: Any): Any = when (it) {
+    is Scrollback.Row -> "r${it.id}"
+    is TopicRow -> "t${it.topic.id}"
+    else -> it
 }
 
 fun noVoiceKey() =
