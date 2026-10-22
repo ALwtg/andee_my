@@ -113,15 +113,22 @@ object Assistant {
             onFinal = { text ->
                 val clean = net.kuafuai.andee.brain.SpeechMood.parse(text).text.replace("[END]", "").trim()
                 Scrollback.add(Scrollback.Role.ASSISTANT, clean)
+                MacBall.onAnswer(text)
                 onFinal(clean)
-                onBusy(false)
+                busy(false)
                 if (speakReplies) net.kuafuai.andee.desktop.voice.MacVoice.speak(text)
             },
-            onTurnEnd = { onBusy(false) },
+            onTurnEnd = { busy(false) },
         )
         brain = b
         builtFor = cfg
         return b
+    }
+
+    /** A turn started or ended: the window's stop button and the ball's working face. */
+    private fun busy(b: Boolean) {
+        MacBall.onBusy(b)
+        onBusy(b)
     }
 
     fun say(text: String, spoken: Boolean = false) {
@@ -129,7 +136,7 @@ object Assistant {
         val t = text.trim()
         if (t.isEmpty()) return
         Scrollback.add(Scrollback.Role.USER, t)
-        onBusy(true)
+        busy(true)
         ensure().submit(t)
     }
 
@@ -138,11 +145,11 @@ object Assistant {
         brain?.cancel()
         shell.stopAll()
         net.kuafuai.andee.desktop.voice.MacVoice.stopSpeaking()
-        onBusy(false)
+        busy(false)
     }
 
     fun start() {
-        DesktopScheduler.onDue = { todo -> onBusy(true); ensure().wake(dueText(todo), untrusted = todo.untrusted) }
+        DesktopScheduler.onDue = { todo -> busy(true); ensure().wake(dueText(todo), untrusted = todo.untrusted) }
         DesktopScheduler.catchUp()
     }
 

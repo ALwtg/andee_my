@@ -79,6 +79,11 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
     }
     LaunchedEffect(rows.size) { if (rows.isNotEmpty()) list.animateScrollToItem(rows.size - 1) }
 
+    // The ball is the phone's way in: a tap talks, a second tap says "done".
+    fun toggleMic() {
+        if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) progress = noVoiceKey()
+    }
+
     fun send() {
         val t = input.trim()
         if (t.isEmpty() || busy) return
@@ -95,12 +100,7 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
             }
             val listening = voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING
-            Pill(if (listening) (if (Strings.lang() == "zh") "● 说完了" else "● Done") else "🎤") {
-                val v = net.kuafuai.andee.desktop.voice.MacVoice
-                if (!v.configured()) {
-                    progress = if (Strings.lang() == "zh") "还没配语音 Key：在 ⚙ 设置的「语音」里填上。" else "No voice key yet: add it under Voice in ⚙ Settings."
-                } else if (v.isListening()) v.stopListening() else v.startListening()
-            }
+            Pill(if (listening) (if (Strings.lang() == "zh") "● 说完了" else "● Done") else "🎤") { toggleMic() }
             Spacer(Modifier.width(8.dp))
             Pill("⚙") { onOpenSettings() }
         }
@@ -146,6 +146,9 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
         }
     }
 }
+
+fun noVoiceKey() =
+    if (Strings.lang() == "zh") "还没配语音 Key：在 ⚙ 设置的「语音」里填上。" else "No voice key yet: add it under Voice in ⚙ Settings."
 
 @Composable
 private fun Bubble(r: Scrollback.Row) {

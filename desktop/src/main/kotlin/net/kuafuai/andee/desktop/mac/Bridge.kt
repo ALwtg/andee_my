@@ -32,6 +32,9 @@ object Bridge {
         fun andee_key(keyCode: Int, flags: Int)
         fun andee_screenshot(path: String, maxSide: Int): Int
         fun andee_open(target: String): Int
+        fun andee_float_window(title: String): Int
+        fun andee_set_own_alpha(alpha: Double): Int
+        fun andee_own_window_at(x: Double, y: Double): Int
     }
 
     private val lib: Lib? by lazy {
@@ -79,6 +82,14 @@ object Bridge {
     fun key(code: Int, flags: Int = 0) = need().andee_key(code, flags)
     fun screenshot(path: String, maxSide: Int) = need().andee_screenshot(path, maxSide) == 1
     fun open(target: String) = need().andee_open(target) == 1
+    /** See andee_float_window: above every app, on every Space. False if the bridge or the window is missing. */
+    fun floatWindow(title: String) = lib?.andee_float_window(title) == 1
+    /** Every Andee window to [alpha] (0 = stepped aside for a click). */
+    fun setOwnAlpha(alpha: Double) = lib?.andee_set_own_alpha(alpha) == 1
+
+    /** True when one of Andee's visible windows covers (x, y); unknown counts as yes. */
+    fun ownWindowAt(x: Double, y: Double) = lib?.andee_own_window_at(x, y) != 0
+
 
     /** macOS virtual key codes the tools use. */
     object Keys {

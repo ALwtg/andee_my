@@ -42,10 +42,7 @@ class MacScreen(
 
     override fun dispatch(method: String, p: JSONObject, silent: Boolean, untrusted: Boolean): Any? {
         if (!Bridge.available) throw IllegalStateException("The Mac screen bridge did not load; screen tools cannot run here.")
-        if (!Bridge.axTrusted()) throw IllegalStateException(
-            "Andee does not have Accessibility permission on this Mac, so it cannot read or operate the screen. " +
-                "Tell the user to allow it in System Settings → Privacy & Security → Accessibility (Andee's ✓ check card has a button).",
-        )
+        if (!Bridge.axTrusted()) throw IllegalStateException(PermissionHelp.ACCESSIBILITY)
         return when (method) {
             "screen.ui_tree" -> uiTree(p.optBoolean("with_shot", false))
             "screen.tap_id" -> tapId(req(p, "eid"), long = false)
@@ -139,8 +136,9 @@ class MacScreen(
             "unknown element $eid — the screen has changed or the number is from an older list. Re-dump with get_screen_element; do not guess.",
         )
         val (nx, ny) = toNorm(e.cx, e.cy)
-        val pressed = !long && e.press && gesture { Bridge.axPressAt(e.cx, e.cy) }
-        if (!pressed) gesture { Bridge.click(e.cx, e.cy, right = long, holdMs = 40) }
+        // A Press action is not a pointer event and the hit test already skips our windows: nothing to step aside for.
+        val pressed = !long && e.press && Bridge.axPressAt(e.cx, e.cy)
+        if (!pressed) gesture(e.cx, e.cy) { Bridge.click(e.cx, e.cy, right = long, holdMs = 40) }
         return afterTap(JSONObject().put("completed", true).put("eid", eid).put("label", e.label)
             .put("via", if (pressed) "press_action" else if (long) "right_click" else "click").put("x", nx).put("y", ny))
     }
@@ -149,7 +147,7 @@ class MacScreen(
         val (nx, ny, label) = resolveAim(p)
         guardSpot(nx, ny)
         val (x, y) = toPx(nx, ny)
-        gesture { Bridge.click(x, y, right = long, holdMs = if (long) 40 else 40) }
+        gesture(x, y) { Bridge.click(x, y, right = long, holdMs = 40) }
         return afterTap(JSONObject().put("completed", true).put("x", nx).put("y", ny).put("aimed_at", label)
             .put("via", if (long) "right_click" else "click"))
     }
@@ -223,7 +221,7 @@ class MacScreen(
         listOf(x1 to "x1", y1 to "y1", x2 to "x2", y2 to "y2").forEach { requireNorm(it.first, it.second) }
         val (ax, ay) = toPx(x1, y1); val (bx, by) = toPx(x2, y2)
         // On a Mac a swipe that scrolls is a scroll: the content moves the way the finger did, by that distance.
-        gesture { Bridge.scroll(ax, ay, (bx - ax).toInt(), (by - ay).toInt()) }
+        gesture(ax, ay) { Bridge.scroll(ax, ay, (bx - ax).toInt(), (by - ay).toInt()) }
         return JSONObject().put("completed", true).put("from", "$x1,$y1").put("to", "$x2,$y2").put("via", "scroll")
             .put("note", "A swipe scrolls whatever is under the start point by that distance. To drag something, use the app's own controls.")
     }
@@ -232,7 +230,8 @@ class MacScreen(
         val before = Bridge.focusedValue()
         if (!before.optBoolean("focused")) throw IllegalStateException("no field has focus — click into the field first")
         val viaAx = Bridge.setFocusedValue(text)
-        if (!viaAx) gesture { Bridge.key(Bridge.Keys.A, Bridge.Keys.CMD); Bridge.key(Bridge.Keys.DELETE); Bridge.typeText(text) }
+        // Keys go to the focused app, not to a point on screen: fading our windows changes nothing for them.
+        if (!viaAx) { Bridge.key(Bridge.Keys.A, Bridge.Keys.CMD); Bridge.key(Bridge.Keys.DELETE); Bridge.typeText(text) }
         Thread.sleep(150)
         val now = Bridge.focusedValue().optString("value")
         val ok = now == text || now.contains(text)
@@ -241,7 +240,7 @@ class MacScreen(
     }
 
     private fun submit(): JSONObject {
-        gesture { Bridge.key(Bridge.Keys.RETURN) }
+        Bridge.key(Bridge.Keys.RETURN)
         return JSONObject().put("performed", true).put("via", "return_key")
     }
 
@@ -275,17 +274,18 @@ class MacScreen(
         return JSONObject().put("png_base64", shot(grid)).put("aim_grid", AIM_GRID_NOTE)
     }
 
-    private fun capture(): BufferedImage {
+    /** [maxSide] is the size wanted, so a plain shot is not captured at 2560 to be shrunk to 1280 again. */
+    private fun capture(maxSide: Int = 2560): BufferedImage {
         val f = File.createTempFile("andee-shot", ".png")
         try {
-            val ok = gestureless { Bridge.screenshot(f.path, 2560) }
+            val ok = gestureless { Bridge.screenshot(f.path, maxSide) }
             if (!ok) throw IllegalStateException(SCREEN_RECORDING_NOTE)
             return ImageIO.read(f)
         } finally { f.delete() }
     }
 
     private fun shot(grid: Boolean): String {
-        var img = capture()
+        var img = capture(SHOT_MAX_SIDE)
         img = scale(img, SHOT_MAX_SIDE)
         if (grid) drawGrid(img, zoom = false)
         return png(img)
@@ -377,9 +377,23 @@ class MacScreen(
     // ---- our own windows -----------------------------------------------------
 
     /** Gestures hide our windows so a click cannot land on Andee. */
-    private fun <T> gesture(block: () -> T): T {
-        hideOwnWindows(true)
-        try { Thread.sleep(120); return block() } finally { hideOwnWindows(false) }
+    /**
+     * A pointer event at (x, y): step aside only if one of our windows is
+     * actually there. Hiding for every click cost ~150 ms a tap and made the
+     * ball blink each time the brain touched anything anywhere on the screen.
+     */
+    private fun <T> gesture(x: Double, y: Double, block: () -> T): T =
+        if (Bridge.ownWindowAt(x, y)) stepAside(block) else block()
+
+    private fun <T> stepAside(block: () -> T): T {
+        // The hide is inside the try: if it fails half-way, the windows must still come back.
+        try {
+            runCatching { hideOwnWindows(true) }.onFailure { net.kuafuai.andee.util.Log.w("MacScreen", "could not step aside", it) }
+            Thread.sleep(60)  // the alpha change is applied synchronously; one or two frames for the window server
+            return block()
+        } finally {
+            runCatching { hideOwnWindows(false) }.onFailure { net.kuafuai.andee.util.Log.e("MacScreen", "could not come back", it) }
+        }
     }
 
     /** Captures exclude our process in ScreenCaptureKit itself; nothing to hide. */
@@ -399,10 +413,7 @@ class MacScreen(
             "screen.screenshot", "screen.global",
         )
 
-        const val SCREEN_RECORDING_NOTE =
-            "Andee does not have Screen Recording permission on this Mac, so it cannot see the screen. Tell the user to " +
-                "allow it in System Settings → Privacy & Security → Screen & System Audio Recording (the ✓ check card has a button), " +
-                "then quit and reopen Andee."
+        val SCREEN_RECORDING_NOTE: String get() = PermissionHelp.SCREEN_RECORDING
 
         private const val AIM_GRID_NOTE =
             "This image carries an 8x12 aim grid, A1 (top-left) to H12 (bottom-right), each label at the centre of its cell. " +

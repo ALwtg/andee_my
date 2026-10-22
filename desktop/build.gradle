@@ -43,6 +43,11 @@ dependencies {
     implementation 'org.json:json:20240303'
     // Calls into native/AndeeMac.swift.
     implementation 'net.java.dev.jna:jna:5.14.0'
+    // LWJGL: OpenGL and CGL for the ball's offscreen renderer (no GLFW — see BallRenderer).
+    implementation 'org.lwjgl:lwjgl:3.3.4'
+    implementation 'org.lwjgl:lwjgl-opengl:3.3.4'
+    implementation "org.lwjgl:lwjgl:3.3.4:natives-macos-arm64"
+    implementation "org.lwjgl:lwjgl-opengl:3.3.4:natives-macos-arm64"
 
     testImplementation libs.junit
 }
@@ -53,6 +58,10 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg)
             packageName = 'Andee'
+            // The packaged runtime is trimmed to what jlink sees used; LWJGL (the
+            // ball's OpenGL) reaches sun.misc.Unsafe reflectively, so name it, or the
+            // ball silently fails only in the .app and never under `gradle run`.
+            modules('jdk.unsupported')
             // macOS rejects a 0.x bundle version for a .dmg; 1.0.0 is the bundle's
             // version, not the product's.
             packageVersion = '1.0.0'
@@ -94,3 +103,11 @@ tasks.named('test') {
     dependsOn('buildNative')
     systemProperty 'andee.trashTool', layout.buildDirectory.file('native/andee-trash').get().asFile.path
 }
+
+// One frame of the ball to a PNG, to check the desktop renderer without the window:
+//   ./gradlew :desktop:ballshot --args='HAPPY 336 /tmp/ball.png andee'
+tasks.register('ballshot', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'net.kuafuai.andee.desktop.BallShotKt'
+}
+

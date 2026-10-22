@@ -52,6 +52,12 @@ fun SettingsScreen(onDone: () -> Unit) {
         Section(t("界面语言", "Language"))
         Picker(listOf("zh" to "中", "en" to "EN"), lang) { lang = it; v["lang"] = it }
 
+        Section(t("形象", "Look"))
+        Picker(
+            net.kuafuai.andee.ui.ball.BallLooks.ALL.map { it.name to Strings.get("ball_look_${it.name}") },
+            v["ball"].orEmpty().ifEmpty { net.kuafuai.andee.ui.ball.BallLooks.ALL.first().name },
+        ) { v["ball"] = it }
+
         Section(t("后端", "Backend"))
         Picker(
             listOf("local" to t("本机（自己的 Key）", "Own key"), "codeflying" to "CodeFlying"),
@@ -103,6 +109,7 @@ fun SettingsScreen(onDone: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Pill(t("保存", "Save")) {
                 Settings.save(v.toMap())
+                v["ball"]?.let { MacBall.pickLook(it) }
                 Thread { Assistant.ensure() }.start()
                 onDone()
             }

@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import java.io.File
@@ -17,20 +18,39 @@ fun main() {
     installFileLog()
     net.kuafuai.andee.util.Log.i("Andee", "starting, data in ${AppDirs.root}")
     Assistant.askApproval = { ApprovalGate.request(it) }
+    MacBall.restoreLook()
     Assistant.start()
     application {
         var settings by remember { mutableStateOf(false) }
         var pending by remember { mutableStateOf(ApprovalGate.current) }
-        ApprovalGate.onChange = { pending = ApprovalGate.current }
+        // The chat is the phone's unfolded card: the ball is always there, the chat comes and goes.
+        var chat by remember { mutableStateOf(true) }
+        ApprovalGate.onChange = { pending = ApprovalGate.current; if (pending != null) chat = true }
+        var ballWindow by remember { mutableStateOf<java.awt.Window?>(null) }
+        var chatWindow by remember { mutableStateOf<java.awt.Window?>(null) }
+        // A click aimed at another app must not land on Andee: both windows step aside for the instant of it.
+        // (Native, not Window.opacity: AWT refuses that on the decorated chat window.)
+        Assistant.hideWindows = { hide -> net.kuafuai.andee.desktop.mac.Bridge.setOwnAlpha(if (hide) 0.0 else 1.0) }
+
+        FloatingBall(
+            onTap = { if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) { chat = true; settings = true } },
+            onLongPress = { chat = !chat },
+            onWindow = { ballWindow = it },
+        )
+
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = { chat = false },
+            visible = chat,
             title = "Andee",
             state = rememberWindowState(width = 520.dp, height = 760.dp),
         ) {
-            // A click aimed at another app must not land on Andee: step aside for the instant of it.
-            val w = this.window
-            Assistant.hideWindows = { hide ->
-                javax.swing.SwingUtilities.invokeAndWait { w.opacity = if (hide) 0f else 1f }
+            chatWindow = window
+            MenuBar {
+                Menu("Andee") {
+                    Item(if (Strings.lang() == "zh") "显示对话" else "Show chat", onClick = { chat = true })
+                    Item(if (Strings.lang() == "zh") "退出 Andee" else "Quit Andee", onClick = ::exitApplication,
+                        shortcut = androidx.compose.ui.input.key.KeyShortcut(androidx.compose.ui.input.key.Key.Q, meta = true))
+                }
             }
             androidx.compose.foundation.layout.Box {
                 if (settings) SettingsScreen { settings = false } else ChatScreen { settings = true }

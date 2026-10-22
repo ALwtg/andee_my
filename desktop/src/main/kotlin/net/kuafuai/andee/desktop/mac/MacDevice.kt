@@ -212,8 +212,11 @@ class MacDevice : DesktopBrainHost.ToolProvider {
         (if (Bridge.axTrusted()) granted else missing).put(JSONObject().put("id", "accessibility").put("feature", "operate other apps"))
         (if (Bridge.screenCaptureAllowed()) granted else missing).put(JSONObject().put("id", "screen_recording").put("feature", "see the screen"))
         return JSONObject().put("granted", granted).put("missing", missing)
-            .put("note", "Calendar, Reminders and Contacts ask for permission the first time they are used. " +
-                "Missing ones are granted in System Settings → Privacy & Security; Andee's ✓ check card has buttons.")
+            .put("note", "Calendar, Reminders and Contacts ask for permission the first time they are used.")
+            .also { o ->
+                if (!Bridge.axTrusted()) o.put("accessibility_fix", PermissionHelp.ACCESSIBILITY)
+                if (!Bridge.screenCaptureAllowed()) o.put("screen_recording_fix", PermissionHelp.SCREEN_RECORDING)
+            }
     }
 
     // ---- helpers --------------------------------------------------------------

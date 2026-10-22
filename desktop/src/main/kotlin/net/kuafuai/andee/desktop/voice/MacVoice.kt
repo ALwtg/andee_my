@@ -36,6 +36,12 @@ object MacVoice {
 
     enum class State { IDLE, LISTENING, SPEAKING }
 
+    /** Every change goes to the ball as well as the window, which has its own listener slot. */
+    private fun state(s: State) {
+        net.kuafuai.andee.desktop.MacBall.onVoice(s)
+        onState(s)
+    }
+
     private val io = Executors.newCachedThreadPool { r -> Thread(r, "voice").apply { isDaemon = true } }
     private val listening = AtomicBoolean(false)
     @Volatile private var mic: TargetDataLine? = null
@@ -78,7 +84,7 @@ object MacVoice {
         val cfg = settings()
         val engine: AsrEngine = if (cfg.voiceProvider == VoiceSettings.VOICE_GOOGLE) GoogleAsr(cfg, listener) else HuoshanAsr(cfg, listener)
         asr = engine
-        onState(State.LISTENING)
+        state(State.LISTENING)
         io.execute {
             runCatching {
                 engine.start(ASR_RATE, 1)
@@ -100,8 +106,15 @@ object MacVoice {
             mic = null
             runCatching { engine.close() }
             if (asr === engine) asr = null
-            onState(State.IDLE)
+            state(State.IDLE)
         }
+    }
+
+    /** The ball's tap and the 🎤 button: start, or say "done". False when there is no voice key. */
+    fun toggle(): Boolean {
+        if (!configured()) return false
+        if (isListening()) stopListening() else startListening()
+        return true
     }
 
     fun stopListening() {
@@ -141,7 +154,7 @@ object MacVoice {
                 runCatching {
                     val fmt = AudioFormat(sampleRate.toFloat(), 16, 1, true, false)
                     speaker = AudioSystem.getSourceDataLine(fmt).apply { open(fmt, sampleRate * 2); start() }
-                    onState(State.SPEAKING)
+                    state(State.SPEAKING)
                 }.onFailure { Log.e(TAG, "speaker unavailable", it) }
             }
             override fun onAudio(pcm: ByteArray) { speaker?.write(pcm, 0, pcm.size) }
@@ -155,7 +168,7 @@ object MacVoice {
                 io.execute {
                     runCatching { speaker?.drain(); speaker?.close() }
                     speaker = null
-                    onState(State.IDLE)
+                    state(State.IDLE)
                 }
             }
         }

@@ -48,9 +48,67 @@ public func andee_main_display() -> UnsafeMutablePointer<CChar> {
     return json(["x": b.origin.x, "y": b.origin.y, "w": b.width, "h": b.height, "scale": scale])
 }
 
+/// The app the user is looking at, never Andee itself.
+///
+/// Asking our own process for its accessibility tree is not a question to another
+/// app: AppKit answers it inside this process, on the calling thread, by calling
+/// into AWT's Java accessibility — off the main thread, which kills the JVM
+/// (SIGBUS in CAccessibility, twice). And it is the wrong answer anyway: when
+/// Andee is frontmost it is because the user just touched the ball, and what they
+/// mean by "the screen" is the app behind it. So: the frontmost app if it is not
+/// us, else the owner of the frontmost ordinary window that is not ours.
+private func targetApp() -> NSRunningApplication? {
+    let me = getpid()
+    if let f = NSWorkspace.shared.frontmostApplication, f.processIdentifier != me { return f }
+    let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    if let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] {
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != me,
+                  let app = NSRunningApplication(processIdentifier: pid),
+                  app.activationPolicy == .regular else { continue }
+            return app
+        }
+    }
+    return nil
+}
+
+/// The focused element of the target app, asked of that app directly. The
+/// system-wide "focused element" is Andee's own whenever Andee is frontmost.
+private func targetFocused() -> AXUIElement? {
+    guard let app = targetApp() else { return nil }
+    let ax = AXUIElementCreateApplication(app.processIdentifier)
+    guard let f = attr(ax, kAXFocusedUIElementAttribute) else { return nil }
+    return (f as! AXUIElement)
+}
+
+/// The process whose window is frontmost at a point, skipping ours (at any alpha:
+/// ours are faded, not gone, while a click is under way). Nil when nothing but
+/// Andee is there.
+private func otherAppAt(_ x: Double, _ y: Double) -> pid_t? {
+    let me = getpid()
+    guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+        as? [[String: Any]] else { return nil }
+    for w in list {
+        guard let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != me,
+              (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+              let b = w[kCGWindowBounds as String] as? [String: Any],
+              let r = CGRect(dictionaryRepresentation: b as CFDictionary),
+              r.contains(CGPoint(x: x, y: y)) else { continue }
+        return pid
+    }
+    return nil
+}
+
+/// Whether an element belongs to this process; such an element must not be queried (see targetApp).
+private func isOurs(_ e: AXUIElement) -> Bool {
+    var pid: pid_t = 0
+    return AXUIElementGetPid(e, &pid) == .success && pid == getpid()
+}
+
 @_cdecl("andee_frontmost")
 public func andee_frontmost() -> UnsafeMutablePointer<CChar> {
-    guard let app = NSWorkspace.shared.frontmostApplication else { return json([:]) }
+    guard let app = targetApp() else { return json([:]) }
     return json(["name": app.localizedName ?? "", "bundle": app.bundleIdentifier ?? "", "pid": Int(app.processIdentifier)])
 }
 
@@ -123,7 +181,7 @@ private func settableValue(_ e: AXUIElement) -> Bool? {
 /** The frontmost app's focused window (or its first window) as a JSON tree. */
 @_cdecl("andee_ax_tree")
 public func andee_ax_tree(_ maxNodes: Int32) -> UnsafeMutablePointer<CChar> {
-    guard let app = NSWorkspace.shared.frontmostApplication else { return json(["error": "no frontmost app"]) }
+    guard let app = targetApp() else { return json(["error": "no app window on screen besides Andee"]) }
     let ax = AXUIElementCreateApplication(app.processIdentifier)
     // Chromium and Electron build their tree only when asked.
     AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue)
@@ -152,26 +210,26 @@ public func andee_ax_tree(_ maxNodes: Int32) -> UnsafeMutablePointer<CChar> {
 /** Press the element at an index path from the last tree (child indices from the window root). */
 @_cdecl("andee_ax_press_at")
 public func andee_ax_press_at(_ x: Double, _ y: Double) -> Int32 {
-    let sys = AXUIElementCreateSystemWide()
+    // Never the system-wide hit test: it reaches our own windows even while they are
+    // faded out for this very click (alpha 0 still hit-tests), and asking our own
+    // process kills the JVM. Ask the app that owns the point, by name.
+    guard let pid = otherAppAt(x, y) else { return 0 }  // the caller falls back to a real click
+    let app = AXUIElementCreateApplication(pid)
     var el: AXUIElement?
-    guard AXUIElementCopyElementAtPosition(sys, Float(x), Float(y), &el) == .success, let e = el else { return 0 }
+    guard AXUIElementCopyElementAtPosition(app, Float(x), Float(y), &el) == .success, let e = el, !isOurs(e) else { return 0 }
     return AXUIElementPerformAction(e, kAXPressAction as CFString) == .success ? 1 : 0
 }
 
 /** Set the focused element's value (a text field), as a person pasting it would. */
 @_cdecl("andee_ax_set_focused_value")
 public func andee_ax_set_focused_value(_ text: UnsafePointer<CChar>) -> Int32 {
-    let sys = AXUIElementCreateSystemWide()
-    guard let f = attr(sys, kAXFocusedUIElementAttribute) else { return 0 }
-    let e = f as! AXUIElement
+    guard let e = targetFocused(), !isOurs(e) else { return 0 }
     return AXUIElementSetAttributeValue(e, kAXValueAttribute as CFString, String(cString: text) as CFString) == .success ? 1 : 0
 }
 
 @_cdecl("andee_ax_focused_value")
 public func andee_ax_focused_value() -> UnsafeMutablePointer<CChar> {
-    let sys = AXUIElementCreateSystemWide()
-    guard let f = attr(sys, kAXFocusedUIElementAttribute) else { return json(["focused": false]) }
-    let e = f as! AXUIElement
+    guard let e = targetFocused(), !isOurs(e) else { return json(["focused": false]) }
     return json(["focused": true, "role": str(e, kAXRoleAttribute) ?? "", "value": str(e, kAXValueAttribute) ?? ""])
 }
 
@@ -309,4 +367,54 @@ public func andee_open(_ target: UnsafePointer<CChar>) -> Int32 {
         _ = sem.wait(timeout: .now() + 10); return ok
     }
     return NSWorkspace.shared.open(URL(fileURLWithPath: t)) ? 1 : 0
+}
+
+// MARK: - the floating ball's window
+
+/// Lifts our own window titled [title] above everything, the phone's
+/// TYPE_APPLICATION_OVERLAY: above normal and floating windows, on every Space,
+/// and over other apps' full-screen Spaces. A JVM window can only ask for
+/// "always on top", which is the floating level and stays on one Space.
+@_cdecl("andee_float_window")
+public func andee_float_window(_ title: UnsafePointer<CChar>) -> Int32 {
+    let t = String(cString: title)
+    // Async on purpose: AWT's main thread may itself be waiting on the JVM's
+    // event thread, and a sync hop from there would deadlock the app.
+    DispatchQueue.main.async {
+        guard let w = NSApp?.windows.first(where: { $0.title == t }) else { return }
+        w.level = .statusBar
+        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        w.hidesOnDeactivate = false
+        w.hasShadow = false
+    }
+    return NSApp == nil ? 0 : 1
+}
+
+/// Fade every window of ours in or out, for the instant of a click aimed at
+/// another app. Native because AWT refuses `setOpacity` on a decorated window
+/// (the chat), and a refusal half-way left the ball invisible for good.
+/// Waits for the main thread at most half a second, never forever: the main
+/// thread can itself be waiting on the JVM.
+@_cdecl("andee_set_own_alpha")
+public func andee_set_own_alpha(_ alpha: Double) -> Int32 {
+    let done = DispatchSemaphore(value: 0)
+    DispatchQueue.main.async {
+        NSApp?.windows.forEach { $0.alphaValue = CGFloat(alpha) }
+        done.signal()
+    }
+    return done.wait(timeout: .now() + 0.5) == .success ? 1 : 0
+}
+
+/// Whether a visible window of ours covers this point — only then does a click need us out of the way.
+@_cdecl("andee_own_window_at")
+public func andee_own_window_at(_ x: Double, _ y: Double) -> Int32 {
+    let me = getpid()
+    guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return 1 }
+    for w in list where (w[kCGWindowOwnerPID as String] as? pid_t) == me {
+        if (w[kCGWindowAlpha as String] as? Double ?? 1) == 0 { continue }
+        if let b = w[kCGWindowBounds as String] as? [String: Any],
+           let r = CGRect(dictionaryRepresentation: b as CFDictionary),
+           r.insetBy(dx: -4, dy: -4).contains(CGPoint(x: x, y: y)) { return 1 }
+    }
+    return 0
 }

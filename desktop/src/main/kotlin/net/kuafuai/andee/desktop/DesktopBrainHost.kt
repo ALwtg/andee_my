@@ -96,6 +96,11 @@ class DesktopBrainHost(
         TurnGuards.check(method, silent, untrusted)
         val p = providers.firstOrNull { it.handles(method) }
             ?: throw IllegalArgumentException("unknown method $method")
+        // The phone nods for every `screen.*` call: a hand moved. On the Mac the
+        // terminal and the device tools are hands too; the notebook is not.
+        if (!silent && (method.startsWith("screen.") || method.startsWith("shell.") || method.startsWith("device."))) {
+            MacBall.onTool()
+        }
         return p.dispatch(method, params, silent, untrusted)
     }
 
