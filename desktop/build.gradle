@@ -66,6 +66,8 @@ compose.desktop {
             // version, not the product's.
             packageVersion = '1.0.0'
             macOS {
+                // The phone's launcher character on a white tile, as an .icns (icon/Andee.icns).
+                iconFile.set(project.file('icon/Andee.icns'))
                 bundleID = 'net.kuafuai.andee.mac'
                 entitlementsFile.set(project.file('entitlements.plist'))
                 runtimeEntitlementsFile.set(project.file('entitlements.plist'))
