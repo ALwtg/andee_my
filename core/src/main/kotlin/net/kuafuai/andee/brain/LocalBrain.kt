@@ -1302,13 +1302,9 @@ class LocalBrain(
      * mid-task takes the task with it. The system message at index 0 stays.
      */
     private fun trimHistory() {
-        if (history.size <= MAX_HISTORY) return
-        while (history.size > MAX_HISTORY && history.size > 1) {
-            drop(1)
-            // Then keep going to the next clean boundary — a plain `user`
-            // message is the only place a conversation can be cut.
-            while (history.size > 1 && !isBoundary(history[1])) drop(1)
-        }
+        val before = history.size
+        if (before <= MAX_HISTORY) return
+        for (gone in HistoryTrim.dropIndexes(history.map { isBoundary(it) }, MAX_HISTORY).sortedDescending()) drop(gone)
         host.logInfo(TAG, "history trimmed to ${history.size} msgs")
     }
 

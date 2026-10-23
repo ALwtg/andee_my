@@ -218,6 +218,9 @@ object Assistant {
         val p = pending
         pending = null
         if (p != null) onPendingChanged()
+        // A new request replaces whatever is running: cut the old turn off before anything else, the way
+        // ■ does, so it stops talking and stops driving the screen while the new one starts.
+        if (brain?.isBusy() == true || net.kuafuai.andee.desktop.voice.MacVoice.isSpeaking()) interruptForNewRequest()
         val zh = Strings.lang() == "zh"
         val row = when (p) {
             is Pending.Edit -> if (zh) "修改「${p.page.title}」：$t" else "Revise “${p.page.title}”: $t"
@@ -280,6 +283,13 @@ object Assistant {
 
     /** A turn is running, or its answer is being read out: what a tap on the ball should cut short. */
     fun working(): Boolean = brain?.isBusy() == true || net.kuafuai.andee.desktop.voice.MacVoice.isSpeaking()
+
+    /**
+     * A new request replaces the running one: the same cut as ■ (the turn, the commands it started, and
+     * the voice still reading the old answer). [say] has already taken the 继续 target before this, so the
+     * stop clearing [pending] loses nothing.
+     */
+    private fun interruptForNewRequest() = stop()
 
     /** The user's stop: the turn ends, and every command it started ends with it. */
     fun stop() {

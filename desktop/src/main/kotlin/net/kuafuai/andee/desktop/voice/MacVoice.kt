@@ -93,6 +93,7 @@ object MacVoice {
         val cfg = settings()
         val engine: AsrEngine = if (cfg.voiceProvider == VoiceSettings.VOICE_GOOGLE) GoogleAsr(cfg, listener) else HuoshanAsr(cfg, listener)
         asr = engine
+        armWatchdog(engine)
         state(State.LISTENING)
         io.execute {
             runCatching {
@@ -129,23 +130,98 @@ object MacVoice {
     fun recordingMeeting(): Boolean = net.kuafuai.andee.desktop.Meeting.isActive()
 
     fun stopListening() {
+        disarmWatchdog()
         if (listening.compareAndSet(true, false)) asr?.endOfTurn(bySilence = false)
     }
 
     private val partial = StringBuilder()
 
+    // ---- the silence rule: the phone's, ported ---------------------------------------------------------
+    //
+    // The user says what they have to say and stops talking; nobody should have to press anything a second
+    // time. The clock is fed by the recogniser's own output and by nothing else (a local energy gate is a
+    // threshold that separates the user from their room, and every room is different). Three rules hold
+    // the edges, none needing calibration:
+    //  * nothing counts until the engine can hear (onReady) — the mic opens before the session comes up;
+    //  * a turn that has heard nothing at all gets SILENT_START_GRACE_MS before silence may end it;
+    //  * a turn never outlives MAX_TURN_MS, whatever the recogniser says.
+    private const val SILENT_START_GRACE_MS = 4_000L
+    private const val MAX_TURN_MS = 60_000L
+    private const val SILENCE_CHECK_MS = 250L
+
+    @Volatile private var turnStartedAt = 0L
+    @Volatile private var lastSpeechAt = 0L
+    @Volatile private var lastPartial = ""
+    @Volatile private var engineReady = false
+    @Volatile private var heardAnything = false
+    @Volatile private var turnSilenceMs = 3_000L
+    @Volatile private var watchdog: java.util.concurrent.ScheduledFuture<*>? = null
+    private val watchdogExec = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "voice-silence").apply { isDaemon = true }
+    }
+
+    private fun armWatchdog(engine: AsrEngine) {
+        turnStartedAt = System.currentTimeMillis()
+        lastSpeechAt = turnStartedAt
+        lastPartial = ""
+        engineReady = false
+        heardAnything = false
+        turnSilenceMs = engine.silenceMs
+        watchdog?.cancel(false)
+        watchdog = watchdogExec.scheduleWithFixedDelay({ runCatching { checkSilence(engine) } }, SILENCE_CHECK_MS, SILENCE_CHECK_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+    }
+
+    private fun disarmWatchdog() { watchdog?.cancel(false); watchdog = null }
+
+    private fun checkSilence(engine: AsrEngine) {
+        if (asr !== engine || !listening.get()) { disarmWatchdog(); return }
+        val now = System.currentTimeMillis()
+        if (now - turnStartedAt >= MAX_TURN_MS) {
+            Log.i(TAG, "turn hit ${MAX_TURN_MS}ms ceiling — auto-stop")
+            endBySilence(engine); return
+        }
+        if (!engineReady) return
+        // Nothing heard yet: there is nothing to have been silent *after*. Bounded, or a tap followed by
+        // nothing would hold the microphone to the ceiling.
+        if (!heardAnything && now - turnStartedAt < SILENT_START_GRACE_MS) return
+        val quiet = now - lastSpeechAt
+        if (quiet < turnSilenceMs) return
+        Log.i(TAG, "silence ${quiet}ms (limit=$turnSilenceMs) — auto-stop")
+        endBySilence(engine)
+    }
+
+    private fun endBySilence(engine: AsrEngine) {
+        disarmWatchdog()
+        // Exactly as if the user had tapped again; the engine is told it was the caller's silence, so it
+        // knows the last results are already in hand.
+        if (listening.compareAndSet(true, false)) engine.endOfTurn(bySilence = true)
+    }
+
     private val listener = object : AsrEngine.Listener {
-        override fun onPartial(text: String) { onPartial.invoke(text) }
+        override fun onReady() {
+            lastSpeechAt = System.currentTimeMillis()
+            engineReady = true
+        }
+        override fun onPartial(text: String) {
+            if (text.isNotEmpty()) {
+                heardAnything = true
+                // Only a change counts: a recogniser may re-send the same hypothesis while the user is quiet.
+                if (text != lastPartial) { lastPartial = text; lastSpeechAt = System.currentTimeMillis() }
+            }
+            onPartial.invoke(text)
+        }
         override fun onFinal(text: String) {
+            disarmWatchdog()
             listening.set(false)
             if (text.isNotBlank()) onFinal.invoke(text.trim())
         }
         override fun onError(msg: String) {
+            disarmWatchdog()
             listening.set(false)
             Log.w(TAG, "asr: $msg")
             onPartial.invoke("")
         }
-        override fun onClosed() { listening.set(false) }
+        override fun onClosed() { disarmWatchdog(); listening.set(false) }
     }
 
     // ---- speaking ---------------------------------------------------------------
