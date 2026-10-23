@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The hardened runtime refuses these silently unless they are declared here:
+  no microphone prompt ever appears, Apple Events to Calendar/Contacts fail,
+  and the JVM cannot run. Every key is something Andee does on purpose.
+-->
+<plist version="1.0">
+<dict>
+    <!-- The JVM generates code at run time, and JNA loads Andee's own native bridge. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <!-- Push-to-talk. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <!-- Looking through the camera when asked. -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <!-- device.location: where this Mac is, when asked. -->
+    <key>com.apple.security.personal-information.location</key>
+    <true/>
+    <!-- Calendar, Reminders, Contacts and other apps, via AppleScript. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

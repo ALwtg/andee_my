@@ -1,0 +1,1344 @@
+[
+  {
+    "method": "screen.ui_tree",
+    "name": "get_screen_element",
+    "description": "[DEFAULT TOOL · FIRST CHOICE] Read the current screen as an OUTLINE of\nscreen elements \u2014 one line per element, indented to show what contains\nwhat:\n    e17|LinearLayout||[500,570]\n      e18*|ImageView|#avatar|[62,523]\n      e19*|TextView|好友3|[181,509]\n      e20|TextView|这是第3条朋友圈的正文|[493,535]\n      e24*|ImageView|#comment_btn|[950,621]\n`e17` is the element's number, `*` marks clickable, then class, label,\nand the element's center in 0-1000 RELATIVE coordinates (computed by\nthe system, not by you).\n\nINDENTATION IS MEANING, and it is the answer to \"which one\". The lines\nindented under e17 are one post: that avatar, that name, that body and\nthat comment button belong to 好友3 and to nobody else. Whenever a\nscreen repeats a shape \u2014 a feed, a chat list, search results, a\nsettings page \u2014 the control you want is NOT identified by its own line\nalone. Find the labeled line that names the row you want, then take\nthe control from that line's OWN indent group. Never pair a name in\none group with a button in another.\n\nThe label column is the text, or the description, or \u2014 when an element\nhas neither \u2014 the tail of its resource id with `#` in front, like\n`#comment_btn` above. A `#` value is an internal name, not words\nprinted on the screen: use it to tell controls apart, never read it\nback to the user as if it were visible text.\n\nWhenever the goal is \"find a control and tap / type / scroll / read\non-screen text\", call this tool first, then act on what it returned.\n\nHARD RULES:\n1) To tap an element from this list, use tap_screen_element with its\n   e-number. NEVER re-compute coordinates from the bracket values or\n   from a screenshot when an e-number exists.\n2) An icon button with no text and no description (Moments' comment\n   bubble, an avatar, a photo) is identified by WHERE IT SITS, not by\n   what it says. Read its indent group: the `#comment_btn` sitting\n   under the line that says 好友3 IS 好友3's comment button, and\n   tapping it by e-number is right even though you cannot name the\n   icon. Only when two candidates inside the SAME group are\n   indistinguishable do you need to see them \u2014 then call this tool\n   again with with_shot=true: each line's [x,y] is a 0-1000 relative\n   center, the same relative space as the screenshot, so the icon at\n   image position (x,y) is the line with the nearest bracket\n   coordinates. Then still tap by e-number, never by the coordinates\n   you read off. A missing `*` does not mean \"not a button\": ad\n   popups draw their ✕ as a bare `ImageView` line with no label and\n   no `*`. If such a line sits where the screenshot shows the ✕, tap\n   it by e-number \u2014 that beats aiming at it by grid cell.\n3) Chinese input: tap the input field FIRST (by e-number), then the\n   VERY NEXT action must be type_text. Never re-tap the same input box\n   before typing; the keyboard opens by itself.\n4) After an action, the response already tells you what the screen\n   became: tap responses carry `after_shot` (image), `screen_changed`,\n   and \u2014 when the tree is readable \u2014 `elements` (the POST-action\n   element list with fresh e-numbers, plus `elements_hint`). Chain\n   your next action straight from that; do NOT call this tool again\n   just to \"see the result\" when the action response already carried\n   it. Re-dump only when you need to scroll deeper or the response\n   had no elements (self-drawn pane).\n5) Popups first: close splash ads / membership dialogs / update\n   prompts / permission requests before continuing the task.\n\n[EMPTY LIST] nodes_useful = 0 means nothing on this pane carries a\nname. Read `nodes_total` to tell the two very different cases apart:\n\n- nodes_total = 0 as well: the pane draws its own pixels (mini-program,\n  WebView article, game canvas) and there is no outline at all. The\n  device has already attached a screenshot to THIS response\n  (shot_auto): read that one, do not call take_screenshot for the same\n  screen. Prefer back / home to exit and retry via a different route\n  over blind coordinate taps. Blame the pane, not the app: the same\n  app's native screens (chat list, tabs, settings) dump fine.\n\n  The exception is worth watching for, and `hint` will tell you when\n  it applies: if this SAME app gave you a real element list earlier in\n  the session and is now returning zero nodes, that is not a self-drawn\n  pane \u2014 a self-drawn pane still reports its containers. It means our\n  accessibility connection went stale, which happens to WeChat in\n  particular. You cannot fix it with a tool call. Ask the user, in\n  plain words, to open 设置 → 无障碍 and switch Andee (this device's\n  assistant, the floating ball) off and back on; it takes seconds and\n  the element list comes back. Judge whether it is worth interrupting\n  them \u2014 you can still tap by coordinate meanwhile \u2014 but do not silently\n  keep dumping an app that has stopped answering.\n- nodes_total > 0: the elements are there, they are merely nameless.\n  The outline still groups them and still gives every centre, so use\n  it \u2014 match what you see in the attached screenshot against the\n  indentation and tap the line sitting at that spot by e-number.\n  A coordinate tap here is a downgrade, not a shortcut.\n\n`elements_dropped: N` means the screen carried more elements than fit\nand N of the least useful lines were cut, bottom-first. What you were\ngiven is complete and correctly grouped; scroll if what you want is\nnot in it.\n\ne-numbers are only valid until the page changes \u2014 if\ntap_screen_element reports an unknown element, call this tool again\nfor a fresh list.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "with_shot": {
+          "default": false,
+          "description": "Include a screenshot alongside the element outline. Default false: when the outline has content it already tells you what is tappable, where, and what belongs with what, so the picture costs tokens and adds nothing. Set it true only when you must judge the screen visually \u2014 two icons in the SAME indent group that you cannot tell apart by class or id, or a layout / color / render question. When the outline comes back EMPTY the device attaches a screenshot by itself (shot_auto), so never set this to work around an empty list.",
+          "type": "boolean"
+        },
+        "verbose": {
+          "default": false,
+          "description": "Return the full nested JSON tree (debug only). The default outline carries the same structure for a third of the tokens \u2014 this is for a human reading a dump, not for you.",
+          "type": "boolean"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "method": "screen.tap_id",
+    "name": "tap_screen_element",
+    "description": "[PREFERRED] Tap a screen element by its e-number from get_screen_element's element list \u2014 e.g. {\"eid\": \"e7\"}. The device resolves the number to that element's exact pixel center itself: no coordinate math, no scaling errors. Always tap e-numbers from the LATEST get_screen_element (the page may have changed since an older one; stale numbers fail loudly with 'unknown element' \u2014 that means re-dump, not guess).",
+    "parameters": {
+      "type": "object",
+      "properties": {"eid": {
+        "description": "Element number from the latest get_screen_element list, e.g. \"e7\".",
+        "type": "string"
+      }},
+      "required": ["eid"]
+    }
+  },
+  {
+    "method": "screen.tap",
+    "name": "tap_by_coordinates",
+    "description": "[LAST RESORT] Tap a point on the screen. Aim in ONE of two ways:\n\n1. **By grid cell + part** (preferred whenever you are looking at an\n   image): {\"cell\": \"D7\", \"part\": \"bottom-right\"}. The cell is one of\n   the aim grid drawn on the screenshot you were shown, columns A-H\n   left to right, rows 1-12 top to bottom. The letters are printed\n   along the TOP edge and the numbers down the LEFT edge, like a map's\n   rulers \u2014 nothing is printed inside a cell, so the target is never\n   covered. Follow the target's column up and its row left. Then `part`\n   says which third of that cell the\n   target is in, across and down: top-left, top, top-right, left,\n   center, right, bottom-left, bottom, bottom-right (omit it for the\n   centre). The device converts both to pixels itself; there is no\n   arithmetic for you to do. A cell is too coarse to tap with on its\n   own \u2014 always give the part unless the target fills the cell.\n   If the target straddles two cells, pick the one holding most of it.\n   For anything not clearly bigger than a cell (an icon, a ✕ close\n   button, a small chip), CHECK FIRST: zoom_screen_region with the\n   same cell and part shows a magenta crosshair exactly where this tap\n   would land. On target → send this tap with the same arguments.\n   Off target → aim off that magnified image: its labels are\n   LOWERCASE and you must say so \u2014 {\"cell\": \"d7\", \"part\": \"left\",\n   \"on\": \"zoom\"}. A lowercase label sent as if it were a full-screen\n   cell will be about 120 units off.\n   **On an app that hides its tree (get_screen_element came back empty\n   / withheld \u2014 WeChat often does), zooming first is not optional**:\n   a tap or long-press is refused unless its point lies inside a zoom\n   taken after your last gesture. So the rhythm there is always\n   zoom → tap, one zoom per screen.\n\n2. **By coordinate** {\"x\": \u2026, \"y\": \u2026} \u2014 RELATIVE 0-1000 integers\n   ((0,0) top-left, (1000,1000) bottom-right; the device converts to real\n   pixels for any screen size). With {\"on\": \"zoom\"} these numbers are\n   0-1000 *within the last magnified image* instead of the whole screen,\n   and the device maps them back \u2014 so you never add region.left or divide\n   by scale_x yourself. Values outside 0-1000 are rejected, not clamped.\n\nUse this only when the target has no e-number: self-drawn panes\n(mini-program, WebView, game), images, pure-visual content. If a\nget_screen_element list exists for this screen, use tap_screen_element.\n\nWhen the app hides its element tree and your point lands on blank\nbackground right beside one small isolated shape (an icon, a \"··\"\nbutton), the device taps that shape's centre instead and says so with\n`snapped_from` / `snapped_to`. Check after_shot as usual \u2014 if the shape\nwas not what you meant, aim again further away from it.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "part": {
+          "description": "Which part of that cell the target is in \u2014 one of nine thirds or, vertically, upper/lower between top/bottom. Omit for the centre.",
+          "type": "string",
+          "enum": [
+            "top-left",
+            "top",
+            "top-right",
+            "upper-left",
+            "upper",
+            "upper-right",
+            "center-left",
+            "center",
+            "center-right",
+            "lower-left",
+            "lower",
+            "lower-right",
+            "bottom-left",
+            "bottom",
+            "bottom-right"
+          ]
+        },
+        "x": {
+          "description": "X, 0 (left edge) to 1000 (right edge) \u2014 of the screen, or of the zoom image when on=\"zoom\".",
+          "type": "integer"
+        },
+        "y": {
+          "description": "Y, 0 (top edge) to 1000 (bottom edge) \u2014 of the screen, or of the zoom image when on=\"zoom\".",
+          "type": "integer"
+        },
+        "cell": {
+          "description": "Grid cell of the image you aimed from, e.g. \"D7\" on a full screenshot or \"d7\" on a magnified one.",
+          "type": "string"
+        },
+        "on": {
+          "description": "Which image x/y (or a lowercase cell) were read off. \"screen\" is the default.",
+          "type": "string",
+          "enum": [
+            "screen",
+            "zoom"
+          ]
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "method": "screen.long_press_id",
+    "name": "long_press_screen_element",
+    "description": "Long-press a screen element by its e-number from get_screen_element (context menus, drag handles, multi-select). Same freshness rule as tap_screen_element: latest dump only. Duration is fixed at ~600ms.",
+    "parameters": {
+      "type": "object",
+      "properties": {"eid": {
+        "description": "Element number from the latest get_screen_element, e.g. \"e12\".",
+        "type": "string"
+      }},
+      "required": ["eid"]
+    }
+  },
+  {
+    "method": "screen.long_press",
+    "name": "long_press_by_coordinates",
+    "description": "Hold a finger on a point for a set duration (context menus, drag handles). Aim exactly like tap_by_coordinates \u2014 by grid cell plus the third of it the target is in, {\"cell\": \"D7\", \"part\": \"bottom-right\"} (add on=\"zoom\" and use a lowercase label for a magnified image), or by RELATIVE 0-1000 coordinates, not pixels. Prefer long_press_screen_element when the target has an e-number.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "duration_ms": {
+          "default": 600,
+          "description": "How long to hold, in milliseconds. Default 600.",
+          "type": "integer"
+        },
+        "part": {
+          "description": "Which part of that cell the target is in \u2014 one of nine thirds or, vertically, upper/lower between top/bottom. Omit for the centre.",
+          "type": "string",
+          "enum": [
+            "top-left",
+            "top",
+            "top-right",
+            "upper-left",
+            "upper",
+            "upper-right",
+            "center-left",
+            "center",
+            "center-right",
+            "lower-left",
+            "lower",
+            "lower-right",
+            "bottom-left",
+            "bottom",
+            "bottom-right"
+          ]
+        },
+        "x": {
+          "description": "X, 0 (left edge) to 1000 (right edge) \u2014 of the screen, or of the zoom image when on=\"zoom\".",
+          "type": "integer"
+        },
+        "y": {
+          "description": "Y, 0 (top edge) to 1000 (bottom edge) \u2014 of the screen, or of the zoom image when on=\"zoom\".",
+          "type": "integer"
+        },
+        "cell": {
+          "description": "Grid cell of the image you aimed from, e.g. \"D7\" on a full screenshot or \"d7\" on a magnified one.",
+          "type": "string"
+        },
+        "on": {
+          "description": "Which image x/y (or a lowercase cell) were read off. \"screen\" is the default.",
+          "type": "string",
+          "enum": [
+            "screen",
+            "zoom"
+          ]
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "method": "screen.swipe",
+    "name": "swipe_by_coordinates",
+    "description": "Swipe from one point to another: scroll lists, page carousels, drag things. To scroll a list DOWN (see more content below), swipe from a point near the BOTTOM UP to a point near the TOP \u2014 fingers move opposite to content. All coordinates are RELATIVE 0-1000 like tap_by_coordinates.\n\nBy default the finger stops at the end point before lifting, so the list moves about as far as the finger did and then stays put \u2014 no momentum. That makes the distance the control: to bring something 300 units further up into view, swipe 300 units.\n\n**To travel several screens, use `screens` \u2014 not `fling`.** {\"x1\":500,\"y1\":800,\"x2\":500,\"y2\":200,\"screens\":3} repeats one full-travel swipe three times, stops early if the list runs out, and answers with `screens_moved` \u2014 a NUMBER you can count with. That number is what lets you know where you are and how to come back; three screens down stays three screens down. `fling` gives you no such number: the system decides how far it coasts, so all you learn is \"something moved\". It also refuses the 7th same-direction fling in a row, because chaining them is how a long list becomes a maze (measured: 21 flings hunting one old post, never once the right place). Use fling only where a gesture has to be inertial \u2014 a carousel, a canvas \u2014 and look at the return before flinging again.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "duration_ms": {
+          "default": 300,
+          "description": "How long the finger takes to travel, in ms. Default 300.",
+          "type": "integer"
+        },
+        "screens": {
+          "description": "How many full finger-travels to repeat in ONE call (1..10). Stops early at the end of the list and reports screens_moved. Use this instead of fling whenever you want to go further than one screen.",
+          "type": "integer"
+        },
+        "y1": {
+          "description": "Start Y, 0 (top) to 1000 (bottom).",
+          "type": "integer"
+        },
+        "x1": {
+          "description": "Start X, 0 (left) to 1000 (right).",
+          "type": "integer"
+        },
+        "y2": {
+          "description": "End Y, 0 (top) to 1000 (bottom).",
+          "type": "integer"
+        },
+        "x2": {
+          "description": "End X, 0 (left) to 1000 (right).",
+          "type": "integer"
+        },
+        "fling": {
+          "default": false,
+          "description": "Lift while still moving so the list coasts. Distance is the system's to decide and is not reported \u2014 prefer `screens`. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ]
+    }
+  },
+  {
+    "method": "screen.type",
+    "name": "type_text",
+    "description": "Type text into the CURRENTLY FOCUSED input field (tap the field first \u2014 by e-number \u2014 then call this as the very next action; the keyboard opens by itself, do not re-tap the field). Existing content is REPLACED, not appended. Does not press Enter/Send \u2014 use submit_input for that.\n\nWhen a tap opened an input bar by itself \u2014 a reply/comment box sliding up with the keyboard (WeChat Moments 评论, a chat's reply bar) \u2014 the field is ALREADY focused: call this straight away, without tapping the field. On an app that hides its element tree this matters double: the input strip above the keyboard is thin and sits right on top of the post or message below it, so a tap aimed at it by grid cell lands on that content instead and opens it. This tool does not need the tree \u2014 it types through the editor's own input connection \u2014 so `performed: true` with the text read back is proof it went into the box.",
+    "parameters": {
+      "type": "object",
+      "properties": {"text": {
+        "description": "The text to enter.",
+        "type": "string"
+      }},
+      "required": ["text"]
+    }
+  },
+  {
+    "method": "screen.submit_input",
+    "name": "submit_input",
+    "description": "Submit the currently focused input by firing its IME action (Enter / Send / Search / Next / Done \u2014 whichever the field was set up for). Typical uses: send a chat message after type_text, run a search. Use this instead of trying to press a keyboard Enter key \u2014 Android delivers 'Enter/Send' through this action, not a raw keystroke.\n\nIt works only when the field itself declares a send/search action; many comment and reply boxes do not and send only from their own button (WeChat's comment box is one \u2014 this errors there, and that is the answer, not a fault). In that case tap the app's Send/发送 button \u2014 and on an app that hides its tree, zoom_screen_region on that button FIRST and tap with on=\"zoom\": the button sits in a thin strip right on top of the content below, and the device refuses a plain grid-cell tap right after typing there.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "screen.wait",
+    "name": "wait_for_screen",
+    "description": "Wait for the screen to finish loading, then observe it. Use this after anything that starts a load \u2014 tapping a link, submit_input, launch_app \u2014 instead of calling get_screen_element straight away and reading a half-drawn page. It returns the SAME element outline get_screen_element gives you, plus a screenshot, captured after the wait: you already have the fresh state, so do NOT follow it with get_screen_element. One call waits at most 20 seconds (the request itself times out at 30). Ask for what the page plausibly needs \u2014 2-3s for an in-app screen, 5-10s for a slow site or a cold app start.\n\nSomething genuinely slow \u2014 a cold app start, an upload, a video that has to transcode \u2014 can need more than one wait, and that is fine. But each repeat MUST ASK FOR MORE TIME THAN THE LAST ONE: climb 3 → 5 → 10 → 20, and never send the same number twice in a row. Two reasons, and the second one is fatal: what was not ready after 5s deserves better than another 5s, and a run of calls with byte-identical arguments trips the loop guard, which kills the WHOLE TASK \u2014 not just the wait. Sending seconds=10 over and over is the most common way to lose a long job.\n\nEvery wait has to earn its place: read what came back before deciding to wait again. If the outline changed at all, the page is alive \u2014 carry on, don't wait more. If you have already climbed to 20s and the screen is still identical, it is not loading, it is stuck or blocked on something (a dialog, a login, no network) \u2014 report that or change route. Never wait just to pass time.",
+    "parameters": {
+      "type": "object",
+      "properties": {"seconds": {
+        "description": "How long to wait before looking, in seconds. Values above 20 are reduced to 20; the result reports the time actually waited. On a repeat wait for the same screen this number must be larger than the one you just used.",
+        "type": "number"
+      }},
+      "required": ["seconds"]
+    }
+  },
+  {
+    "method": "screen.look_region",
+    "name": "zoom_screen_region",
+    "description": "[PRECISION AIMING · SCREEN, NOT CAMERA] Despite the method name,\nthis is a magnified capture of a screen REGION and has nothing to\ndo with the physical camera (camera_turn). A magnified look at ONE region of the screen \u2014\n4x the pixel density of a full screenshot around wherever you point.\n\nUse it to CHECK an aim before tapping anything not clearly bigger\nthan a grid cell (an icon, a ✕ close button, a small chip): pass the\ncell and part you were about to tap \u2014 {\"cell\": \"D9\", \"part\":\n\"bottom-right\"} \u2014 and you get a magnified view two cells each way,\ncentred on that point, with a RED CROSSHAIR exactly where the tap\nwould land. Crosshair on the target → tap with the same cell and\npart. Off it → aim off this image instead (below). Targets often sit\nright on a grid line; this view is centred on the aim, so they are\nnever cut in half.\n\nThe other form is x/y marking the region's CENTER plus w/h for its\nsize (try 200x300 for one control, 400x600 for a card) \u2014 a plain\nmagnified look, no crosshair. All four are 0-1000 of the WHOLE SCREEN,\nnever pixels of an image you were shown: a screenshot arrives\ndownscaled (often ~576 wide as you see it), so a position measured in\nits pixels is the wrong number here. Read the position off the grid\ninstead \u2014 cell D is 375-500 across, row 7 is 500-583 down, each column\n125 wide and each row ~83 tall \u2014 or simply use the cell form above,\nwhich needs no numbers at all. Every zoom reports the screen rectangle\nit actually showed (`region`); if that is not where you meant to look,\nyour numbers were in the wrong space.\n\nThis image is a magnified region, and it carries the SAME 8x12 grid in\nLOWERCASE (a1..h12), labels at each cell's centre, so a label read off\nit can never be confused with a cell of the full screen. Aim your tap\nstraight from one of those labels: {\"cell\": \"d7\", \"part\": \"top\",\n\"on\": \"zoom\"} on tap_by_coordinates, and the device\nconverts it \u2014 no arithmetic. (The old route still works and is\nequivalent: the response carries the region's screen bounds and\nscale_x/scale_y, and a point (px,py) read off the image maps to\nscreen-relative (region.left + px/scale_x, region.top + py/scale_y).)\n\nAfter a tap that reported screen_changed=false, its miss_shot field\nis exactly this \u2014 aim your retry from that image.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "part": {
+          "description": "Which part of that cell \u2014 the same part you would tap. Omit for the centre.",
+          "type": "string",
+          "enum": [
+            "top-left",
+            "top",
+            "top-right",
+            "upper-left",
+            "upper",
+            "upper-right",
+            "center-left",
+            "center",
+            "center-right",
+            "lower-left",
+            "lower",
+            "lower-right",
+            "bottom-left",
+            "bottom",
+            "bottom-right"
+          ]
+        },
+        "w": {
+          "description": "Region width in screen 0-1000 units, e.g. 200.",
+          "type": "integer"
+        },
+        "x": {
+          "description": "Region center X, 0 (left) to 1000 (right) of the whole screen \u2014 not image pixels. Use instead of cell.",
+          "type": "integer"
+        },
+        "h": {
+          "description": "Region height in screen 0-1000 units, e.g. 300.",
+          "type": "integer"
+        },
+        "y": {
+          "description": "Region center Y, 0 (top) to 1000 (bottom) of the whole screen \u2014 not image pixels. Use instead of cell.",
+          "type": "integer"
+        },
+        "cell": {
+          "description": "Grid cell of the full screenshot you are about to tap, e.g. \"D7\". Replaces x/y/w/h.",
+          "type": "string"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "method": "screen.screenshot",
+    "name": "take_screenshot",
+    "description": "[FALLBACK · REQUIRES A REASON] Capture the current screen as a PNG\n(downscaled to 1280 on the long side \u2014 proportions preserved).\n\nEvery screenshot taken with accessibility on arrives with an 8x12 AIM\nGRID drawn on it, labelled A1 (top-left) to H12 (bottom-right): letters\nalong the top edge, numbers down the left edge, nothing inside a cell.\nThis is the device's way of\ntaking the arithmetic out of aiming: read the cell the target sits in\nand which third of it, and pass them straight to tap_by_coordinates as\n{\"cell\": \"D7\", \"part\": \"bottom-right\"} \u2014 no pixel measuring, no\nrescaling, nothing to get wrong. For anything not clearly bigger than a\ncell, first pass the same cell and part to zoom_screen_region: it shows\na magenta crosshair where the tap would land, so you can confirm or re-aim\noff the magnified image (its grid is lowercase, and a lowercase label\nmeans \"this was read off the zoom\").\n\n**With accessibility off this is the one screen tool that still works**\n(through MediaProjection, once the user has allowed it) \u2014 and then the\nimage arrives with NO grid, NO element list and no shot_id. Those three\nall exist to aim a tap, and there are no taps on that path: every other\nscreen.* tool answers \"accessibility is off\". The response states which\nway in it used (`source`); on \"media_projection\" you may describe what\nyou see and must not claim to have acted on it.\n\nEvery screenshot now arrives WITH the current element list attached\n(`elements`, same e-numbers as get_screen_element) whenever the tree\nis readable. When it is attached: aim with tap_id(e) / type(id) from\nTHAT list \u2014 system-computed and exact. The grid is for elements the\nlist does not carry.\n\nDo NOT use this for finding controls, tapping buttons, or reading\ntext \u2014 get_screen_element is cheaper and more precise. Only call it\nwhen:\n1) The content is inherently an image (photo/video/chart/CAPTCHA/map)\n2) get_screen_element returned an empty list (self-drawn pane:\n   mini-program, WebView article, game canvas, Moments feed) AND you\n   need a FRESH look \u2014 the empty response already carried a shot of\n   that screen (shot_auto), so use this only after something changed.\n   Read the shot and tap by grid cell. Prefer back /\n   home over blind taps when unsure.\n3) A human-eye-level visual judgement is required\n   (color, overlap, render bug).\n4) You must tell two elements apart by how they LOOK, and the element\n   list alone cannot settle it (two unlabeled icons of the same\n   class). Prefer get_screen_element with with_shot=true for this \u2014\n   it keeps the list and the picture in one response, in one screen\n   state. Reach for this tool only when you already hold a current\n   list and just need the pixels.\n\nNever use a screenshot as a \"let me take a look first\" exploration\nstep. After tapping from a screenshot, verify the outcome (fresh\nscreenshot or get_screen_element) before assuming it worked.\n\nA magenta ring with a small caption like \"tap 500,500\" or \"hold 240,880\"\nis NOT part of the app \u2014 it is where YOUR last tap / long-press\nactually landed, drawn by the device and kept on screen for a few\nseconds. Likewise the grid lines and their A1..H12 labels. Read the\nring as ground truth for where a number you sent turned out to be on\nthis display. Most useful after tap_screen_element (where you never knew the\npixel location) and after a tap that seemed to do nothing \u2014 a ring\nsitting beside the button is a different problem from a ring on a\nbutton that did not respond.\n\nYOUR OWN BALL IS NEVER IN A SCREENSHOT. The device hides its floating\nball and every card of its own for the instant of capture, and moves\nthe ball aside when a tap would land under it. So a round shape, a\nface or a blue character in the picture belongs to the app \u2014 an\navatar, a sticker, an article's cover image \u2014 and is never you, and\nnever something covering a button. If a button seems hidden, scroll\nit into a clearer spot; do not route around the ball.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "screen.global",
+    "name": "system_action",
+    "description": "Trigger an Android system-level navigation action. Use 'back' to dismiss the current screen (also the recommended way to escape a stuck self-drawn page), 'home' to return to the launcher, 'recents' to open the task switcher, 'notifications' to pull down the shade, 'quick_settings' to open toggles. This has nothing to do with keyboard keys \u2014 for the on-screen keyboard's Enter / Send / Search use submit_input; to type any character use type_text.",
+    "parameters": {
+      "type": "object",
+      "properties": {"action": {
+        "description": "Which system action to trigger.",
+        "type": "string",
+        "enum": [
+          "back",
+          "home",
+          "recents",
+          "notifications",
+          "quick_settings"
+        ]
+      }},
+      "required": ["action"]
+    }
+  },
+  {
+    "method": "device.connectivity",
+    "name": "get_device_status",
+    "description": "Check whether the device is online and how: returns online (true/false, validated connection), type (wifi / cellular / ethernet / none). Use before anything that needs the internet, or to answer \"are you connected?\".",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "device.apps",
+    "name": "list_installed_apps",
+    "description": "List the launchable apps installed on the device (label + package name) \u2014 what a person means by \"what apps are on this tablet\", not the hidden system packages. Useful for \"is X installed?\", \"open something that can do Y\" (find the app, then launch it via the launcher).",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "device.location",
+    "name": "get_location",
+    "description": "Get the device's current GPS location: lat, lng, accuracy in meters, and the fix time. Fresh fix takes a few seconds outdoors; indoors it falls back to a cached one (check age_ms). If the app lacks location permission the result says so with a hint \u2014 ask the user to grant it once, then retry. Don't call repeatedly in a loop.",
+    "parameters": {
+      "type": "object",
+      "properties": {"timeout_ms": {
+        "default": 8000,
+        "description": "Max wait for a fresh fix. Default 8000.",
+        "type": "integer"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "device.steps",
+    "name": "get_step_count",
+    "description": "Read the hardware step counter: steps since last reboot (cumulative, not per-day \u2014 say so when reporting). Needs the 'physical activity' permission; if missing the result explains how to get it. Tablets carried in a bag count too.",
+    "parameters": {
+      "type": "object",
+      "properties": {"timeout_ms": {
+        "default": 3000,
+        "description": "Max wait for a sensor reading. Default 3000.",
+        "type": "integer"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "device.battery",
+    "name": "get_battery",
+    "description": "Battery level and charging state: percent, charging (bool), plugged (bool). Cheap to call any time.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "device.launch",
+    "name": "launch_app",
+    "description": "Launch an app by package name (preferred, e.g. 'com.tencent.mm') or by display label (e.g. '微信' \u2014 exact match, use list_installed_apps to find it). Direct launch intent, no screen-tapping needed.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "description": "Display label, e.g. '微信'. Used only if pkg is omitted.",
+          "type": "string"
+        },
+        "pkg": {
+          "description": "Package name, e.g. 'com.tencent.mm'.",
+          "type": "string"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "method": "device.volume",
+    "name": "set_volume",
+    "description": "Read or set media volume (0..max). Omit level/mute to just read the current state.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "description": "Target volume 0..max. Omit to read only.",
+          "type": "integer"
+        },
+        "mute": {
+          "description": "true=mute, false=unmute. Omit to leave as-is.",
+          "type": "boolean"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "method": "device.brightness",
+    "name": "set_brightness",
+    "description": "Read or set screen brightness (1..255). Omit the value to read. Writing needs the WRITE_SETTINGS special grant \u2014 the result says so if missing.",
+    "parameters": {
+      "type": "object",
+      "properties": {"brightness": {
+        "description": "1..255. Omit to read only.",
+        "type": "integer"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "device.open_url",
+    "name": "open_url",
+    "description": "Open a URL with the right app: http(s)→browser, tel:→dialer, geo:→map, mailto:→email. Ask the user before opening anything they didn't explicitly request.",
+    "parameters": {
+      "type": "object",
+      "properties": {"url": {
+        "description": "Full URL including scheme, e.g. 'https://example.com' or 'tel:10086'.",
+        "type": "string"
+      }},
+      "required": ["url"]
+    }
+  },
+  {
+    "method": "device.alarm",
+    "name": "set_alarm",
+    "description": "Set a system alarm (hands off to the clock app, skip-UI). Hour/minute in 24h local time.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "hour": {
+          "description": "0-23.",
+          "type": "integer"
+        },
+        "message": {
+          "description": "Alarm label.",
+          "type": "string"
+        },
+        "minute": {
+          "description": "0-59.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hour",
+        "minute"
+      ]
+    }
+  },
+  {
+    "method": "device.facts",
+    "name": "device_facts",
+    "description": "Hardware facts: model, brand, Android version, RAM total/available, storage total/available.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "device.sensors",
+    "name": "read_sensors",
+    "description": "One-shot environment read: light_lux (room brightness \u2014 0 dark, >300 bright) and accelerometer (was the tablet just moved/picked up).",
+    "parameters": {
+      "type": "object",
+      "properties": {"timeout_ms": {
+        "default": 1500,
+        "description": "Per-sensor wait. Default 1500.",
+        "type": "integer"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "device.contacts",
+    "name": "search_contacts",
+    "description": "Search the contact book by name (fuzzy). Returns name + phone. Omit query to list the first 20. Needs Contacts permission; the result says how to get it if missing.",
+    "parameters": {
+      "type": "object",
+      "properties": {"query": {
+        "description": "Name to search for. Omit to list.",
+        "type": "string"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "device.dial",
+    "name": "dial",
+    "description": "Open the dialer with a number filled in (direct=false, safe default) or place the call directly (direct=true, needs Phone permission AND explicit user confirmation \u2014 never dial directly on your own initiative).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "description": "Phone number.",
+          "type": "string"
+        },
+        "direct": {
+          "default": false,
+          "description": "true = call immediately (requires user's explicit go-ahead); false/omit = open dialer for the user to press call.",
+          "type": "boolean"
+        }
+      },
+      "required": ["number"]
+    }
+  },
+  {
+    "method": "device.call_log",
+    "name": "get_call_log",
+    "description": "Recent calls: name/number, incoming/outgoing/missed, time, duration. Needs Call log permission.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "device.sms.read",
+    "name": "read_sms",
+    "description": "Read SMS: inbox (default) or sent box, newest first. Classic use: fetch the verification code that just arrived \u2014 step 4 of the login playbook in list_vault. Needs SMS permission.",
+    "parameters": {
+      "type": "object",
+      "properties": {"box": {
+        "default": "inbox",
+        "description": "'inbox' (default) or 'sent'.",
+        "type": "string"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "device.sms.send",
+    "name": "send_sms",
+    "description": "Send an SMS directly. SENSITIVE: only when the user explicitly asked to send THIS text to THIS number. Say what you're about to send before sending if there is any doubt.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "description": "Recipient phone number.",
+          "type": "string"
+        },
+        "body": {
+          "description": "Message text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "number",
+        "body"
+      ]
+    }
+  },
+  {
+    "method": "device.vault.list",
+    "name": "list_vault",
+    "description": "The user's own saved accounts \u2014 what you log in AS when a task needs\ntheir identity (飞书, 公司邮箱, \u2026), and any bank card they saved for\npaying. Call this first; it is cheap and tells you whether the user has\nsaved anything for the app in front of you.\n\nIdentifiers come back MASKED (138****1111) \u2014 enough to confirm you\nhave the right account, not enough to type. Use get_vault for the real\nvalue. Each entry lists its `secrets`: fields you can never read, only\nask the device to type (see fill_secret).\n\nTHE LOGIN PLAYBOOK, when a phone-number + verification code login is\nin front of you:\n  1. list_vault → find the entry (match on its label)\n  2. get_vault(entry, \"phone\") → the real number\n  3. tap the phone field, type_text it, tap 发送验证码\n  4. read_sms → the code that just arrived (inbox, newest first)\n  5. tap the code field, type_text the digits\nIf the page wants a password instead, tap the password field and call\nfill_secret \u2014 you will never hold the password yourself.\n\nA CARD entry has `card_number`, `card_expiry` and `card_cvv` among its\nsecrets, and a `card_last4` you CAN read. Use the last four to tell two\ncards apart and to say out loud which one you are about to use \u2014 never\njust \"your card\" when the user saved more than one. Fill each of the\nthree into its own field, one fill_secret per field.\n\nIf the entry the task needs is missing, say so and ask the user to add\nit in 设置 → 保险箱. Do not guess an account, and never invent one.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "device.vault.get",
+    "name": "get_vault",
+    "description": "One identifier out of one vault entry, unmasked, so you can type it.\nReadable fields: phone, email, username, note, card_holder, card_last4.\n`note` is the user's own hint about this account (\"用手机验证码登录\")\n\u2014 worth reading before you decide how to log in.\n\nSecrets are NOT available here and asking for one is an error. That is\ndeliberate: the device types secrets so they never enter your context.\nThat covers the password AND the card number, expiry and CVV. Use\nfill_secret.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "description": "Entry id or label from list_vault, e.g. '飞书'.",
+          "type": "string"
+        },
+        "field": {
+          "default": "phone",
+          "description": "phone | email | username | note | card_holder | card_last4. Default phone.",
+          "type": "string"
+        }
+      },
+      "required": ["entry"]
+    }
+  },
+  {
+    "method": "device.vault.fill",
+    "name": "fill_secret",
+    "description": "Type one saved secret into the input that ALREADY HAS FOCUS. Tap the\nbox first (tap_element / tap_screen) \u2014 exactly like type_text, which\nthis is a wrapper around.\n\n`field` picks which secret: password (default), card_number,\ncard_expiry, card_cvv. One call fills one field, so a checkout form\ntakes three \u2014 tap the number box, fill card_number, tap the expiry box,\nfill card_expiry, and so on. list_vault tells you which of these the\nentry actually has.\n\nYou never see the value. The result is {performed, len} and nothing\nmore, even when it fails. If it reports performed:false, take a\nscreenshot rather than retrying blindly; re-sending is how a field\nends up with the value twice.\n\nTHIS DOES NOT WORK ON A PAYMENT SHEET. 支付宝 / 微信支付 / a banking\napp's PIN pad draw their own keypad, which is not a text field, so\nthere is nothing to type into \u2014 and the payment itself is the user's to\nauthorise, not yours. What this reaches is an ordinary checkout form or\nthe one-time page that binds a card to an app. When you hit a payment\nsheet, stop and hand it to the user.\n\nThe ball flashes and the transcript records 「正在填入\u2026」, so the user\ncan always tell their secret was used. Say which card you are using (by\nits last four) before you use it. Only call it when the task the user\nactually asked for needs it.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "description": "Entry id or label from list_vault, e.g. '飞书'.",
+          "type": "string"
+        },
+        "field": {
+          "default": "password",
+          "description": "password | card_number | card_expiry | card_cvv. Default password.",
+          "type": "string"
+        }
+      },
+      "required": ["entry"]
+    }
+  },
+  {
+    "method": "device.calendar",
+    "name": "get_calendar",
+    "description": "Calendar events from now up to days_ahead (default 3). Needs Calendar permission.",
+    "parameters": {
+      "type": "object",
+      "properties": {"days_ahead": {
+        "default": 3,
+        "description": "Look-ahead window in days. Default 3.",
+        "type": "integer"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "device.calendar.add",
+    "name": "add_calendar_event",
+    "description": "Add an event to the primary calendar. begin_ms/end_ms are Unix milliseconds. End defaults to begin+1h.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "Notes.",
+          "type": "string"
+        },
+        "begin_ms": {
+          "description": "Start time, Unix ms.",
+          "type": "integer"
+        },
+        "location": {
+          "description": "Where.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Event title.",
+          "type": "string"
+        },
+        "end_ms": {
+          "description": "End time, Unix ms. Default begin+1h.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "title",
+        "begin_ms"
+      ]
+    }
+  },
+  {
+    "method": "device.notifications",
+    "name": "get_notifications",
+    "description": "Read the notification buffer: what arrived on the device recently (pkg, title, text, when) \u2014 WeChat messages, system alerts, everything the user sees in the shade. Use since_ms to fetch only new ones. If listener_enabled is false, the result includes how to turn it on.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "since_ms": {
+          "default": 0,
+          "description": "Only notifications at/after this Unix ms. Default 0 (all buffered).",
+          "type": "integer"
+        },
+        "limit": {
+          "default": 20,
+          "description": "Max items. Default 20.",
+          "type": "integer"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "method": "device.permissions",
+    "name": "get_permissions",
+    "description": "Which of the ball's powers are granted vs missing (location, steps, contacts, sms, calendar, notifications, ...). Call this FIRST when a tool reports 'permission denied', or when you want to offer the user a one-shot enable.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "device.permissions.request",
+    "name": "request_permissions",
+    "description": "Guide the user through enabling permissions. Two-step by design: first\ncall WITHOUT confirm → you get a 'say' line (read it aloud / show it) →\nuser agrees → call again WITH confirm=true to actually fire it. Only\ncall with confirm=true after the user said yes.\n\nconfirm=true returns what happened, and that return decides your next\nmove. Read it \u2014 never assume the dialog appeared:\n\n    mode \"solo\"      fired, and yours to tell them about in one line\n    mode \"handoff\"   fired; ask with ask_user, saying what you wait for\n    mode \"settings\"  no sheet exists \u2014 a Settings page was opened\n\n    result \"granted\"    done, carry on\n           \"denied\"     they saw it and refused\n           \"no_dialog\"  the system never drew a sheet at all\n           \"waiting\"    it is on screen and nobody has answered yet\n\n🔴 **You cannot read a system permission sheet, so do not aim at it.**\nIt exposes no elements at all (get_screen_element comes back empty, with\na picture and no e-numbers). A tap would land \u2014 that is the trap: with\nnothing to aim by, you are guessing at a screen whose bottom button is\n「禁止后不再提示」, which nothing can undo. Putting it on screen is the\nwhole of what firing does; answering it is the user's one step. So when\nthe result is \"waiting\", say one line \u2014 「屏幕上弹了个权限框，点一下允许」\u2014\nand either wait via ask_user or go on with whatever does not need it.\nDo not read its stillness as the screen being broken.\n\nNever fire the same request twice in a row. \"no_dialog\" means the system\nhas stopped asking (usually after two refusals) and firing again is\nsilently ignored \u2014 report it instead: say the permission did not go\nthrough, and that this step needs their hand in Settings.\n\n**The mode is the device's decision, not yours.** It follows what the\ngrant reaches \u2014 your own data is \"solo\", other people's data and things\nthat cannot be taken back are \"handoff\" \u2014 and a request that mixes the\ntwo is handed over whole. What it changes for you is ceremony, not who\ntaps: after firing, LOOK at the screen before you call anything that\ndepends on the permission.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "confirm": {
+          "default": false,
+          "description": "false (default) = get the script; true = actually fire the request.",
+          "type": "boolean"
+        },
+        "ids": {
+          "description": "Permission ids from get_permissions.missing[].id, e.g. [\"location\",\"sms\"].",
+          "type": "array"
+        }
+      },
+      "required": ["ids"]
+    }
+  },
+  {
+    "method": "device.scan",
+    "name": "scan_code",
+    "description": "Open the camera and scan a QR/barcode: returns {value, format}. The user aims the device at the code; blocks until scanned or timed out (default 30s). Camera permission is requested on the spot if missing.",
+    "parameters": {
+      "type": "object",
+      "properties": {"timeout_ms": {
+        "default": 30000,
+        "description": "Max wait for the user to aim & the scanner to lock on. Default 30000.",
+        "type": "integer"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "device.look",
+    "name": "camera_turn",
+    "description": "SEE the physical world through the device camera: returns ONE frame\nof what the lens currently sees (an image \u2014 you actually see it, same\nas a screenshot). The session STAYS OPEN between calls.\n\nWHEN TO USE \u2014 you decide the cadence, fit it to the ask:\n- NOT when the user's message came with attached photos: then\n  \"这是什么/看看这个\" is about those photos, which you can already\n  see. Answer from them; never open the camera for them.\n- \"这是什么/看看这个\" → look once, answer. If the frame is blurry or\n  the target isn't in view, TELL the user to aim (\"对准一点\") and\n  look again.\n- \"帮我盯着水桶满了没\" / monitoring tasks → loop: look → judge →\n  wait an interval YOU choose (30s? 2min? longer for slow changes) →\n  look again. Report progress, stop when done or when the user asks.\n- Front camera (selfie cam) with front=true \u2014 check on the user,\n  the room from the device's stand, etc.\n\nEach look returns the CURRENT frame only. While the session is open\nthe user sees a viewfinder and a 正在看 line, and the corners flash\nevery time you actually take a frame \u2014 they can tell when you looked.\n\nThey can also close it themselves, with the ✕完成 pill. If a look\ncomes back saying the user just closed the camera, that is a real\nanswer, not a glitch: do NOT call this again to retry. Ask them first\nand wait for a yes.\n\nClose it with look_stop when done \u2014 don't leave the camera on\nunnoticed.",
+    "parameters": {
+      "type": "object",
+      "properties": {"front": {
+        "default": false,
+        "description": "true = front/selfie camera. Default back.",
+        "type": "boolean"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "device.look_stop",
+    "name": "camera_stop",
+    "description": "Close the camera look session. Call when the task is done or the user stops asking \u2014 an open camera the user forgot about is creepy.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "ui.ask",
+    "name": "ask_user",
+    "description": "Ask the user a question on a small floating card with tappable\nbuttons \u2014 blocks until they answer (or timeout). The question is\nalso read aloud (TTS) and the microphone opens afterwards, so the\nuser may simply answer out loud. Write it as one speakable\nsentence, no markdown or lists.\n\nThe result says how they answered. `button` is the button they\ntapped or named. If they said something that matches no button,\n`button` is null and `heard` holds their words: take those as\ntheir answer and act on what they mean, which may be a choice, a\ndifferent option, or \"neither\". `answered` false means no reply\n(timeout or dismissed).\n\nUSE WHEN the next step genuinely needs the user's choice: which of\nseveral options, yes/no on something irreversible, \"要继续吗\".\nNOT for status updates (that's alert) and not for questions you can\nanswer yourself. Two or three short buttons work best; the FIRST\nbutton renders as the primary (green) one.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "buttons": {
+          "description": "Button labels, in the language the user is speaking \u2014 e.g. [\"帮我看看\",\"忽略\"]. First = primary. Omit it and the card supplies its own pair in the interface language.",
+          "type": "array"
+        },
+        "question": {
+          "description": "Short question shown on the card and read aloud. Keep under ~2 lines.",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "default": 30000,
+          "description": "Card auto-dismisses after this. Default 30000.",
+          "type": "integer"
+        }
+      },
+      "required": ["question"]
+    }
+  },
+  {
+    "method": "ui.alert",
+    "name": "alert_user",
+    "description": "Show the user a short notice card and read it aloud (single 知道了 control; tapping the card also dismisses). Blocks until read or timeout. For status/heads-up only \u2014 anything needing a choice is ask_user.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "description": "The notice text, short \u2014 read aloud, so plain prose.",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "default": 30000,
+          "description": "Auto-dismiss. Default 30000.",
+          "type": "integer"
+        }
+      },
+      "required": ["text"]
+    }
+  },
+  {
+    "method": "ui.show_html",
+    "name": "show_html",
+    "description": "Render a full-screen UI YOU compose, ON THIS TABLET, right now, in\nfront of the user. It is not a file you are handing them and not a\nlink \u2014 the page opens on the device in their hands the moment you\ncall this. Never tell the user to open it on a computer, in a\nbrowser, or anywhere else; there is nowhere else to open it.\n\nThis is your canvas for rich output \u2014 dashboards, comparison\ntables, image grids, small games, interactive widgets the chat\nbubble can't hold. It comes back as soon as the page is up \u2014 the\npage stays until the user taps 完成, and you are told when they do.\nDo not wait for it and do not describe the page out loud.\n\nA wall of prose is NOT rich output, however long it is. The chat\nbubble holds text: a message past six lines is folded, and the user\ndouble-taps it to read the whole thing fullscreen. So an\nexplanation, an introduction or a story belongs in your reply, not\non a page. Reach for this when the answer has STRUCTURE (rows and\ncolumns, cards, steps) or is interactive; length alone is not a\nreason.\n\nONE PAGE AT A TIME: while a page is up, calling this again REPLACES\nit in place \u2014 that is how you revise a page the user asked you to\nchange. Send the whole new page, not a diff. Never ask the user to\nclose the page first.\n\nThe page is KEPT after it closes, on this device \u2014 the user has a 产物\npanel listing everything you have made. So a page is not gone when it\nleaves the screen: list_pages shows what exists and get_page reads one\nback for revision. Check before building something the user may already\nhave.\n\nREVISING KEEPS THE HISTORY. A page you revise becomes the next VERSION\nof that same artifact; it does not become a second entry on the shelf.\nThe user's panel shows one row per artifact with its version number, and\nthey can look back through the older revisions and return to one. So\nwhen the user asks you to change an existing page, read the current one\nback (`get_page`) and send the full revised page \u2014 that pairing is what\nfiles it as a revision. Use `revise` to name the page explicitly if you\nhave its id; the device also infers it from the `get_page` you just\nmade, and from the panel the user tapped. Building the page from scratch\ninstead, without reading it back, is how a \"change\" turns into a\nnear-duplicate the user has to sort out themselves.\n\nInline CSS and JS ONLY. The device may have no usable internet, so a\npage that fetches a font, a framework or a script over the network\nrenders broken. Media is the exception: an image, video or audio\nfile at an absolute https:// address embeds directly \u2014 `<img\nsrc=\"\u2026\">`, `<video src=\"\u2026\" controls>`, `<audio src=\"\u2026\" controls>` \u2014\nand is how you show the user a picture or a clip instead of naming\na URL they would have to go and open themselves. Keep `controls` on\na player. A plain http:// address will not load.\n\nTwo things about the page itself, and neither is a matter of taste.\nThe WebView lays the page out at the width its own viewport tag asks\nfor, so send one:\n\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n\nAnd a ✕完成 pill floats over the top-right corner so the user can\nalways leave \u2014 keep roughly 110×44px clear there.\n\nEverything else \u2014 colour, type size, layout \u2014 is yours to pick.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "revise": {
+          "description": "The id (from list_pages) of the page this one is a revised version of. Optional \u2014 reading a page with get_page in the same turn sets it for you, and so does the user tapping 继续修改. Give it when you know which page you are continuing; omit it to build a new artifact.",
+          "type": "integer"
+        },
+        "html": {
+          "description": "Complete HTML document.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Short page title \u2014 carried into the conversation record, and quoted back to you if a page is already open. Omit it and the page is named in the interface language.",
+          "type": "string"
+        }
+      },
+      "required": ["html"]
+    }
+  },
+  {
+    "method": "ui.list_pages",
+    "name": "list_pages",
+    "description": "The pages you have made on this device, newest first, with the id each\none is read back by. This is the half of your own work you cannot\notherwise see: the pages you build with `show_html` stay on the tablet\nafterwards \u2014 the user has a panel listing all of them (产物 on a Chinese\ndevice, *Made for you* on an English one) \u2014 but the record does not ride\nin your context, so without this call a page you built yesterday does\nnot exist.\n\nCall it before answering anything that refers to earlier work\n(「上次那个表格」「我做的番茄钟」「把昨天那页改一下」) and before rebuilding\nsomething the user may already have. A page that already exists is\nusually a page to revise, not a second one to build beside it.\n\nONE ROW PER ARTIFACT, not one per revision: the id is the **current**\nversion's, and that is the one to read with get_page. `version` says how\nmany revisions that page has been through \u2014 a v4 has been revised three\ntimes, so the user is likely attached to details you cannot see from the\ntitle. Older revisions are not lost (get_page still takes their ids) but\nthey are not listed: what you are being told is what is *current*.\n\nEach entry carries the id, the page's title, when it was made, its size\nin bytes, and `available`. **`available: false` means the page\nitself is gone** (only the newest 100 are kept) \u2014 the row still records\nthat it was made, and saying that honestly beats both silence and\npretending to remember what was in it.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "ui.get_page",
+    "name": "get_page",
+    "description": "Read back the source of a page you made earlier, by the id from\n`list_pages`.\n\nTwo reasons to call it: the user wants that page CHANGED \u2014 send the\nwhole revised page with `show_html`, because a revision written from the\ntitle alone is a new page wearing the old name \u2014 or they are asking\nabout what is in it and you cannot answer from memory.\n\nReading a page back also sets up the revision: the `show_html` that\nfollows in the same turn files the new bytes as the next VERSION of this\npage rather than as a second one beside it. That is the whole reason to\nread before you write \u2014 do not skip this call and rebuild from the\ntitle.\n\nThe source comes back raw, the same bytes the tablet renders. It is long\nby nature (inline CSS and JS, sometimes a base64 image); past\n60000 characters it is\ncut and `truncated` says so, and the missing tail has to be rebuilt in\nthe same style rather than dropped.\n\nReading a page is not showing one \u2014 nothing appears on screen. When the\npage should be in front of the user, follow with `show_html`.",
+    "parameters": {
+      "type": "object",
+      "properties": {"id": {
+        "description": "A page id from list_pages (the current version), or any older revision's id if the user wants to go back to one. Do not make one up.",
+        "type": "integer"
+      }},
+      "required": ["id"]
+    }
+  },
+  {
+    "method": "meeting.start",
+    "name": "start_meeting",
+    "description": "Hold the microphone open and transcribe everything said in the room,\nfor as long as the meeting lasts. Returns immediately \u2014 recording\ncontinues in the background until stop_meeting or until the user\ntaps the ball. The tablet goes full screen and shows the transcript\nscrolling as it is recognised, so the user can see it is working.\n\nTHE MICROPHONE IS YOURS FOR THE WHOLE MEETING. The user cannot talk\nto you while it runs \u2014 the wake word is off and a voice turn cannot\nstart. Do not expect instructions mid-meeting.\n\nThe device also goes silent: your replies are not read aloud while a\nmeeting is recording, because the speaker is an inch from the\nmicrophone and would record you. Say whatever the user actually\nneeds to hear BEFORE you call this, and keep the reply that follows\nit short.\n\nWhen the user ends it by tapping the ball, you will simply receive a\nnew message from them containing the transcript and asking for the\nminutes. You do not need to poll for it and there is no event to\nsubscribe to.",
+    "parameters": {
+      "type": "object",
+      "properties": {"title": {
+        "description": "What this meeting is, e.g. '周会'. Becomes the title the minutes page is laid out under. Omit it and the meeting is named in the interface language.",
+        "type": "string"
+      }},
+      "required": []
+    }
+  },
+  {
+    "method": "meeting.stop",
+    "name": "stop_meeting",
+    "description": "End the recording and get back the VERBATIM TRANSCRIPT \u2014 raw speech,\nno speaker labels, not minutes.\n\nWriting the minutes is your job, and showing them is a second step:\ncompose the minutes as a full HTML page and call show_html. That is\nthe only way they reach the user's eyes \u2014 a chat reply is not it.\nThe full transcript is always on the device at the returned path\neven when the returned text is truncated.\n\n`stopped_by` says who ended it: \"brain\" is this call, \"user\" is the\nball, \"focus\" is something on the device taking the audio floor\n(usually a phone call). Do not tell the user they tapped anything\nunless it says \"user\".",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "meeting.status",
+    "name": "meeting_status",
+    "description": "Is a meeting being recorded, and for how long. Cheap; returns elapsed_ms and how many characters have been transcribed so far. No transcript text.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "dog.move",
+    "name": "dog_move",
+    "description": "Drive the little robot dog: send it one motion for a set number of\nseconds. It starts right away and STOPS BY ITSELF when the time is up \u2014\nyou do not need to stop it afterwards, and the dog never keeps running\nbecause a call went missing. The call returns immediately (the dog\nkeeps moving in the background), so this response is not the end of the\nmovement. To cut it short, call dog_stop.\n\nThe dog is a real machine standing on a real floor. Before the first\nmove of a session, say what you are about to do, and stay aware that\nwhatever it hits, it hits for as long as you asked.\n\nMOTION: forward / back / left / right, in 0-1000 units of pure\ndirection \u2014 there are no distances here, only time. `gait` picks how it\ntravels:\n- gait=false (DEFAULT) \u2014 wheels. Faster, steadier, use it unless the\n  user asks for the legs. Rolling forward works on carpet; it is only\n  the on-the-spot *turn* that scrubs sideways and slips, which is why\n  dog_turn defaults the other way.\n- gait=true \u2014 the legs walk. Slower and more impressive; use it when\n  the user says 走/步态/腿/用脚.\n\nHOW LONG: seconds, up to 30 per call. Straight-line speed is NOT\ncalibrated \u2014 \"往前走\" is 2s, \"走远一点\" 4s, and if the user says it went\ntoo far or not far enough, adjust and say what you changed. There is no\ndistance unit to offer them.\n\nFOR TURNS, USE dog_turn INSTEAD. It measures the angle with the tablet's\ngyroscope and stops when it gets there, which the seconds here cannot do.\nOnly fall back to left/right with seconds if dog_turn says this tablet\nhas no sensor \u2014 a full turn is then about 8.7s on the wheels, 12s on the\nlegs, so half a turn ≈ 4.4 and a quarter ≈ 2.2.\n\nTHE DOG HAS OBSTACLE AVOIDANCE, AND IT WILL REFUSE YOU. Its ultrasonic\nsensor blocks forward motion closer than 20cm and backs it up below\n10cm, on its own, regardless of what you asked for. So \"it did not\nmove forward\" is usually this, not a failure: look at what is in front\nof it (camera_turn shows you) rather than sending the command again.\n\nIF IT REPLIES NO-ACK, the dog never confirmed receiving the command \u2014\nit may be out of range, switched off, or fighting the original remote.\nDo not retry silently in a loop; say so and let the user look.\n\nTwo things you cannot see from here: battery and whether the dog is\nphysically stuck. This link only sends. Ask the user \u2014 though\ndog_status.posture.vibration is weak evidence: near zero while a motion\nshould be running means nothing is actually moving.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "seconds": {
+          "description": "How long to move, up to 30. The dog stops itself when it elapses. Turn on wheels ≈ 8.7s; on legs ≈ 12s.",
+          "type": "number"
+        },
+        "motion": {
+          "description": "Which way to move.",
+          "type": "string",
+          "enum": [
+            "forward",
+            "back",
+            "left",
+            "right"
+          ]
+        },
+        "gait": {
+          "default": false,
+          "description": "false (default) = wheels, faster. true = walk on the legs, slower. Use true only when the user asks for the legs.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "motion",
+        "seconds"
+      ]
+    }
+  },
+  {
+    "method": "dog.sequence",
+    "name": "dog_sequence",
+    "description": "Run several dog motions back to back \u2014 a little routine. Use this\ninstead of calling dog_move twice: a second dog_move REPLACES the\nfirst one rather than queueing behind it, so two moves sent in a row\nis one move, not two.\n\nReturns immediately; the routine runs in the background and ends with\nthe dog stopped. dog_stop interrupts it mid-routine, so a routine is\nalso safe for anything long. Progress shows up in dog_status\n(`sequence.step` / `of`), so poll that if you need to know where it is \u2014\nnothing is pushed to you when it finishes.\n\nEach step is {motion, seconds, gait} with the same meanings as\ndog_move, plus motion=\"pause\": stand still for N seconds. Use a pause\nbetween direction changes (0.3-0.5s) \u2014 the servos settle and the\nmovement reads as deliberate rather than as a glitch. Mix gait=false\nand gait=true freely inside one routine for a routine that looks like\na performance.\n\nWhole-routine ceiling is 120s, one step is 30s. A routine longer than\nthat should be several calls, both so it can be interrupted and so you\nget to look at the result in between.\n\nExample \u2014 turn a half circle, pause, then walk forward and come back:\n[{\"motion\":\"left\",\"seconds\":4.4},\n {\"motion\":\"pause\",\"seconds\":0.5},\n {\"motion\":\"forward\",\"seconds\":2},\n {\"motion\":\"pause\",\"seconds\":0.5},\n {\"motion\":\"back\",\"seconds\":2}]",
+    "parameters": {
+      "type": "object",
+      "properties": {"steps": {
+        "description": "Steps in order; each {motion, seconds, gait?} with motion one of forward/back/left/right/pause.",
+        "type": "array"
+      }},
+      "required": ["steps"]
+    }
+  },
+  {
+    "method": "dog.turn",
+    "name": "dog_turn",
+    "description": "Turn the dog a MEASURED number of degrees. Prefer this over dog_move for\nevery turn \u2014 it is the one dog command that knows whether it worked.\n\nThe tablet is bolted to the dog, so the tablet's gyroscope is the dog's:\nthis drives until the sensor says the angle has been reached, then stops.\ndog_move with seconds divides a \"full circle ≈ 8.7s\" constant that drifts\nwith battery level, floor surface and where the legs happened to be, so\nit is a guess; this is not.\n\nReturns IMMEDIATELY, while the dog is still turning \u2014 the reply carries\n`expected_seconds`, not a result. The measurement shows up afterwards in\ndog_status.last_turn: `turned_deg` is what it really did, and `reached`\nsays whether it got there. Check it when the angle matters (lining up\nwith a doorway, facing a person); skip it for a rough spin.\n\nWHEN IT DOES NOT REACH: `reached: false` with a small `turned_deg` means\nthe dog barely rotated \u2014 the command did not land, it is out of range,\nswitched off, or physically blocked. Do NOT just send it again; say what\nthe sensor measured and let the user look.\n\nTurns are also the safe motion: unlike forward, they are not blocked by\nthe dog's obstacle sensor, but they still sweep the dog's body through\nwhatever is beside it.\n\nTurns default to the LEGS. A wheeled turn is a differential spin, so the\nwheels have to scrub sideways across the floor \u2014 on carpet they lose and\nthe dog barely rotates. Pass `gait: false` only on smooth hard floor, or\nwhen the user asks for the wheels. Note the legs ignore dog_speed, which\nonly changes wheel PWM.\n\nUse dog_move for forward/back. If this tablet has no gyroscope the call\nfails with an explanation and you should fall back to dog_move.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "motion": {
+          "description": "Which way to turn.",
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "gait": {
+          "default": true,
+          "description": "true (default) = turn on the legs. false = spin the wheels, which is faster on hard flat floors but slips on carpet, where the wheels have to scrub sideways. Only pass false if the floor is smooth or the user asks for the wheels.",
+          "type": "boolean"
+        },
+        "degrees": {
+          "description": "How far to turn, 1-720. 90 = a quarter, 180 = about-face, 360 = a full circle.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "motion",
+        "degrees"
+      ]
+    }
+  },
+  {
+    "method": "dog.stop",
+    "name": "dog_stop",
+    "description": "Stop the dog now \u2014 an emergency brake, and the first thing to call whenever the user says 停 / 停下 / 别动了. Interrupts a dog_move that is still running and abandons a dog_sequence part-way. Safe to call when nothing is happening: the reply says honestly whether anything was moving, so do not announce a stop that did not happen. Note the dog would stop on its own at the end of whatever it was told to do; this is for ending it early.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "dog.status",
+    "name": "dog_status",
+    "description": "Is the dog reachable, and what is it doing. Cheap, no side effects \u2014\ncall it when something dog-related just failed, or before you tell the\nuser anything about the dog's state.\n\nConnection half: `attached` (is a dongle plugged into this tablet at\nall), `permission` (`no_device` / `needed` / `granted` \u2014 `needed` means\nthe Android dialog has not been answered yet and the next dog command\nwill raise it), `open` (did we get the serial port), `device`, `banner`\n(what the dongle said when it started: \"READY\" means the dongle and its\nradio are both fine, an \"ERR: NRF24L01 not responding\" means the dongle\nis alive but its radio module is not \u2014 a dongle-side wiring job, do not\nblame the dog), and `error` (why the last attempt failed, in words the\nuser can act on).\n\nMotion half: `moving`, `motion`, `remaining_ms`, `sequence` with the step\nit is on, and `turn` while a dog_turn is under way.\n\n`last_turn` is how a finished dog_turn reports itself \u2014 it appears only\nonce the turn is over, and carries `turned_deg` (what the gyroscope\nactually measured), `overshoot_deg`, `reached`, and `stopped_by`. A\n`reached: false` with a tiny `turned_deg` is the strongest evidence this\nsystem can give that a command never got to the dog.\n\n`posture` is the tablet's own sensors, read as the dog's \u2014 they are\nbolted together. `tilt_deg` is the lean away from standing; anything past\n50° means the dog went over (or was picked up) and the tablet has already\nstopped it, which also shows up as `aborted_by: \"fallen\"`. It is measured\nagainst a reference the tablet takes each time a motion starts from rest,\nso if the user says the dog is standing normally and this still reads\nlarge, the reference is stale \u2014 call dog_calibrate, do not tell the user\ntheir dog has fallen over. `vibration` is\nraw accelerometer energy in m/s²: high while the dog works, near zero\nwhen nothing is moving. It is NOT calibrated into a \"stuck\" verdict, so\nread it as evidence and say so \u2014 near-zero vibration during a motion you\nbelieve is running usually means the command did not land, or the dog's\nown obstacle sensor refused it.\n\n`telemetry` is the dog's own distance and battery, which reach us on the\nacknowledgement of the last command sent. It can be STALE \u2014 check\n`age_ms`, and call dog_sense to refresh it before saying anything about\nwhat is in front of the dog. `supported: false` means no reading has ever\narrived (older dongle or older dog firmware); say you cannot see it\nrather than reporting a number.\n\n`speed` and `pose` are what was last successfully set THIS session. Null\nmeans never set here, which is not the same as knowing the dog is at its\ndefault \u2014 say so instead of guessing.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "dog.sense",
+    "name": "dog_sense",
+    "description": "Ask the dog what it can see and how much charge it has left, WITHOUT\ntelling it to do anything. Fast and safe to call while the dog is\nwalking \u2014 which is exactly when it is worth calling.\n\n`telemetry.distance_cm` is the dog's own forward-facing ultrasonic\nsensor. `telemetry.battery_pct` is its battery, 0-100.\n\nRead `telemetry.age_ms` before you believe either number. The dog only\nspeaks when spoken to \u2014 the reading rides back on the acknowledgement of\nwhatever was last sent \u2014 so a value from several seconds ago describes a\nworld that has moved. This call refreshes it, so straight after it the\nage is small; a large age in dog_status does not mean the dog is broken.\n\n`telemetry.supported: false` means no reading has EVER arrived, which is\nwhat an older dongle or older dog firmware looks like from here. It is\nnot the same as \"0 cm\" and not the same as \"flat battery\". Say you\ncannot see it rather than reporting a number.\n\nA null `distance_cm` with `supported: true` means the sensor answered\nnothing \u2014 usually nothing within range, sometimes an unplugged sensor.\nThe dog's own firmware refuses to walk forward under about 20cm and\nbacks up under 10cm on its own, so a forward command that does nothing\nwhile this reads small is the dog protecting itself, not a lost command.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "dog.calibrate",
+    "name": "dog_calibrate",
+    "description": "Tell the tablet that the dog is standing normally RIGHT NOW, and take\nthat as the reference for \"upright\". Touches no radio and commands the\ndog to do nothing \u2014 it only re-reads the tablet's own sensors.\n\nThe tablet is strapped to the dog's back, so it has no way to know\nwhich way is \"standing\" except by being told. Every motion takes this\nreference automatically when it starts from rest, so in normal use you\nnever need this tool. Call it when that rule cannot hold:\n\n- the user re-seated, re-angled or re-mounted the tablet;\n- dog_status shows a `tilt_deg` the user says is wrong \u2014 a dog they\n  tell you is standing normally, reading 30°;\n- a motion came back `aborted_by: \"fallen\"` and the dog is upright.\n\nA stale reference is not cosmetic: past 50° the tablet stops motions on\nits own, so a bad reference makes the dog refuse to walk for a fall\nthat is not happening.\n\nRefuses while the dog is moving (`calibrated: false` with `moving`\nset) \u2014 a walking dog pitches with every stride and that would be baked\ninto the reference. Stop it, let it settle, then calibrate.\n\n`was_tilt_deg` is what the tilt read just before this call, against the\nold reference. A large value is the measure of how wrong things were;\nnear zero means the reference was already fine.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "method": "dog.speed",
+    "name": "dog_speed",
+    "description": "How fast the dog walks. A setting, not a movement: it does NOT start,\nstop or interrupt anything, and it does not make the dog move on its own.\n\nIt takes effect from the NEXT motion command onwards. A dog already\nwalking finishes its current move at the old speed, so to change speed\nmid-task, set it and then issue the next dog_move \u2014 do not expect the\nrunning one to speed up.\n\nUse slow when the dog is near people, near a desk edge, or being asked to\nstop at a particular spot; the obstacle sensor has less distance to work\nwith the faster it goes. normal is the sensible default. turbo is for an\nopen corridor with nothing in it.",
+    "parameters": {
+      "type": "object",
+      "properties": {"level": {
+        "description": "Walking speed. Prefer slow around people.",
+        "type": "string",
+        "enum": [
+          "slow",
+          "normal",
+          "fast",
+          "turbo"
+        ]
+      }},
+      "required": ["level"]
+    }
+  },
+  {
+    "method": "dog.pose",
+    "name": "dog_pose",
+    "description": "Raise or lower the dog's body. `high` stands it up tall, `normal` puts it\nback down. A setting like dog_speed \u2014 it does not move the dog anywhere.\n\nRaise it to get the tablet's camera up to a person's eye level, or to\nclear a doorsill or cable. Lower it for stability and when carrying the\ntablet at speed.\n\nOne thing to know: dog_stop resets the stance to normal. That is\ndeliberate \u2014 the raised stance leaves the drive motors live, so a stop\nthat kept it would look stopped without being stopped. After any stop,\nset the stance again if you still want it raised.",
+    "parameters": {
+      "type": "object",
+      "properties": {"stance": {
+        "description": "Body height. high raises the tablet to eye level.",
+        "type": "string",
+        "enum": [
+          "high",
+          "normal"
+        ]
+      }},
+      "required": ["stance"]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "note.remember",
+    "name": "remember",
+    "description": "Put one thing into your notebook. What you write is at hand on every later turn, and the user never has to say it twice.\n\n## What belongs in it (about this person, not about this turn)\n\n- who they are, what they do, how to work with them → type=user\n- they explicitly asked you to change how you do something, or confirmed how you did it (「以后都这样」「别这么干」) → type=feedback\n- you personally got something done for them, walked a route through → type=way\n- an outside entrance (a website / app / account name / address / a shop they go to) → type=reference\n- a route you tried and **confirmed is a failure** → type=failure, with the \"never do this again\" written into content\n\n## What does not belong\n\n- this turn's transient state (what you are waiting for, where you just tapped)\n- coordinates, pixels, which row \u2014 they all change with the interface\n- this time's verification code, order number, amount\n- anything already stated in your system prompt\n\n## Fields\n\n- name: the overwrite key. **Writing the same name again = updating that entry** (the old version is kept), not adding one.\n  So when a route improves, write it again under the same name.\n- description: one line, readable on its own \u2014 that line alone should say who / what / how to handle it.\n  Do not write empty phrases like \"the user's preferences\"; write \"doesn't drink anything cold, winter included\".\n- content: the body, omittable (when omitted, description is used). For type=feedback or way, add\n  `**Why:**` and `**How to apply:**` lines, so that future you can judge the boundary instead of clinging to one rule.\n- type: see above.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Short identifier, and the overwrite key. e.g. 饮食禁忌 / 咖啡偏好 / 飞书登录",
+          "type": "string"
+        },
+        "description": {
+          "description": "One self-contained line, ≤120 characters",
+          "type": "string"
+        },
+        "type": {
+          "description": "Category of memory",
+          "type": "string",
+          "enum": [
+            "user",
+            "feedback",
+            "way",
+            "reference",
+            "failure"
+          ]
+        },
+        "content": {
+          "description": "The body. When omitted, description is used.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "type"
+      ]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "note.recall",
+    "name": "recall",
+    "description": "Look in the notebook.\n\n**Look once before you start.** Does this look like something you have done before? What has this person said about this kind of thing?\nWhen something written or spoken disagrees with the notebook, go by the notebook and put the question to them; do not act on your own impression.\n\nAn empty query = pull a batch of the more important and recently used entries (\"what have I written down\").\nWhat comes back is name and summary; to get the body, look that name up again with recall.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "description": "Keyword. Empty = pull a batch of the important / recently used ones",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Where to look. Currently only memory",
+          "type": "string",
+          "enum": ["memory"]
+        },
+        "limit": {
+          "description": "How many to return, default 8, max 30",
+          "type": "integer"
+        },
+        "type": {
+          "description": "Only look in this category",
+          "type": "string",
+          "enum": [
+            "user",
+            "feedback",
+            "way",
+            "reference",
+            "failure"
+          ]
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "note.forget",
+    "name": "forget",
+    "description": "Delete one entry from the notebook.\n\n**The user will not say \"delete the memory\" \u2014 they do not know it exists, so you have to see it yourself.**\nThese are the signals that mean delete:\n\n- they corrected something from before: 「不对，其实是\u2026\u2026」\n- they changed a preference or a decision: 「之前说的那个不做了」\n- old and new contradict: the notebook says they do not use 微信, and they now say 「加我微信」\n- that thing no longer exists: 「那个活动下线了」「那个需求不要了」\n\n`recall` first to check the name before deleting, and **do not delete from impression** \u2014 a deletion cannot be undone.\nIf only the content changed (rather than the entry being void), overwrite it with remember under the same name; do not delete.",
+    "parameters": {
+      "type": "object",
+      "properties": {"name": {
+        "description": "The name of the entry to delete; recall first to confirm",
+        "type": "string"
+      }},
+      "required": ["name"]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "note.todo",
+    "name": "todo",
+    "description": "Set a \"thing to do at a certain time\" for yourself.\n\n## The rule, first\n\nWhenever you intend to tell the user \"I'll come and find you then / I'll remind you / I'll handle it for you then\", **you must call this tool and see the success result before that sentence leaves your mouth**.\nSay it without having set it, and when that moment arrives you will not appear \u2014 that is not \"might forget\", that is lying.\n\n## How to write `what`\n\nOne sentence, written for future you to read: what to **do** or **say** at that time.\n\"Remind him to take his medicine\" is too vague; \"tell him it's time for his medicine, and ask how he slept last night\" is something that can be executed.\n\n## When it triggers (at and cron \u2014 one or the other; not both, not neither)\n\n- `at`: one-off. Local time `YYYY-MM-DD HH:mm`. **Absolute times only** \u2014 for \"in ten minutes\", work the time out yourself and fill in the result.\n- `cron`: recurring. Standard 5 fields, \"minute hour day month weekday\". e.g. every day at 8 = `0 8 * * *`;\n  every Monday at 9 = `0 9 * * 1`; every half hour = `0,30 * * * *`.\n\n🔴 **The densest is once every 15 minutes.** Anything denser is refused \u2014 that is a system limit, not your choice.\nWhen it is refused, tell them honestly \"the fastest is once every 15 minutes\" \u2014 **do not paper over it in different words, and do not say \"ok, it's set\"**.\n\nThe result carries `next_run_local` and `scheduled`: `inexact` means the time may be off by a few minutes\n(the norm when there is no exact-alarm permission). When you see `inexact`, say only \"I'll speak up around that time\" \u2014\n**do not say \"on the dot\"**.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "cron": {
+          "description": "Recurring, 5 fields \"minute hour day month weekday\". Densest is once every 15 minutes",
+          "type": "string"
+        },
+        "what": {
+          "description": "One sentence: what to do / say at that time",
+          "type": "string"
+        },
+        "at": {
+          "description": "One-off, local time YYYY-MM-DD HH:mm",
+          "type": "string"
+        }
+      },
+      "required": ["what"]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "note.todos",
+    "name": "todos",
+    "description": "See and manage the todos you have set.\n\n- `list`: look. By default only the ones not yet finished (pending); `filter=all` includes finished ones, `filter=cron` shows only recurring ones.\n- `done`: it is handled, close it. **Always close it once handled**, or it hangs in \"promised but never done\" forever.\n- `drop`: not doing it, cancel it.\n- `pause`: park a recurring todo for now.\n- `resume`: bring back a paused one. A recurring one recounts its next run from now; a one-off whose moment has already passed cannot be resumed,\n  so have the user set a new one.\n\nWhen the user asks \"what have you promised me\" or \"what is still outstanding\", `list`.\nTake `id` from the result of `list` \u2014 do not make one up.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "description": "Used with list",
+          "type": "string",
+          "enum": [
+            "pending",
+            "all",
+            "cron"
+          ]
+        },
+        "action": {
+          "description": "What to do",
+          "type": "string",
+          "enum": [
+            "list",
+            "done",
+            "drop",
+            "pause",
+            "resume"
+          ]
+        },
+        "id": {
+          "description": "Required when action is not list; take it from list",
+          "type": "string"
+        }
+      },
+      "required": ["action"]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "note.fold",
+    "name": "fold_topic",
+    "description": "Put a finished topic of this conversation away, so it stops costing context and can be read\nback later with `get_topic`.\n\n**Reviews only.** This is offered to the quiet-hour review, and any other turn that calls it is\nrefused \u2014 folding is irreversible from your side, and a request is not the moment to spend it.\nThe review's prompt lists the user's turns as U0, U1, \u2026; a normal turn has no such list.\n\n- `from_turn` / `to_turn`: the first and last U-number of the topic, inclusive, from that list.\n  **Use those numbers.** Do not describe a range of messages and do not count them \u2014 everything\n  said between those two turns, yours and the tools', goes with them.\n- `title`: what it was about, in the user's words where you have them.\n- `summary`: what it was about / where it got to / how it ended / **what you left out**.\n  The last line is the point. It is what tells future-you that this paragraph is not the whole\n  story, so a question about a detail gets answered by reading the topic back instead of from\n  memory. A summary that reads complete is one whose details are lost.\n\nThe device refuses, with a reason, when: a number is not in the list; `to_turn` is the latest\nturn (nothing has started after it, so there is no way to tell it ended); something in it is\nstill waiting on an answer; it overlaps a topic already put away; it is too short; or a scene is\nactive. The reason names the condition \u2014 do not retry the same numbers.\n\nUp to three topics per review. They are put away when the review ends, not when you call this.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "description": "Four lines: what it was / where it got to / how it ended / what you left out",
+          "type": "string"
+        },
+        "to_turn": {
+          "description": "The U-number of the topic's last turn; must come before the latest turn",
+          "type": "integer"
+        },
+        "title": {
+          "description": "What this was about, ≤40 characters",
+          "type": "string"
+        },
+        "from_turn": {
+          "description": "The U-number of the topic's first turn",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from_turn",
+        "to_turn",
+        "title",
+        "summary"
+      ]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "ui.list_topics",
+    "name": "list_topics",
+    "description": "The conversations that have been finished and put away, newest first.\n\nA topic is a stretch of talking that ended \u2014 not a page (see `list_pages`) and not a way of\nworking (see `list_scenes`). When the user refers to something you did together earlier\n(「上次那个比价」「我们之前聊的那个」) and it is not in the conversation in front of you, it is\nprobably here: it was folded away to save context, and one line of it is all that is left\nin front of you.\n\nEach entry carries the id, the title, when it ended, and how many messages it covers.\nUse `get_topic` to read one back \u2014 **do not answer a question about a folded topic from its\none-line summary alone**, and never say it did not happen.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "ui.get_topic",
+    "name": "get_topic",
+    "description": "Read a folded conversation back, in full, by the id from `list_topics`.\n\nThis is the door out of a summary. A summary says what a topic came to and what it left out;\nwhen the user asks about a detail \u2014 \"which model was cheapest\", \"what did I say about the\nbudget\" \u2014 that detail is here and not in the summary. Read it rather than guessing, and\nrather than telling them it is no longer available.\n\nThe whole back-and-forth comes back as plain text, which may be long. Past\n40000 characters it is cut and `truncated` says so.\n\nReading is not showing: nothing appears on screen. If the user should see the conversation,\nwrite it into a page with `show_html`.",
+    "parameters": {
+      "type": "object",
+      "properties": {"id": {
+        "description": "A topic id from list_topics. Do not make one up.",
+        "type": "integer"
+      }},
+      "required": ["id"]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "scene.list",
+    "name": "list_scenes",
+    "description": "List the scenes you and the user have saved: name, title, one-line summary, the apps that enter it automatically, how often it was used, and which one you are in now.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "scene.get",
+    "name": "get_scene",
+    "description": "Read one scene in full, including its prompt. Always read it before changing it \u2014 save_scene replaces the whole thing.",
+    "parameters": {
+      "type": "object",
+      "properties": {"name": {
+        "description": "The scene's name, from list_scenes",
+        "type": "string"
+      }},
+      "required": ["name"]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "scene.save",
+    "name": "save_scene",
+    "description": "Create a scene, or overwrite one under the same name.\n\n🔴 **Only after the user said yes to this specific scene.** Propose it in words first (「要不要把这种练法存成一个情景？」) and wait for the answer. Never on your own initiative, never from a notification.\n\n`prompt` is the standing instructions you will work by while in it \u2014 write it for future you, concrete and complete:\n- the goal, and what a good session looks like\n- how to talk: language, length, tone\n- the routine / steps\n- what you may do on your own, and what you must ask about first. If the user wants you to act for them (e.g. answer their WeChat), write that permission here in their words, with its limits: who, what kind of message, what you must never say or agree to.\n- when the scene is over\nDo not repeat rules your system prompt already has. Max 3000 characters.\n\n`trigger_apps`: package names (e.g. com.taobao.taobao) whose opening by the user enters this scene automatically. Only when the user asked for that. Use list_apps to get exact package names.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "description": "One line: what it is for and when to enter it",
+          "type": "string"
+        },
+        "trigger_apps": {
+          "description": "Optional package names that enter it automatically when the user opens them, e.g. [\"com.taobao.taobao\"]. Omit or [] for none.",
+          "type": "array"
+        },
+        "name": {
+          "description": "Short id, lowercase a-z 0-9 _ only, e.g. english_coach. Same name = overwrite.",
+          "type": "string"
+        },
+        "title": {
+          "description": "What the user sees, in their language, e.g. 陪练英语",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The standing instructions (see above)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "summary",
+        "prompt"
+      ]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "scene.enter",
+    "name": "enter_scene",
+    "description": "Step into a scene: its instructions take effect from your next reply on. Leaves any scene you were in. Say one sentence when you do it (「好，进入练英语」).",
+    "parameters": {
+      "type": "object",
+      "properties": {"name": {
+        "description": "The scene's name, from list_scenes",
+        "type": "string"
+      }},
+      "required": ["name"]
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "scene.exit",
+    "name": "exit_scene",
+    "description": "Leave the scene you are in and go back to your ordinary self. When the user asks, when the scene's own end condition is met, or when they have clearly moved on.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "localOnly": true,
+    "method": "scene.delete",
+    "name": "delete_scene",
+    "description": "Delete a scene for good. Only when the user asks for it; cannot be undone.",
+    "parameters": {
+      "type": "object",
+      "properties": {"name": {
+        "description": "The scene's name, from list_scenes",
+        "type": "string"
+      }},
+      "required": ["name"]
+    }
+  }
+]

@@ -2671,10 +2671,7 @@ class BodyCoreService : Service() {
         marketTools = market
         localBrain = net.kuafuai.andee.brain.LocalBrain(
             cfg = bc,
-            appContext = this,
-            dispatcher = dispatcher,
-            registry = callExtensions,
-            market = market,
+            host = net.kuafuai.andee.brain.AndroidBrainHost(this, dispatcher, callExtensions, market),
             onProgress = ::onBrainProgress,
             onFinal = ::onBrainFinal,
             onTurnEnd = ::onTurnEnd,
@@ -2794,7 +2791,7 @@ class BodyCoreService : Service() {
      * main thread; [net.kuafuai.andee.brain.LocalBrain.wake] only posts, and
      * defers itself if a turn is already running.
      */
-    fun wakeForTodo(todo: net.kuafuai.andee.config.Notebook.Todo) {
+    fun wakeForTodo(todo: net.kuafuai.andee.config.Todo) {
         val brain = localBrain
         if (brain == null) {
             // Nothing on this device can run a turn (no local brain — there is
@@ -2812,12 +2809,33 @@ class BodyCoreService : Service() {
         // under a sentence being typed by hand, and the app the brain is driving
         // gets a keyboard raised over it instead.
         closeTyping()
-        // Prompt, not display: [notifyPageClosed] on why the model-facing set
-        // is English and what that costs.
+        // And do not talk over, or act under, someone who is mid-exchange: the answer still being read
+        // aloud, the question card waiting on them, or the mic open for their next sentence. Bounded, so a
+        // card nobody answers cannot hold an alarm back forever (it times out on its own well inside this).
+        // Off the main thread: this is called from the alarm receiver's path and must not block it.
+        waitForQuiet {
+            wakeBrainFor(brain, todo)
+        }
+    }
+
+    /** Poll until nothing is speaking, asking or listening, or [WAKE_PATIENCE_MS] passes; then run [then]. */
+    private fun waitForQuiet(then: () -> Unit) {
+        Thread {
+            val until = android.os.SystemClock.uptimeMillis() + WAKE_PATIENCE_MS
+            while (android.os.SystemClock.uptimeMillis() < until &&
+                (audio.isStreamPlaying() || net.kuafuai.andee.ui.CardUi.isAsking() || asr.isActive())
+            ) {
+                try { Thread.sleep(500) } catch (_: InterruptedException) { break }
+            }
+            then()
+        }.apply { isDaemon = true; name = "wake-wait" }.start()
+    }
+
+    private fun wakeBrainFor(brain: net.kuafuai.andee.brain.LocalBrain, todo: net.kuafuai.andee.config.Todo) {
+        // Prompt, not display: [notifyPageClosed] on why the model-facing set is English and what that costs.
         brain.wake(
-            "(time's up · this is a todo you set yourself, id=${todo.id}) ${todo.what}\n" +
-                "Do it now. If it cannot be done, still say honestly why and give them a next step; " +
-                "when it is done (or said), close it with todos(action=done, id=${todo.id}).",
+            net.kuafuai.andee.brain.WakeText.due(todo.id, todo.what, todo.untrusted),
+            untrusted = todo.untrusted,
         )
     }
 
@@ -3044,6 +3062,9 @@ class BodyCoreService : Service() {
          */
         private val END_MARKER = Regex("""(?i)\[END]""")
 
+        /** How long a wake-up waits for the user's exchange to settle before it goes ahead anyway. */
+        private const val WAKE_PATIENCE_MS = 150_000L
+
         private val instanceRef = AtomicReference<BodyCoreService?>()
 
         /**
@@ -3166,7 +3187,9 @@ class BodyCoreService : Service() {
         val scene = if (localBrain == null) null
         else net.kuafuai.andee.config.VoiceConfig.activeScene(this)
             ?.let { net.kuafuai.andee.config.Notebook.scene(this, it) }
-        val verdict = net.kuafuai.andee.brain.NotificationTriage(bc)
+        val verdict = net.kuafuai.andee.brain.NotificationTriage(bc) { warn, msg ->
+            if (warn) android.util.Log.w("Brain", msg) else android.util.Log.i("Brain", msg)
+        }
             .decide(n, net.kuafuai.andee.config.VoiceConfig.uiLanguage(this), scene) ?: return false
         when (verdict.action) {
             net.kuafuai.andee.brain.NotificationTriage.Action.IGNORE -> {

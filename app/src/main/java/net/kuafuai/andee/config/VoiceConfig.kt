@@ -4,52 +4,12 @@ import android.content.Context
 import net.kuafuai.andee.BuildConfig
 import java.util.UUID
 
-
-data class VoiceConfig(
-    val apiKey: String,
-    val asrEndpoint: String,
-    val asrResourceId: String,
-    val asrUid: String,
-    val ttsEndpoint: String,
-    val ttsResourceId: String,
-    val ttsSpeaker: String,
-    val ttsSampleRate: Int,
-    /**
-     * [VOICE_HUOSHAN] or [VOICE_GOOGLE] — which service hears and speaks.
-     *
-     * Read here rather than at the call site so that the two engines, the
-     * meeting recorder and the start-up log cannot disagree about it, the same
-     * reason [ttsSpeaker] lives in this object.
-     */
-    val voiceProvider: String,
-    /** Vertex Express key. Empty means the Google path cannot run. */
-    val googleApiKey: String,
-    val googleBaseUrl: String,
-    /**
-     * GCP project **number**, and the region the Live API session is opened
-     * in. Both are only used by the listening half.
-     *
-     * The model has to be named by its full resource path —
-     * `projects/{n}/locations/{r}/publishers/google/models/{m}` — because the
-     * Live API reads a bare name as a project id and answers
-     * `1008 Permission denied on resource project …`. The reference gateway
-     * found that out the hard way; these two rows are what that costs.
-     */
-    val googleProject: String,
-    val googleLocation: String,
-    val googleAsrModel: String,
-    val googleTtsModel: String,
-    /**
-     * A hint for both directions, or blank for "let Google decide".
-     *
-     * Blank rather than a fixed `zh-CN`, following the reference gateway: a
-     * Chinese user says "hello 帮我查一下" and an English one says
-     * "帮我查杭州天气", so naming one language does not restrict the other, it
-     * only makes it less accurate.
-     */
-    val googleLanguage: String,
-) {
-    companion object {
+/**
+ * Reads and writes the phone's settings (`voice_prefs`). Everything here used
+ * to be the companion of the settings data class, which now lives in the shared
+ * module as [VoiceSettings].
+ */
+object VoiceConfig {
         /**
          * The 火山 (Volcengine Speech) account the voice pipeline runs on when
          * the user is on the **本机** backend. On [BRAIN_CODEFLYING], the key
@@ -106,8 +66,8 @@ data class VoiceConfig(
          * the picker, the self-check rows and the engines all branch on the
          * string, so a third provider is a value rather than a second flag.
          */
-        const val VOICE_HUOSHAN = "huoshan"
-        const val VOICE_GOOGLE = "google"
+        const val VOICE_HUOSHAN = VoiceSettings.VOICE_HUOSHAN
+        const val VOICE_GOOGLE = VoiceSettings.VOICE_GOOGLE
 
         /**
          * The Vertex endpoint, its Express-keyed surface.
@@ -208,9 +168,9 @@ data class VoiceConfig(
          * is derived from `BuildConfig.CODEFLYING_*` and the user does not
          * fill in any voice / LLM fields.
          */
-        const val BRAIN_HUB = "hub"
-        const val BRAIN_LOCAL = "local"
-        const val BRAIN_CODEFLYING = "codeflying"
+        const val BRAIN_HUB = net.kuafuai.andee.config.BrainConfig.BRAIN_HUB
+        const val BRAIN_LOCAL = net.kuafuai.andee.config.BrainConfig.BRAIN_LOCAL
+        const val BRAIN_CODEFLYING = net.kuafuai.andee.config.BrainConfig.BRAIN_CODEFLYING
 
         const val DEFAULT_LLM_BASE_URL = "https://api.deepseek.com"
         const val DEFAULT_LLM_MODEL = "deepseek-flash"
@@ -384,40 +344,8 @@ data class VoiceConfig(
             )
         }
 
-        /**
-         * Which brain answers, and how to reach it if it is the local one.
-         *
-         * Read via [brainConfig]; like [hubConfig] this never throws and never
-         * requires the user to have configured anything — an unconfigured
-         * device reads as [BRAIN_LOCAL], which is the out-of-box default.
-         */
-        data class BrainConfig(
-            /** [BRAIN_HUB], [BRAIN_LOCAL] or [BRAIN_CODEFLYING]. */
-            val mode: String,
-            val apiKey: String,        // empty = on-device brain cannot run
-            val baseUrl: String,
-            val model: String,
-            val thinking: Boolean,
-            val reasoningEffort: String,
-        ) {
-            /**
-             * The agent loop runs on this device (local DeepSeek or CodeFlying
-             * — both are "the brain is here", only the backend differs). Only
-             * [BRAIN_HUB] is "run elsewhere, listen on a socket".
-             */
-            val isLocal: Boolean get() = mode == BRAIN_LOCAL || mode == BRAIN_CODEFLYING
-
-            /**
-             * Same backend, possibly asked differently. [mode], [apiKey] and
-             * [baseUrl] say *who* answers; [model], [thinking] and
-             * [reasoningEffort] only say how they are asked, and a running brain
-             * can take those on the next request. A config change that is only
-             * the second kind must not rebuild the brain, because rebuilding it
-             * is what discards the conversation.
-             */
-            fun sameBackend(other: BrainConfig): Boolean =
-                mode == other.mode && apiKey == other.apiKey && baseUrl == other.baseUrl
-        }
+        /** Moved to the shared module; see [net.kuafuai.andee.config.BrainConfig]. */
+        // Nested name kept so existing callers and the settings card read unchanged.
 
         /**
          * The brain mode in effect, with CodeFlying availability already
@@ -624,7 +552,7 @@ data class VoiceConfig(
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString("api_key", "").orEmpty().isNotBlank()
 
-        fun load(context: Context): VoiceConfig {
+        fun load(context: Context): VoiceSettings {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             var uid = p.getString("uid", null)
             if (uid.isNullOrEmpty()) {
@@ -636,7 +564,7 @@ data class VoiceConfig(
             // (user's own 火山 account); 云端 shares the same prefs because
             // ASR/TTS still run on this device whichever brain answers.
             val codeFlying = brainMode(context) == BRAIN_CODEFLYING
-            return VoiceConfig(
+            return VoiceSettings(
                 apiKey = if (codeFlying) codeFlyingKey(context)
                 else p.getString("api_key", "").orEmpty().trim().ifEmpty { API_KEY },
                 asrEndpoint = if (codeFlying) codeFlyingAsrEndpoint()
@@ -905,7 +833,7 @@ data class VoiceConfig(
         }
 
         /**
-         * The scene the assistant is in, by [Notebook.Scene.name], or null.
+         * The scene the assistant is in, by [net.kuafuai.andee.config.Scene.name], or null.
          *
          * Persisted for the same reason as [ballLook]: a service restart is not
          * the user leaving the scene. Written directly rather than through
@@ -995,5 +923,4 @@ data class VoiceConfig(
             "sweep", "sweep_quiet_minutes", "sweep_daily_cap",
             "max_steps",
         )
-    }
 }

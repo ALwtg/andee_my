@@ -344,7 +344,7 @@ object ChatHistory {
     // ---- topics: finished stretches of conversation ----
 
     /** How much of a folded conversation `get_topic` hands over in one go. */
-    const val TOPIC_TEXT_MAX = 40_000
+    const val TOPIC_TEXT_MAX = ScrollbackLimits.TOPIC_TEXT_MAX
 
     /** How many folded conversations are kept. Oldest files go first. */
     private const val MAX_TOPICS = 60
@@ -564,7 +564,7 @@ object ChatHistory {
      * KB, which is most of a context window for a picture the brain already
      * drew and cannot usefully redraw from text.
      */
-    const val ARTIFACT_SOURCE_MAX = 60_000
+    const val ARTIFACT_SOURCE_MAX = ScrollbackLimits.ARTIFACT_SOURCE_MAX
 
     /**
      * Delete one artifact — every revision of it — and keep one row behind in

@@ -156,6 +156,12 @@ object CardUi {
         alert(text, ERROR_DISMISS_MS) { }
     }
 
+    /**
+     * A question card is up and something is blocked on its answer. Read from any thread: it is a snapshot,
+     * which is all a caller deciding whether to wait a moment needs.
+     */
+    fun isAsking(): Boolean = current?.let { !it.finished && it.captureSpeech } == true
+
     fun dismissCurrent() {
         main.post { current?.close("superseded") }
     }

@@ -1,5 +1,6 @@
 package net.kuafuai.andee.ui
 
+import net.kuafuai.andee.ui.ball.label
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
@@ -135,7 +136,7 @@ class ExpressionsUi(
         card.addView(heading(lctx.getString(R.string.expr_section_look)))
         card.addView(chipRow {
             for (look in BallLooks.ALL) {
-                val chip = chip(lctx.getString(look.labelRes)) { pickLook(look.name) }
+                val chip = chip(look.label(lctx)) { pickLook(look.name) }
                 lookChips.add(chip)
                 addView(chip, chipParams())
             }
@@ -230,7 +231,7 @@ class ExpressionsUi(
         for ((m, chip) in moodChips) light(chip, m == pickedMood)
         caption?.text = lctx.getString(
             R.string.expr_caption,
-            lctx.getString(look.labelRes),
+            look.label(lctx),
             lctx.getString(labelOf(pickedMood)),
         )
     }

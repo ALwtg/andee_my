@@ -331,16 +331,16 @@ class ScreenController(
      * image it was read off. `fx`/`fy` are 0..2; (1, 1) is the cell's centre.
      */
     private fun cellPoint(col: Int, row: Int, fx: Int, fy: Int): IntArray = intArrayOf(
-        ((col * PART_COLS + fx) * 2 + 1) * NORM_MAX / (2 * GRID_COLS * PART_COLS),
-        ((row * PART_ROWS + fy) * 2 + 1) * NORM_MAX / (2 * GRID_ROWS * PART_ROWS),
+        ((col * AimParts.COLS + fx) * 2 + 1) * NORM_MAX / (2 * GRID_COLS * AimParts.COLS),
+        ((row * AimParts.ROWS + fy) * 2 + 1) * NORM_MAX / (2 * GRID_ROWS * AimParts.ROWS),
     )
 
     /** `part` → which subdivision of the cell, as (fx, fy); null means the centre. */
     private fun parsePart(part: String?): IntArray {
-        if (part.isNullOrBlank()) return intArrayOf(1, MID_ROW)
+        if (part.isNullOrBlank()) return intArrayOf(1, AimParts.MID_ROW)
         val p = part.trim().lowercase().replace('_', '-').replace(' ', '-')
-        return PART_THIRDS[p] ?: throw IllegalArgumentException(
-            "unknown part=\"$part\" — expected one of ${PARTS.joinToString()} " +
+        return AimParts.cellOf(p) ?: throw IllegalArgumentException(
+            "unknown part=\"$part\" — expected one of ${AimParts.PARTS.joinToString()} " +
                 "(which part of the cell the target is in; omit it for the centre)"
         )
     }
@@ -2249,7 +2249,7 @@ class ScreenController(
                             "plus which third of that cell it is in — {\"cell\": \"D7\", " +
                             "\"part\": \"bottom-right\"} on tap_by_coordinates / " +
                             "long_press_by_coordinates (part is one of " +
-                            "${PARTS.joinToString("/")}; omit it for the centre) — and the " +
+                            "${AimParts.PARTS.joinToString("/")}; omit it for the centre) — and the " +
                             "device converts it to the right pixels itself. For anything " +
                             "not clearly bigger than a cell (an icon, a ✕ close button), " +
                             "first send the same cell and part to zoom_screen_region: it " +
@@ -3652,64 +3652,6 @@ class ScreenController(
          * Magenta appears in none of them.
          */
         private val CROSSHAIR = Color.rgb(224, 0, 255)
-
-        /**
-         * The cell's subdivisions a tap may name, in reading order: 3 columns by
-         * **5 rows**.
-         *
-         * Both numbers are a measurement, not a taste. On a 1200x2664 screen a
-         * cell is 150x222 px, so one *third* of it vertically is 74 px — taller
-         * than the things these taps are aimed at. Measured 2026-10-20 in
-         * WeChat's 视频号 点赞 list: the 「谢谢」 button is ~100x50 px, its row's
-         * name is 200 px above it and holds 20x the tappable area, so a single
-         * step of 74 px was enough to miss the button and hit the name — which
-         * opens a profile card. A fifth is 44 px, inside the button with room.
-         *
-         * Columns stay at three: 50 px per step against a target ~100 px wide
-         * was never the problem, and going to five columns there would double
-         * the vocabulary for nothing.
-         */
-        private const val PART_COLS = 3
-        private const val PART_ROWS = 5
-
-        /** The middle row of the subdivision, used when `part` is omitted. */
-        private const val MID_ROW = PART_ROWS / 2
-
-        /** Every subdivision of a cell a tap may name, in reading order. */
-        val PARTS = listOf(
-            "top-left", "top", "top-right",
-            "upper-left", "upper", "upper-right",
-            "center-left", "center", "center-right",
-            "lower-left", "lower", "lower-right",
-            "bottom-left", "bottom", "bottom-right",
-        )
-
-        // Aliases are the names a model reaches for when it is not looking at
-        // the schema — a Chinese answer says 右下, not bottom-right. The
-        // nine-name grid the vocabulary used before still parses: 上/中/下 and
-        // their corners map to the outer rows, so an old payload aims where it
-        // used to.
-        private val PART_THIRDS: Map<String, IntArray> = buildMap {
-            PARTS.forEachIndexed { i, p -> put(p, intArrayOf(i % PART_COLS, i / PART_COLS)) }
-            // Row 0 / middle / last, as the old thirds meant them.
-            put("left", intArrayOf(0, MID_ROW)); put("right", intArrayOf(2, MID_ROW))
-            listOf("左上", "上", "右上", "左", "中", "右", "左下", "下", "右下")
-                .forEachIndexed { i, p ->
-                    val fy = when (i / 3) {
-                        0 -> 0
-                        1 -> MID_ROW
-                        else -> PART_ROWS - 1
-                    }
-                    put(p, intArrayOf(i % 3, fy))
-                }
-            put("centre", intArrayOf(1, MID_ROW)); put("middle", intArrayOf(1, MID_ROW))
-            put("中间", intArrayOf(1, MID_ROW)); put("中心", intArrayOf(1, MID_ROW))
-            put("top-center", intArrayOf(1, 0)); put("bottom-center", intArrayOf(1, PART_ROWS - 1))
-            put("center-left", intArrayOf(0, MID_ROW)); put("center-right", intArrayOf(2, MID_ROW))
-            put("left-top", intArrayOf(0, 0)); put("right-top", intArrayOf(2, 0))
-            put("left-bottom", intArrayOf(0, PART_ROWS - 1))
-            put("right-bottom", intArrayOf(2, PART_ROWS - 1))
-        }
 
         /**
          * Hard ceiling on outline lines. Generous — it is a safety valve for a

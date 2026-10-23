@@ -114,8 +114,9 @@ class EmotionBallTextureView @JvmOverloads constructor(
         glHandler = h
         h.post {
             initEGL(surface)
-            renderer.onSurfaceCreated(null, null)
-            renderer.onSurfaceChanged(null, width, height)
+            net.kuafuai.andee.ui.ball.gl.GLES20.backend = AndroidGl
+            renderer.onSurfaceCreated()
+            renderer.onSurfaceChanged(width, height)
             running = true
             scheduleFrame(h)
         }
@@ -123,7 +124,7 @@ class EmotionBallTextureView @JvmOverloads constructor(
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
         glHandler?.post {
-            renderer.onSurfaceChanged(null, width, height)
+            renderer.onSurfaceChanged(width, height)
         }
     }
 
@@ -148,7 +149,7 @@ class EmotionBallTextureView @JvmOverloads constructor(
             if (!running) return@post
             val d = eglDisplay ?: return@post
             val s = eglSurface ?: return@post
-            renderer.onDrawFrame(null)
+            renderer.onDrawFrame()
             EGL14.eglSwapBuffers(d, s)
             h.postDelayed({ scheduleFrame(h) }, 16)   // ~60 fps
         }
