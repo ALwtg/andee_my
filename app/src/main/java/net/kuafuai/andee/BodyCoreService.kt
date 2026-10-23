@@ -17,6 +17,7 @@ import net.kuafuai.andee.asr.AsrController
 import net.kuafuai.andee.asr.VoiceExitCommand
 import net.kuafuai.andee.audio.AudioIO
 import net.kuafuai.andee.brain.SpeechMood
+import net.kuafuai.andee.device.AndroidPeers
 import net.kuafuai.andee.i18n.AppLocale
 import net.kuafuai.andee.net.BodyWsServer
 import net.kuafuai.andee.net.CommandDispatcher
@@ -122,6 +123,8 @@ class BodyCoreService : Service() {
     private lateinit var meeting: net.kuafuai.andee.meeting.MeetingRecorder
     private lateinit var dogLink: net.kuafuai.andee.dog.DogLink
     private lateinit var dogSense: net.kuafuai.andee.dog.DogSense
+    private lateinit var peers: AndroidPeers
+
     private lateinit var dogMotion: net.kuafuai.andee.dog.DogMotion
 
     /**
@@ -289,7 +292,16 @@ class BodyCoreService : Service() {
             }
 
             override fun onTextInputToggle() {
+                // Opening the field is a new request, like a tap: whatever is running or being read out stops
+                // first. Closing it (the field already up) stops nothing.
+                if (!net.kuafuai.andee.ui.TextInputActivity.isShowing && (dispatcher.isTaskActive() || audio.isStreamPlaying())) {
+                    stopEverything()
+                }
                 toggleTyping()
+            }
+
+            override fun onTypeThen(what: String) {
+                toggleTyping(then = what)
             }
 
             override fun onLongPress() {
@@ -306,6 +318,21 @@ class BodyCoreService : Service() {
 
             override fun onScenesClick() {
                 openScenes()
+            }
+
+            override fun onMuteToggle() {
+                val on = !net.kuafuai.andee.config.VoiceConfig.muted(this@BodyCoreService)
+                net.kuafuai.andee.config.VoiceConfig.setMuted(this@BodyCoreService, on)
+                if (on) tts.stopSpeaking()
+                window.setMuted(on)
+            }
+
+            override fun onNotebookClick() {
+                net.kuafuai.andee.ui.NotebookUi(this@BodyCoreService) {}.show()
+            }
+
+            override fun onFriendsClick() {
+                if (::peers.isInitialized) net.kuafuai.andee.ui.PeersUi(this@BodyCoreService, peers).show()
             }
 
             override fun onSceneExitClick() {
@@ -555,7 +582,8 @@ class BodyCoreService : Service() {
         // And this is how the card knows where to stop: the field's own top
         // edge, reported whenever the keyboard resizes it.
         net.kuafuai.andee.ui.TextInputActivity.onTop = {
-            android.util.Log.i("Body", "field top: $it px")
+            // Every frame while the keyboard slides: logged only when it settles at zero (the card is whole again).
+            if (it == 0) android.util.Log.i("Body", "field released the card")
             window.setTypingTop(it)
         }
         asr = AsrController(
@@ -646,6 +674,23 @@ class BodyCoreService : Service() {
         // dog from should not be sampling one. DogMotion attaches on first use.
         dogLink = net.kuafuai.andee.dog.DogLink(this)
         dogSense = net.kuafuai.andee.dog.DogSense(this)
+        peers = AndroidPeers(this)
+        peers.onCount = { window.setFriendCount(it) }
+        window.setFriendCount(peers.store.all().size)
+        window.setMuted(net.kuafuai.andee.config.VoiceConfig.muted(this))
+        peers.startIfEnabled()
+        // Scanning the Mac's pairing QR from the Devices card: the unfolded card is an overlay above the camera,
+        // so it folds for the scan and comes back if it was open. See [net.kuafuai.andee.ui.StandAside].
+        var unfoldAfterScan = false
+        net.kuafuai.andee.ui.StandAside.host = { aside ->
+            if (aside) {
+                unfoldAfterScan = !window.isCompact()
+                if (unfoldAfterScan) window.setCompact(true)
+            } else if (unfoldAfterScan) {
+                unfoldAfterScan = false
+                dispatcher.expand()
+            }
+        }
         dogMotion = net.kuafuai.andee.dog.DogMotion(dogLink, dogSense)
         // A *provider*, not the controller: the screen half can be taken away
         // and handed back at any time, and the dispatcher outlives both. See
@@ -1024,6 +1069,8 @@ class BodyCoreService : Service() {
             android.util.Log.i("Body", "$how answered card: $said")
             return
         }
+        // The owner speaking outranks a friend's request on the same screen: it is cut off, and the friend told so.
+        guestBrain?.cancel()
         android.util.Log.i("Body", "$how: $said" + if (images.isEmpty()) "" else " (+${images.size} images)")
         // Hand the keyboard back before the turn exists: the brain may call
         // `type_text` inside it, and it can only do that on ADBKeyboard.
@@ -1095,11 +1142,14 @@ class BodyCoreService : Service() {
      * hidden card is whatever app the user was on, so typing looked like being
      * thrown out of the assistant and then dropped back in.
      */
-    private fun toggleTyping() {
-        if (net.kuafuai.andee.ui.TextInputActivity.isShowing) {
+    private fun toggleTyping(then: String? = null) {
+        if (net.kuafuai.andee.ui.TextInputActivity.isShowing && then == null) {
             net.kuafuai.andee.ui.TextInputActivity.dismiss()
             return
         }
+        // Typing is a conversation, and the conversation is the full card: unfold first, the way the Mac's
+        // double-click brings the chat window up with the cursor in the box.
+        if (window.isCompact()) dispatcher.expand()
         // No keyboard to borrow and nothing to switch: the device's own IME is
         // the user's, and this field types on it like any other app's would.
         // The only way this fails is a tablet whose single IME is the headless
@@ -1111,8 +1161,8 @@ class BodyCoreService : Service() {
             )
             return
         }
-        typingFromFullscreen = !window.isCompact()
-        net.kuafuai.andee.ui.TextInputActivity.start(this)
+        typingFromFullscreen = true
+        net.kuafuai.andee.ui.TextInputActivity.start(this, then)
     }
 
     /**
@@ -2380,6 +2430,7 @@ class BodyCoreService : Service() {
             return
         }
         acceptBrainOutput = false
+        guestBrain?.cancel()
         // A 继续修改 / 继续话题 the user walked away from must not attach itself
         // to whatever they ask next.
         pendingArtifact = null
@@ -2671,12 +2722,13 @@ class BodyCoreService : Service() {
         marketTools = market
         localBrain = net.kuafuai.andee.brain.LocalBrain(
             cfg = bc,
-            host = net.kuafuai.andee.brain.AndroidBrainHost(this, dispatcher, callExtensions, market),
+            host = net.kuafuai.andee.brain.AndroidBrainHost(this, dispatcher, callExtensions, market, peers),
             onProgress = ::onBrainProgress,
             onFinal = ::onBrainFinal,
             onTurnEnd = ::onTurnEnd,
             onSweepSpent = { tokens -> net.kuafuai.andee.config.Notebook.noteSweep(this, tokens) },
         )
+        peers.tasks.brain = peerBrain
         refreshSceneChip()
         // Promises outlive the process: anything that came due while the
         // accessibility service was off (or the tablet was off) is dealt with
@@ -2695,6 +2747,7 @@ class BodyCoreService : Service() {
         net.kuafuai.andee.config.Scheduler.cancelSweep(this)
         val lb = localBrain ?: return
         localBrain = null
+        peers.tasks.brain = null
         lb.stop()
         refreshSceneChip()
     }
@@ -2816,6 +2869,107 @@ class BodyCoreService : Service() {
         waitForQuiet {
             wakeBrainFor(brain, todo)
         }
+    }
+
+    /**
+     * Jobs one of the user's other devices handed here, and reports on jobs this one handed out. Both are
+     * turns nobody in front of the phone just asked for, so both wait like a todo does ([waitForQuiet]) and
+     * neither interrupts the person who is here.
+     */
+    private val peerBrain = object : net.kuafuai.andee.peer.PeerTasks.Brain {
+        override fun run(
+            from: net.kuafuai.andee.peer.PeerProtocol.Peer, trust: net.kuafuai.andee.peer.PeerStore.Trust, text: String,
+            reply: (String?) -> Unit, decline: (String) -> Unit,
+        ): Boolean {
+            val brain = localBrain ?: return false
+            if (trust == net.kuafuai.andee.peer.PeerStore.Trust.OWN) {
+                // The user's words, said on another device — and the one thing that tells whoever is holding the
+                // phone why it just started working on its own.
+                net.kuafuai.andee.ui.ChatHistory.addUser(AppLocale.str(this@BodyCoreService, R.string.peer_task_row, from.name, text))
+                closeTyping()
+                waitForQuiet {
+                    // A ■ earlier closed the gate; this is new work the user asked for, so its answer is wanted.
+                    acceptBrainOutput = true
+                    brain.peerTask(net.kuafuai.andee.peer.PeerTasks.ownTaskText(from, peers.tasks.platformOf(from.id), text), reply)
+                }
+                return true
+            }
+            // Somebody else's Andee. The owner decides, and the work runs out of sight of their life.
+            net.kuafuai.andee.ui.ChatHistory.addUser(AppLocale.str(this@BodyCoreService, R.string.peer_friend_row, from.name, text))
+            waitForQuiet {
+                if (peers.store.autoAccept(from.id)) return@waitForQuiet runAsGuest(from, text, reply)
+                val yes = AppLocale.str(this@BodyCoreService, R.string.peer_allow)
+                val always = AppLocale.str(this@BodyCoreService, R.string.peer_allow_always)
+                val no = AppLocale.str(this@BodyCoreService, R.string.peer_decline)
+                net.kuafuai.andee.ui.CardUi.ask(
+                    AppLocale.str(this@BodyCoreService, R.string.peer_friend_ask, from.name, text.take(300)),
+                    listOf(yes, always, no),
+                    timeoutMs = FRIEND_ASK_MS,
+                ) { r ->
+                    when (r.button) {
+                        always -> { peers.setAutoAccept(from.id, true); runAsGuest(from, text, reply) }
+                        yes -> runAsGuest(from, text, reply)
+                        else -> {
+                            net.kuafuai.andee.ui.ChatHistory.addAssistant(AppLocale.str(this@BodyCoreService, R.string.peer_friend_declined_row, from.name), null)
+                            decline(if (r.button == no) "Its owner declined this request." else "Its owner did not answer, so it was not done.")
+                        }
+                    }
+                }
+            }
+            return true
+        }
+
+        override fun answered(
+            from: net.kuafuai.andee.peer.PeerProtocol.Peer, trust: net.kuafuai.andee.peer.PeerStore.Trust,
+            task: String, report: String, done: Boolean,
+        ) {
+            val brain = localBrain ?: return
+            waitForQuiet {
+                acceptBrainOutput = true
+                // A friend's report is somebody else's words, and runs as such: no vault, no scenes, no handing on.
+                brain.wake(
+                    net.kuafuai.andee.peer.PeerTasks.answerText(from, trust, task, report, done),
+                    untrusted = trust != net.kuafuai.andee.peer.PeerStore.Trust.OWN,
+                )
+            }
+        }
+    }
+
+    /** The friend's request running now, if any. One at a time: two brains on one screen is chaos. */
+    @Volatile private var guestBrain: net.kuafuai.andee.brain.LocalBrain? = null
+
+    /**
+     * Run a friend's request the owner allowed, in a brain of its own over [net.kuafuai.andee.brain.GuestHost]: no
+     * memory, no history, no vault, no personal data. Dropped when it answers, so one friend never sees another's.
+     * Waits for the owner's own turn to finish first; the owner speaking cuts it off ([submitUserTurn], ■).
+     * Silent: the owner is shown the work and the reply, but the voice is theirs to hear, not a friend's report.
+     */
+    private fun runAsGuest(from: net.kuafuai.andee.peer.PeerProtocol.Peer, text: String, reply: (String?) -> Unit) {
+        Thread {
+            while (localBrain?.isBusy() == true || guestBrain != null) Thread.sleep(500)
+            val cfg = net.kuafuai.andee.config.VoiceConfig.brainConfig(this)
+            val market = marketTools ?: net.kuafuai.andee.market.MarketTools("", "", enabled = false)
+            val g = net.kuafuai.andee.brain.LocalBrain(
+                cfg = cfg,
+                host = net.kuafuai.andee.brain.GuestHost(net.kuafuai.andee.brain.AndroidBrainHost(this, dispatcher, callExtensions, market, peers)),
+                onProgress = ::onBrainProgress,
+                onFinal = { answer ->
+                    val plain = SpeechMood.parse(stripMarkdown(END_MARKER.replace(answer, ""))).text
+                    net.kuafuai.andee.ui.ChatHistory.addAssistant(AppLocale.str(this, R.string.peer_friend_reply_row, from.name, plain), null)
+                    dispatcher.endTask()
+                    window.clearSubtitle()
+                    window.setState(FloatingWindowUi.State.IDLE)
+                },
+            )
+            guestBrain = g
+            acceptBrainOutput = true
+            g.peerTask(net.kuafuai.andee.peer.PeerTasks.friendTaskText(from, text)) { answer ->
+                reply(answer)
+                guestBrain = null
+                // Not from inside its own loop thread: stop() shuts that thread down.
+                Thread { g.stop() }.apply { isDaemon = true }.start()
+            }
+        }.apply { isDaemon = true; name = "friend-task" }.start()
     }
 
     /** Poll until nothing is speaking, asking or listening, or [WAKE_PATIENCE_MS] passes; then run [then]. */
@@ -2994,7 +3148,10 @@ class BodyCoreService : Service() {
             // same way it displaces the meeting recorder's. The
             // scrollback row above is already the answer; the user
             // reads it after they hang up.
-            if (!meeting.isActive() && !net.kuafuai.andee.device.CallState.isActive) {
+            // And not when the user has muted answers (the card's 朗读 key): the row above is the answer.
+            if (!meeting.isActive() && !net.kuafuai.andee.device.CallState.isActive &&
+                !net.kuafuai.andee.config.VoiceConfig.muted(this)
+            ) {
                 tts.speak(plain, script.cues)
             }
         }
@@ -3064,6 +3221,7 @@ class BodyCoreService : Service() {
 
         /** How long a wake-up waits for the user's exchange to settle before it goes ahead anyway. */
         private const val WAKE_PATIENCE_MS = 150_000L
+        private const val FRIEND_ASK_MS = 300_000L
 
         private val instanceRef = AtomicReference<BodyCoreService?>()
 

@@ -122,6 +122,27 @@
     <string name="gear_field_can_do">能替你做什么</string>
     <string name="gear_none_match">没有匹配的。</string>
     <string name="gear_search">搜索</string>
+    <string name="settings_section_peers">朋友</string>
+    <string name="settings_peers_note">Andee 可以请朋友帮忙：你自己的其它设备，或者别人的 Andee。</string>
+    <string name="settings_peers_count_note">%1$d 个朋友</string>
+    <string name="settings_peers_manage">查看 / 添加</string>
+    <string name="peers_title">朋友</string>
+    <string name="peers_subtitle">Andee 可以请朋友帮忙：你自己的其它设备，或者别人的 Andee</string>
+    <string name="peers_this">这台设备</string>
+    <string name="peers_fingerprint">指纹 %1$s</string>
+    <string name="peers_visible_title">允许其它设备找到我</string>
+    <string name="peers_visible_note">打开后，朋友在同一个 Wi-Fi 里能找到这台设备。不是朋友的设备连不上，也看不到任何内容。</string>
+    <string name="peers_add_title">添加</string>
+    <string name="peers_paired">朋友 %1$d</string>
+    <string name="peers_none">还没有。</string>
+    <string name="peers_linked">已连接</string>
+    <string name="peers_nearby_state">在附近</string>
+    <string name="peers_away">不在附近</string>
+    <string name="peers_connect">连接</string>
+    <string name="peers_ping">测试</string>
+    <string name="peers_unpair">删除</string>
+    <string name="peers_unpair_confirm">确认删除</string>
+    <string name="peers_pairing">配对中…</string>
     <string name="gear_subtitle">装了什么、各是干什么的 —— 它动手前会先看这里</string>
     <string name="settings_vault_manage">管理</string>
     <string name="settings_section_voice">火山接口地址</string>
@@ -181,7 +202,7 @@
     <!-- The pinned gesture tips at the bottom of the full card. The swipe hint
          is last because it is the one gesture that only exists unfolded — the
          folded ball reads a horizontal flick as a move instead. -->
-    <string name="window_tips">点小球说话 · 双击打字 · 三连击停止 · 滑动切换性格</string>
+    <string name="window_tips">点小球说话 · 双击打字 · 滑动切换性格</string>
 
     <!-- 产物: the pages the assistant has made. See ui/ArtifactsUi.kt. -->
     <string name="artifacts_title">产物</string>
@@ -723,4 +744,30 @@
     <string name="expr_failed">失败</string>
     <string name="expr_sleeping">睡着</string>
 
+    <string name="peer_task_row">（%1$s 交来的任务）%2$s</string>
+    <string name="peers_scan">扫码添加</string>
+    <string name="peers_scan_note">扫对方 Andee「朋友」页上的二维码。</string>
+    <string name="peers_paired_ok">已添加 %1$s。</string>
+    <string name="peers_scan_failed">没加上：%1$s</string>
+    <string name="peers_scan_not_ours">这不是 Andee 的二维码。</string>
+    <string name="peers_show_friend">出示二维码给朋友</string>
+    <string name="peers_show_own">出示给我的设备</string>
+    <string name="peers_show_note_own">用你自己的另一台设备上的 Andee 扫这个码。两分钟内有效。</string>
+    <string name="peers_show_note_friend">让朋友用他的 Andee 扫这个码（朋友 → 扫码添加）。两分钟内有效。</string>
+    <string name="peers_show_failed">没能出示二维码：%1$s</string>
+    <string name="peers_kinds_note">「我的设备」和你一样被信任；「朋友」每次请求都会先问你，也看不到你的记忆和对话。暂时只能在同一个 Wi-Fi 里找到彼此。</string>
+    <string name="peers_kind_friend">朋友</string>
+    <string name="peers_kind_own">我的设备</string>
+    <string name="peers_ask_each">每次先问我</string>
+    <string name="peers_always">总是允许</string>
+    <string name="peer_friend_row">（朋友 %1$s 请求）%2$s</string>
+    <string name="peer_friend_reply_row">（回复 %1$s）%2$s</string>
+    <string name="peer_friend_ask">朋友 %1$s 的 Andee 想请我做：%2$s</string>
+    <string name="peer_friend_declined_row">没有替 %1$s 做。</string>
+    <string name="peer_allow">允许</string>
+    <string name="peer_allow_always">总是允许</string>
+    <string name="peer_decline">拒绝</string>
+    <string name="window_input_hint">打字跟它说…</string>
+    <string name="window_voice_on">朗读</string>
+    <string name="window_muted">静音</string>
 </resources>

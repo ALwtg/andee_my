@@ -80,6 +80,8 @@ class DesktopBrainHost(
     override fun gearIndex(): String = providers.filterIsInstance<net.kuafuai.andee.desktop.mac.MacGear>().firstOrNull()?.indexForPrompt().orEmpty()
     override fun topicsIndex(): String = Scrollback.topicsIndex()
 
+    override fun friendsIndex(): String = Peers.tasks.indexForPrompt()
+
     override fun foldTopic(title: String, summary: String, rows: List<ScrollRow>, text: String): FoldedTopic? {
         val t = Scrollback.fold(title, summary, rows.mapNotNull { it.handle as? Long }, text) ?: return null
         return FoldedTopic(t.id, t.title, t.summary)

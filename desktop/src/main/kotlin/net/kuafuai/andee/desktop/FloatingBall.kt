@@ -30,19 +30,14 @@ private val BALL_WINDOW = 112.dp
  * over full-screen apps (that last part is the native `floatWindow`, because a
  * JVM's "always on top" is only the floating level on the current Space).
  *
- * While a task is running or being read out, any press stops it (see `working` / `onStop`).
- *
- * The phone's three gestures: tap talks, double-tap types (the chat window comes
- * up with the cursor in the input box), long-press opens the window. Quitting is
- * ⌘Q, since closing the chat only hides it. Drag moves it, and where it was left
- * is remembered. A tap waits out the double-tap interval before it fires, which
- * is what lets the two be told apart.
+ * The phone's gestures ([BallActions]): one tap talks — stopping whatever was running first — two type
+ * (the chat window comes up with the cursor in the box), three stop, a long press opens the window.
+ * Quitting is ⌘Q, since closing the chat only hides it. Drag moves it, and where it was left is
+ * remembered — like the phone's folded ball; switching character is the chat window's ball.
  */
 @Composable
 fun ApplicationScope.FloatingBall(
-    onTap: () -> Unit, onDoubleTap: () -> Unit, onLongPress: () -> Unit, onWindow: (java.awt.Window) -> Unit,
-    /** True while a task is running or being read out; a press then stops it at once. */
-    working: () -> Boolean = { false }, onStop: () -> Unit = {},
+    actions: BallActions, onWindow: (java.awt.Window) -> Unit,
 ) {
     val state = rememberWindowState(size = DpSize(BALL_WINDOW, BALL_WINDOW), position = savedPosition())
     Window(
@@ -84,18 +79,7 @@ fun ApplicationScope.FloatingBall(
                         w.setLocation(origin.x + now.x - grab.x, origin.y + now.y - grab.y)
                     }
                 }
-                .pointerInput(Unit) {
-                    // A tap waits out the double-tap interval before it fires, which is half a second of
-                    // "nothing happened" when the user is trying to make it stop. So while it is working
-                    // the stop happens on the press itself, and the rest of that gesture is ignored.
-                    var stopped = false
-                    detectTapGestures(
-                        onPress = { stopped = working(); if (stopped) onStop() },
-                        onTap = { if (!stopped) onTap() },
-                        onDoubleTap = { if (!stopped) onDoubleTap() },
-                        onLongPress = { if (!stopped) onLongPress() },
-                    )
-                },
+                .ballTaps(actions),
             contentAlignment = Alignment.Center,
         ) {
             BallView(BALL_WINDOW, onClick = null)

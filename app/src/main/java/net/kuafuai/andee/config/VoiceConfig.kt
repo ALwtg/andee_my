@@ -766,6 +766,12 @@ object VoiceConfig {
          * the card redraws in the new language and that redraw *is* the
          * confirmation. Nothing else on this device is written eagerly.
          */
+        /** The user turned reading answers aloud off (the card's speaker key). Off by default, as on the Mac. */
+        fun muted(context: Context): Boolean =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("mute", "") == "1"
+
+        fun setMuted(context: Context, on: Boolean) = save(context, mapOf("mute" to if (on) "1" else "0"))
+
         fun uiLanguage(context: Context): String {
             val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString("lang", "").orEmpty().trim().lowercase()
@@ -898,6 +904,8 @@ object VoiceConfig {
         // editable too, and is gone: the voice follows the ball's look, not a
         // row — see [lookSpeaker].)
         private val ALLOWED_KEYS = setOf(
+            // Answers read aloud or not — the card's 朗读 / 静音 key, the Mac header's twin.
+            "mute",
             // Which palette the UI draws with — see [net.kuafuai.andee.ui.Theme].
             // In this list because [save] drops anything that is not: a key missing
             // here is a write that silently does nothing, which on a theme means the

@@ -6,7 +6,7 @@ import androidx.compose.runtime.mutableStateListOf
  * Where the window is. A stack, because settings opens the notebook and the
  * notebook closes back to settings; the sidebar jumps by replacing the stack.
  * Screens are plain strings: "chat", "settings", "notebook", "vault", "scenes",
- * "expressions", "gear", "selfcheck", "artifacts", and "topic:<id>".
+ * "expressions", "gear", "peers", "selfcheck", "artifacts", and "topic:<id>".
  */
 class Nav {
     val stack = mutableStateListOf("chat")

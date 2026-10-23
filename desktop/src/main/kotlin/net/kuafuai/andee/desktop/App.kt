@@ -28,13 +28,17 @@ fun AppRoot(nav: Nav) {
                 val card = if (screen == "chat") Modifier else Modifier.padding(14.dp).frostedCard()
                 Box(Modifier.widthIn(max = 900.dp).fillMaxHeight().then(card)) {
                     when {
-                        screen == "settings" -> SettingsScreen(onDone = { nav.back() }, onOpenGear = { nav.push("gear") })
+                        screen == "settings" -> SettingsScreen(
+                            onDone = { nav.back() }, onOpenGear = { nav.push("gear") },
+                            onOpenVault = { nav.push("vault") }, onOpenExpressions = { nav.push("expressions") },
+                        )
                         screen == "selfcheck" -> SelfCheckCard(onDone = { nav.back() }, onOpenSettings = { nav.push("settings") })
                         screen == "notebook" -> NotebookCard(onDone = { nav.back() })
                         screen == "vault" -> VaultCard(onDone = { nav.back() })
                         screen == "scenes" -> ScenesCard(onDone = { nav.back() })
                         screen == "expressions" -> ExpressionsCard(onDone = { nav.back() })
                         screen == "gear" -> GearCard(onDone = { nav.back() })
+                        screen == "peers" -> PeersCard(onDone = { nav.back() })
                         screen == "artifacts" -> ArtifactsCard(onDone = { nav.back() }, onContinue = { nav.go("chat"); ComposerFocus.pending = true })
                         screen.startsWith("topic:") -> TopicScreen(screen.removePrefix("topic:").toLongOrNull() ?: -1L, onDone = { nav.back() },
                             onContinue = { nav.go("chat"); ComposerFocus.pending = true })

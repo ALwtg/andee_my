@@ -32,6 +32,7 @@ import android.widget.TextView
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import net.kuafuai.andee.R
 import net.kuafuai.andee.i18n.AppLocale
@@ -112,6 +113,9 @@ class TextInputActivity : Activity() {
     /** Whether the card should follow the strip's top edge right now. */
     private var trackTop = false
 
+    /** The keyboard is sliding; [onProgress] owns the strip's position and the card's edge until it stops. */
+    private var sliding = false
+
     /**
      * The user is in the camera, the photo picker or the permission dialog.
      * While it is set, the keyboard going away and this activity stopping are
@@ -129,6 +133,9 @@ class TextInputActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // No window animation in or out: the strip opens exactly where the card's identical pill already is,
+        // so the keyboard sliding is the only motion there should be.
+        @Suppress("DEPRECATION") overridePendingTransition(0, 0)
         // Before the first `Glass.*` read below: [Theme] holds the *default* palette
         // until something loads the saved one, and this page draws immediately.
         Theme.load(this)
@@ -143,16 +150,16 @@ class TextInputActivity : Activity() {
             // read at a glance: #5F6775 on the strip's near-black is ~3.6:1,
             // which is the faint grey this whole change was about.
             setHintTextColor(Color.parseColor(Glass.SECONDARY))
-            // Recessed, so the strip reads as "type here" rather than as a
-            // toolbar with two buttons and some floating text.
-            background = Glass.well(this@TextInputActivity, dp(14))
+            // No fill of its own: the pill around it is the field (see [InputPill]), exactly as the card's
+            // resting pill draws it, so opening the keyboard changes nothing but the keyboard.
+            background = null
             // Single line with the enter key turned into send. Deliberately not
             // a multi-line box: with one, Enter inserts a newline and the only
             // way to send is the button — a coin flip the user has to learn.
             maxLines = 1
             inputType = InputType.TYPE_CLASS_TEXT
             imeOptions = EditorInfo.IME_ACTION_SEND
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setPadding(dp(4), 0, dp(4), 0)
             setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_SEND) {
                     send()
@@ -163,15 +170,12 @@ class TextInputActivity : Activity() {
             }
         }
 
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        row.addView(iconButton(R.drawable.ic_camera, lctx.getString(R.string.input_take_photo)) { takePhoto() })
-        row.addView(iconButton(R.drawable.ic_image, lctx.getString(R.string.input_pick_photos)) { pickPhotos() })
-        row.addView(field, LinearLayout.LayoutParams(0, WRAP, 1f))
-        row.addView(glyph(lctx.getString(R.string.input_send), Glass.ACCENT) { send() })
-        row.addView(glyph("✕", Glass.LABEL) { finish() })
+        // The same pill as the card's resting one — camera, album, words, send — so the field opening is the
+        // keyboard arriving and nothing else. Closing is the keyboard going (or back): the pill has no ✕.
+        val row = InputPill.build(
+            this, field,
+            onCamera = { takePhoto() }, onAlbum = { pickPhotos() }, onSend = { send() },
+        )
 
         thumbs = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -259,6 +263,11 @@ class TextInputActivity : Activity() {
             )
         }
         setContentView(root)
+        // Opened from the resting pill's camera or album icon: carry on to that.
+        when (intent?.getStringExtra(EXTRA_THEN)) {
+            "camera" -> root.post { takePhoto() }
+            "album" -> root.post { pickPhotos() }
+        }
 
         // The keyboard is most of a phone screen, and it arrives **over** this
         // window. A translucent window is never resized for the IME — measured:
@@ -274,7 +283,10 @@ class TextInputActivity : Activity() {
             // On the column, not the root: the backdrop is full bleed and must
             // slide under the status bar and the keys, while the strip itself
             // steps around them.
-            column.setPadding(dp(12), dp(4) + bars.top, dp(12), dp(12) + ime)
+            // While the keyboard slides, the animation callback below moves the strip frame by frame; this
+            // listener sees the *end* state first and would jump it there in one step — the stutter.
+            if (!sliding) column.setPadding(dp(12), dp(4) + bars.top, dp(12), dp(12) + ime)
+            else column.setPadding(dp(12), dp(4) + bars.top, dp(12), column.paddingBottom)
             if (ime > 0) {
                 imeShown = true
                 cancelCloseWhenGone()
@@ -298,7 +310,23 @@ class TextInputActivity : Activity() {
                 // another app to collect, and losing them to a dropped keyboard
                 // is worse than a strip that waits at the bottom for 发送.
                 trackTop = false
-                scheduleCloseWhenGone()
+                if (!sliding) scheduleCloseWhenGone()
+                return@setOnApplyWindowInsetsListener insets
+            }
+            // Before the keyboard has ever arrived the strip sits at the very bottom, under the card's own
+            // identical pill. Telling the card to end there would only make it jump twice.
+            if (!imeShown) return@setOnApplyWindowInsetsListener insets
+            if (sliding) {
+                // This listener sees where the keyboard will *end* before it starts moving. The card takes that
+                // edge once, now — resizing an overlay every frame is a relayout of the whole card per frame,
+                // which is what made the slide stutter (measured: 66 slow UI-thread frames in three opens).
+                // The gap it leaves above the rising strip is this window's own backdrop: the same picture.
+                trackTop = true
+                if (ime > 0 && strip.height > 0) {
+                    val at = IntArray(2)
+                    root.getLocationOnScreen(at)
+                    onTop?.invoke(at[1] + root.height - (dp(12) + ime) - strip.height)
+                }
                 return@setOnApplyWindowInsetsListener insets
             }
             // Tell the card where our top edge is, in screen pixels, so it can
@@ -310,6 +338,36 @@ class TextInputActivity : Activity() {
             root.post { reportTop() }
             insets
         }
+        // Follow the keyboard frame by frame: the strip rides on top of it. The card's edge moves once per
+        // slide (see the listener above); moving it every frame stuttered.
+        ViewCompat.setWindowInsetsAnimationCallback(root, object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_STOP) {
+            override fun onPrepare(a: WindowInsetsAnimationCompat) {
+                if (a.typeMask and WindowInsetsCompat.Type.ime() != 0) sliding = true
+            }
+
+            override fun onProgress(insets: WindowInsetsCompat, running: MutableList<WindowInsetsAnimationCompat>): WindowInsetsCompat {
+                if (!sliding || picking) return insets
+                val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                val bottom = dp(12) + ime
+                if (column.paddingBottom != bottom) column.setPadding(column.paddingLeft, column.paddingTop, column.paddingRight, bottom)
+                // Only the strip moves per frame; the card's edge was set once when the slide began.
+                return insets
+            }
+
+            override fun onEnd(a: WindowInsetsAnimationCompat) {
+                if (a.typeMask and WindowInsetsCompat.Type.ime() == 0) return
+                sliding = false
+                val now = ViewCompat.getRootWindowInsets(root)
+                val ime = now?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+                if (ime > 0) { trackTop = true; return }
+                if (imeShown && photos.isEmpty() && !picking) {
+                    // The keys are down: hand the card its full height back now — its own pill is the same
+                    // picture as this strip, so the hand-over is invisible — and close.
+                    onTop?.invoke(0)
+                    scheduleCloseWhenGone()
+                }
+            }
+        })
         // The strip also grows by itself, when the first photo arrives.
         strip.addOnLayoutChangeListener { _, _, top, _, _, _, oldTop, _, _ ->
             if (top != oldTop && trackTop) reportTop()
@@ -602,6 +660,11 @@ class TextInputActivity : Activity() {
         field.removeCallbacks(r)
     }
 
+    override fun finish() {
+        super.finish()
+        @Suppress("DEPRECATION") overridePendingTransition(0, 0)
+    }
+
     private fun showKeyboard() {
         runCatching { field.windowInsetsController?.show(android.view.WindowInsets.Type.ime()) }
         runCatching {
@@ -710,14 +773,18 @@ class TextInputActivity : Activity() {
          * so a second tap on ⌨ raises the field already up instead of stacking a
          * second one behind it.
          */
-        fun start(context: Context) {
+        /** [then] = "camera" / "album" to go straight on to that, as the resting pill's icons ask. */
+        fun start(context: Context, then: String? = null) {
             runCatching {
                 context.startActivity(
                     Intent(context, TextInputActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        .putExtra(EXTRA_THEN, then),
                 )
             }
         }
+
+        const val EXTRA_THEN = "then"
 
         /** Close it if it is up. Safe to call from anywhere, including never-opened. */
         fun dismiss() {

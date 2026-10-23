@@ -16,6 +16,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.launch
 import net.kuafuai.andee.brain.SpeechMood
 import net.kuafuai.andee.desktop.voice.MacVoice
 import net.kuafuai.andee.ui.ball.Action
@@ -37,7 +40,11 @@ import org.jetbrains.skia.ImageInfo
  */
 object MacBall {
 
-    @Volatile private var renderer: BallRenderer? = null
+    /**
+     * Every ball on screen: the floating one, and the one above the conversation in the chat window. They are
+     * one Andee, so they wear one face — a set, not a single slot.
+     */
+    private val renderers = java.util.concurrent.CopyOnWriteArraySet<BallRenderer>()
     @Volatile private var voice = MacVoice.State.IDLE
     @Volatile private var busy = false
     @Volatile private var recording = false
@@ -49,11 +56,18 @@ object MacBall {
     /** Restores the saved look; by name, like the phone's `ball` key. */
     fun restoreLook() = BallLooks.requestByName(Settings.get("ball").ifEmpty { null })
 
+    /** One character along, with a pop — the phone's sideways swipe across the full card's ball. */
+    fun stepLook(delta: Int) {
+        val look = BallLooks.step(delta)
+        Settings.save(mapOf("ball" to look.name))
+        renderers.forEach { it.trigger(Action.POP) }
+    }
+
     /** Switch to another character and remember it. */
     fun pickLook(name: String) {
         BallLooks.requestByName(name)
         Settings.save(mapOf("ball" to name))
-        renderer?.trigger(Action.POP)
+        renderers.forEach { it.trigger(Action.POP) }
     }
 
     fun onVoice(s: MacVoice.State) {
@@ -61,7 +75,7 @@ object MacBall {
         voice = s
         // The model's face belongs to one utterance (see FloatingWindowUi.setState).
         emotion = if (s == MacVoice.State.SPEAKING) nextEmotion else null
-        if (s == MacVoice.State.LISTENING && was != s) renderer?.trigger(Action.HOP)
+        if (s == MacVoice.State.LISTENING && was != s) renderers.forEach { it.trigger(Action.HOP) }
         apply()
     }
 
@@ -77,7 +91,7 @@ object MacBall {
     }
 
     /** A tool ran: a nod, then back to the working face on its own. */
-    fun onTool() { renderer?.pulseTool() }
+    fun onTool() { renderers.forEach { it.pulseTool() } }
 
     /**
      * An answer came back. The opening face it was written with is held for
@@ -87,20 +101,20 @@ object MacBall {
      */
     fun onAnswer(raw: String) {
         nextEmotion = SpeechMood.parse(raw).cues.firstOrNull()?.mood
-        renderer?.signalOutcome(true)
+        renderers.forEach { it.signalOutcome(true) }
     }
 
     internal fun attach(r: BallRenderer) {
-        renderer = r
+        renderers += r
         apply()
     }
 
     internal fun detach(r: BallRenderer) {
-        if (renderer === r) renderer = null
+        renderers -= r
     }
 
     private fun apply() {
-        val r = renderer ?: return
+        if (renderers.isEmpty()) return
         val mood = when {
             recording -> Mood.LISTENING
             voice == MacVoice.State.LISTENING -> Mood.LISTENING
@@ -108,8 +122,10 @@ object MacBall {
             busy -> Mood.THINKING
             else -> Mood.CALM
         }
-        r.setState(mood, listening = mood == Mood.LISTENING, emotion = emotion)
-        r.setWorking(busy)
+        for (r in renderers) {
+            r.setState(mood, listening = mood == Mood.LISTENING, emotion = emotion)
+            r.setWorking(busy)
+        }
     }
 }
 
@@ -152,5 +168,49 @@ fun BallView(size: Dp, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
     )
     Canvas(modifier.size(size).then(click)) {
         if (tick > 0) drawImage(image, dstOffset = IntOffset.Zero, dstSize = IntSize(this.size.width.toInt(), this.size.height.toInt()))
+    }
+}
+
+/**
+ * What the ball's taps mean, the same on the phone and on both of the Mac's balls:
+ * one tap talks (and stops whatever was running first), two type, three stop, a long press opens the window.
+ */
+class BallActions(
+    val onTap: () -> Unit,
+    val onDoubleTap: () -> Unit,
+    val onTripleTap: () -> Unit,
+    val onLongPress: () -> Unit,
+)
+
+/** The gesture interval: a tap waits this long for a second one before it counts as one tap. */
+private const val MULTI_TAP_MS = 320L
+
+/**
+ * One, two or three taps, told apart by waiting out [MULTI_TAP_MS] after the last — Compose has no triple-tap,
+ * and its double-tap swallows the second tap of a third. A long press fires at once and ends the sequence.
+ */
+fun Modifier.ballTaps(a: BallActions): Modifier = this.pointerInput(a) {
+    val scope = this
+    var count = 0
+    var timer: kotlinx.coroutines.Job? = null
+    kotlinx.coroutines.coroutineScope {
+        val outer = this
+        scope.detectTapGestures(
+            onLongPress = { timer?.cancel(); count = 0; a.onLongPress() },
+            onTap = {
+                count++
+                timer?.cancel()
+                timer = outer.launch {
+                    kotlinx.coroutines.delay(MULTI_TAP_MS)
+                    val n = count
+                    count = 0
+                    when {
+                        n >= 3 -> a.onTripleTap()
+                        n == 2 -> a.onDoubleTap()
+                        else -> a.onTap()
+                    }
+                }
+            },
+        )
     }
 }

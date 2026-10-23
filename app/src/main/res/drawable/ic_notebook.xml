@@ -1,0 +1,10 @@
+<!-- 小本本: a bound notebook with ring tabs down its spine — the Mac sidebar's NOTEBOOK icon, as a filled glyph. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7,2h11a2,2 0,0 1,2 2v16a2,2 0,0 1,-2 2H7a2,2 0,0 1,-2 -2v-1H3.5a1,1 0,0 1,0 -2H5v-2H3.5a1,1 0,0 1,0 -2H5v-2H3.5a1,1 0,0 1,0 -2H5V9H3.5a1,1 0,0 1,0 -2H5V4a2,2 0,0 1,2 -2zM9.5,7.5a0.75,0.75 0,0 0,0 1.5h6a0.75,0.75 0,0 0,0 -1.5zM9.5,11.25a0.75,0.75 0,0 0,0 1.5h6a0.75,0.75 0,0 0,0 -1.5zM9.5,15a0.75,0.75 0,0 0,0 1.5h4a0.75,0.75 0,0 0,0 -1.5z"/>
+</vector>

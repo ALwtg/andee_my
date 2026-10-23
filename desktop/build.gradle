@@ -41,6 +41,12 @@ dependencies {
     implementation compose.desktop.currentOs
     // Android has org.json built in; a JVM app has to bring it.
     implementation 'org.json:json:20240303'
+    // Bonjour/mDNS on the JVM, for finding the phone on the LAN (the JDK has none). Pure Java, no native part.
+    implementation 'org.jmdns:jmdns:3.5.9'
+    // PeerServer extends its WebSocketServer, and core keeps that dependency to itself.
+    implementation 'org.java-websocket:Java-WebSocket:1.5.7'
+    // Drawing the pairing QR code the phone scans. Pure Java, encoder only.
+    implementation 'com.google.zxing:core:3.5.3'
     // Calls into native/AndeeMac.swift.
     implementation 'net.java.dev.jna:jna:5.14.0'
     // LWJGL: OpenGL and CGL for the ball's offscreen renderer (no GLFW — see BallRenderer).

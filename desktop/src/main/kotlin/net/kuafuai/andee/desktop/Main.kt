@@ -26,6 +26,7 @@ fun main() {
     Assistant.askApproval = { ApprovalGate.request(it) }
     MacBall.restoreLook()
     Assistant.start()
+    Peers.startIfEnabled()
     application {
         var pending by remember { mutableStateOf(ApprovalGate.current) }
         // The chat window comes and goes (the ball is always there); the nav says what it shows.
@@ -75,16 +76,8 @@ fun main() {
         }
 
         FloatingBall(
-            // A press while it is working is a stop (handled in FloatingBall, on the press itself);
-            // these run only when it was idle.
-            working = { Assistant.working() },
-            onStop = { Assistant.stop() },
-            onTap = {
-                if (Meeting.isActive()) Meeting.stopFromUser()
-                else if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) openChat("settings")
-            },
-            onDoubleTap = { openChat(typing = true) },
-            onLongPress = { openChat() },
+            actions = ballActions(onType = { openChat(typing = true) }, onNoVoice = { openChat("settings") })
+                .let { a -> BallActions(a.onTap, a.onDoubleTap, a.onTripleTap) { openChat() } },
             onWindow = { ballWindow = it },
         )
         BallCaptionWindow(ballWindow, suppressed = pending != null || ask != null)
@@ -94,7 +87,9 @@ fun main() {
             onCloseRequest = { chat = false },
             visible = chat,
             title = "Andee",
-            state = rememberWindowState(width = 1020.dp, height = 820.dp),
+            // Big enough that the conversation, the ball above it and the sidebar all breathe on a laptop; never
+            // past 90% of the screen it opens on.
+            state = rememberWindowState(width = defaultChatSize().first, height = defaultChatSize().second),
             resizable = true,
         ) {
             chatWindow = window
@@ -132,3 +127,34 @@ private fun installFileLog() {
         }
     }
 }
+
+/** The chat window's first size: 1280×960 points, shrunk to 90% of the main screen when that is smaller. */
+private fun defaultChatSize(): Pair<androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp> {
+    val screen = runCatching { java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds }.getOrNull()
+    val w = minOf(1280, ((screen?.width ?: 1280) * 0.9).toInt())
+    val h = minOf(960, ((screen?.height ?: 960) * 0.9).toInt())
+    return w.dp to h.dp
+}
+
+/**
+ * The ball's taps, shared by the floating ball and the one above the conversation. [onType] brings the chat up
+ * with the cursor in the box; a long press is the caller's (the floating ball opens the window, the chat's own
+ * ball has nothing to open).
+ */
+fun ballActions(onType: () -> Unit, onNoVoice: () -> Unit) = BallActions(
+    onTap = {
+        when {
+            Meeting.isActive() -> Meeting.stopFromUser()
+            else -> {
+                // The phone's rule: a tap is "listen to me now". Whatever was running or being read out stops
+                // first, and the mic opens in the same tap rather than needing a second one.
+                if (Assistant.working()) Assistant.stop()
+                if (!net.kuafuai.andee.desktop.voice.MacVoice.toggle()) onNoVoice()
+            }
+        }
+    },
+    // Typing is a new request too: whatever was running or being read out stops first, as the tap does.
+    onDoubleTap = { if (Assistant.working()) Assistant.stop(); onType() },
+    onTripleTap = { if (Meeting.isActive()) Meeting.stopFromUser() else Assistant.stop() },
+    onLongPress = {},
+)

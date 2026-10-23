@@ -1,5 +1,13 @@
 package net.kuafuai.andee.desktop
 
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+
+import androidx.compose.ui.input.pointer.pointerInput
+
+import androidx.compose.ui.graphics.graphicsLayer
+
+import androidx.compose.ui.draw.drawWithContent
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -114,7 +122,6 @@ fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, on
     val attached = remember { androidx.compose.runtime.mutableStateListOf<Attachment>().apply { addAll(ChatPreview.attachments) } }
     var dropping by remember { mutableStateOf(false) }
     var muted by remember { mutableStateOf(Assistant.muted) }
-    var artifacts by remember { mutableStateOf(Pages.artifacts()) }
     var recording by remember { mutableStateOf(Meeting.isActive()) }
     val list = rememberLazyListState()
     // A folded stretch is one card standing where its messages stood — the phone's rule, so the
@@ -130,7 +137,6 @@ fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, on
     }
     LaunchedEffect(Unit) {
         rows = Scrollback.snapshot()
-        Pages.onChange = { artifacts = Pages.artifacts() }
         Meeting.onRecordingChanged = { recording = it }
         Assistant.onProgress = { progress = it }
         Assistant.onFinal = { progress = "" }
@@ -215,23 +221,15 @@ fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, on
         )
 
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
-            if (artifacts.isNotEmpty()) {
-                Row(
-                    Modifier.fillMaxWidth().glassSurface(12).clickable { onOpenArtifacts() }.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(AndeeIcon.DOCUMENT, Palette.accent, 16.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        (if (Strings.lang() == "zh") "产物" else "Artifacts") + " (${artifacts.size})",
-                        color = Palette.accent, fontSize = 13.sp, modifier = Modifier.weight(1f),
-                    )
-                    Icon(AndeeIcon.CHEVRON, Palette.accent, 14.dp)
-                }
-                Spacer(Modifier.height(10.dp))
+            // The ball above the conversation, as on the phone's unfolded card: the same Andee as the floating
+            // one (it wears the same face, see MacBall), and a tap talks to it. 产物 has its own sidebar door.
+            // Same taps as the floating ball; sideways swipe switches character, like the full card's ball on the phone.
+            val chatBall = remember { ballActions(onType = { ComposerFocus.pending = true }, onNoVoice = { progress = noVoiceKey() }) }
+            Box(Modifier.fillMaxWidth().padding(bottom = 6.dp), contentAlignment = Alignment.Center) {
+                BallView(150.dp, onClick = null, modifier = Modifier.ballTaps(chatBall).lookSwipe())
             }
             LazyColumn(
-                state = list, modifier = Modifier.weight(1f).fillMaxWidth(),
+                state = list, modifier = Modifier.weight(1f).fillMaxWidth().fadeTop(36.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 4.dp, bottom = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -292,10 +290,15 @@ fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, on
             onRemove = { attached.remove(it) },
             onAttach = { choose() },
             onPaste = { pasteAttachment() },
-            stoppable = recording || busy,
-            onStop = { if (recording) Meeting.stopFromUser() else if (busy) Assistant.stop() },
             onMic = { toggleMic() },
             onSend = { send() },
+        )
+        // The ball's whole vocabulary, pinned where the eye ends up — the phone's line under its card.
+        Text(
+            if (Strings.lang() == "zh") "点小球说话 · 双击打字 · 左右拖动切换形象"
+            else "Tap the ball to talk · double-tap to type · drag sideways to switch character",
+            color = Palette.photoInk, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 8.dp),
         )
     }
     if (dropping) {
@@ -348,7 +351,7 @@ private fun Header(status: String?, live: Boolean, muted: Boolean, onToggleMute:
 private fun InputBar(
     input: String, onInput: (String) -> Unit, listening: Boolean, canSend: Boolean,
     attached: List<Attachment>, onRemove: (Attachment) -> Unit, onAttach: () -> Unit, onPaste: () -> Boolean,
-    stoppable: Boolean, onStop: () -> Unit, onMic: () -> Unit, onSend: () -> Unit,
+    onMic: () -> Unit, onSend: () -> Unit,
 ) {
     Column {
     if (attached.isNotEmpty()) AttachmentStrip(attached, onRemove)
@@ -392,7 +395,6 @@ private fun InputBar(
                 )
             }
         }
-        if (stoppable) RoundButton(true, onStop, AndeeIcon.STOP, danger = true)
         RoundButton(canSend, onSend, AndeeIcon.SEND)
     }
     }
@@ -554,5 +556,35 @@ fun Pill(label: String, onClick: () -> Unit) {
             .border(1.dp, Palette.hairline, RoundedCornerShape(15.dp))
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
+}
+
+/**
+ * The top of the conversation dissolves instead of being cut off: the phone's scrollback does the same under its
+ * ball. A mask, not a coloured overlay, so it is right on any backdrop and in both themes.
+ */
+private fun Modifier.fadeTop(height: androidx.compose.ui.unit.Dp): Modifier = this
+    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val h = height.toPx()
+        drawRect(
+            brush = androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = 0f, endY = h),
+            size = androidx.compose.ui.geometry.Size(size.width, h),
+            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+        )
+    }
+
+/** A clearly sideways drag across the ball steps to the next or previous character, once per drag. */
+private fun Modifier.lookSwipe(): Modifier = this.pointerInput(Unit) {
+    var dx = 0f
+    var done = false
+    detectHorizontalDragGestures(
+        onDragStart = { dx = 0f; done = false },
+        onHorizontalDrag = { change, amount ->
+            change.consume()
+            dx += amount
+            if (!done && kotlin.math.abs(dx) > 48.dp.toPx()) { done = true; MacBall.stepLook(if (dx < 0) 1 else -1) }
+        },
     )
 }

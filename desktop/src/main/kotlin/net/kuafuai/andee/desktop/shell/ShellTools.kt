@@ -66,7 +66,9 @@ class ShellTools(
     override fun turnStarted(kind: String) {
         turn = when (kind) {
             "USER" -> Turn.USER
-            "WAKE" -> Turn.WAKE_OWN
+            // A task the user handed over from their other device: their own request, but nobody may be at
+            // the Mac to approve a command — exactly a todo they set themselves.
+            "WAKE", "PEER" -> Turn.WAKE_OWN
             "NOTIFY" -> Turn.NOTIFY
             else -> Turn.SILENT
         }

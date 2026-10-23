@@ -162,6 +162,15 @@ class FloatingWindowUi(
         /** The 产物 key — the pages the assistant has made. See [ArtifactsUi]. */
         fun onArtifactsClick()
 
+        /** The speaker key beside the input pill: answers read aloud or not. */
+        fun onMuteToggle() {}
+
+        /** The 小本本 key — what it remembers. See [NotebookUi]. */
+        fun onNotebookClick() {}
+
+        /** The 朋友 key — the other Andees this one knows. See [PeersUi]. */
+        fun onFriendsClick() {}
+
         /** The 情景 key — the scenes it has learned. See [ScenesUi]. */
         fun onScenesClick()
 
@@ -200,6 +209,9 @@ class FloatingWindowUi(
          * (`setTypingTop`) or it sits on top of it and eats every touch.
          */
         fun onTextInputToggle()
+
+        /** The resting pill's camera / album icon: open the field and go straight on to [what]. */
+        fun onTypeThen(what: String) {}
 
         /**
          * A page row in the scrollback, tapped to be shown again.
@@ -289,7 +301,26 @@ class FloatingWindowUi(
     @Volatile private var sceneTitle: String? = null
 
     /** The ball's gesture vocabulary, pinned along the bottom of the full card. */
+    /** The bottom block: the input pill above the gesture line. Hidden folded and while the real field is up. */
     private var tipsView: View? = null
+    private var tipsText: TextView? = null
+    private var muteIcon: ImageView? = null
+    private var inputHint: TextView? = null
+    private var muteKey: View? = null
+    private var inputPill: View? = null
+    private var muteLabel: TextView? = null
+    private var mutedNow = false
+
+    /** Reflect the 朗读 / 静音 setting on the speaker key. Any thread. */
+    fun setMuted(on: Boolean) {
+        ui.post { mutedNow = on; paintMute() }
+    }
+
+    private fun paintMute() {
+        muteIcon?.setImageResource(if (mutedNow) R.drawable.ic_volume_off else R.drawable.ic_volume)
+        muteIcon?.setColorFilter(Color.parseColor(Glass.PHOTO_INK))
+        muteLabel?.text = AppLocale.str(context, if (mutedNow) R.string.window_muted else R.string.window_voice_on)
+    }
 
     /**
      * The top bar's icon views, kept only so a theme change can re-tint them.
@@ -301,6 +332,58 @@ class FloatingWindowUi(
      * `#092E54` pill, which is a day value on a night ground.
      */
     private val barIcons = mutableListOf<ImageView>()
+
+    /** How many friends to show on the 朋友 key; 0 hides the count. Main thread only once the bar exists. */
+    private var friendCount = 0
+    private var friendBadge: TextView? = null
+
+    /** The number on the 朋友 key. Safe from any thread; kept for a bar built later. */
+    fun setFriendCount(n: Int) {
+        ui.post {
+            friendCount = n
+            friendBadge?.let { paintBadge(it) }
+        }
+    }
+
+    private fun paintBadge(b: TextView) {
+        b.text = if (friendCount > 99) "99+" else friendCount.toString()
+        b.visibility = if (friendCount > 0) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * 朋友 with its count in the corner, so the user can see at a glance how many Andees this one can ask without
+     * opening anything. The key itself is an ordinary [barButton]; the badge sits on top of it and ignores touches.
+     */
+    private fun friendsKey(): View {
+        val key = barButton(R.drawable.ic_friends, Glass.PHOTO_INK, "朋友") { listeners.onFriendsClick() }
+        val lp = key.layoutParams as LinearLayout.LayoutParams
+        key.layoutParams = FrameLayout.LayoutParams(lp.width, lp.height)
+        val box = FrameLayout(context).apply {
+            layoutParams = LinearLayout.LayoutParams(lp.width, lp.height).apply { leftMargin = lp.leftMargin }
+            clipChildren = false
+        }
+        box.addView(key)
+        val badge = TextView(context).apply {
+            textSize = 9f
+            setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            minWidth = dp(15); minHeight = dp(15)
+            setPadding(dp(4), 0, dp(4), 0)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor(Glass.ACCENT))
+            }
+            isClickable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        box.addView(badge, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(15), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(2); rightMargin = dp(1)
+        })
+        friendBadge = badge
+        paintBadge(badge)
+        return box
+    }
 
     /** The scene chip's ✕, for the same reason — its colour is set at build too. */
     private var sceneChipExit: TextView? = null
@@ -786,7 +869,8 @@ class FloatingWindowUi(
                 typingGeometry = intArrayOf(p.x, p.y, p.width, p.height)
             }
             p.height = maxOf(dp(MIN_TYPING_CARD_DP), typingTop)
-            android.util.Log.i("Body", "card steps aside: field top=$typingTop → height=${p.height}")
+            // The real field is up now, right under this edge: the pill would be a second, dead copy of it.
+            inputPill?.visibility = View.INVISIBLE
             runCatching { wm.updateViewLayout(v, p) }
         } else if (compact) {
             // A fold in between owns the geometry now; just forget the snapshot.
@@ -800,6 +884,7 @@ class FloatingWindowUi(
 
     /** Put back the geometry [setTypingBand] borrowed. */
     private fun restoreTypingGeometry() {
+        inputPill?.visibility = View.VISIBLE
         val g = typingGeometry ?: return
         typingGeometry = null
         val v = root ?: return
@@ -932,7 +1017,9 @@ class FloatingWindowUi(
      */
     fun onLocaleChanged() {
         ui.post {
-            (tipsView as? TextView)?.text = AppLocale.str(context, R.string.window_tips)
+            tipsText?.text = AppLocale.str(context, R.string.window_tips)
+            inputHint?.text = AppLocale.str(context, R.string.window_input_hint)
+            paintMute()
             historyView?.onLocaleChanged()
             renderSceneChip()
         }
@@ -997,7 +1084,9 @@ class FloatingWindowUi(
         topBarView?.background = Glass.well(context, topBarRadius)
         for (v in barIcons) v.setColorFilter(ink)
         // The tips sit on the photograph itself.
-        (tipsView as? TextView)?.setTextColor(ink)
+        tipsText?.setTextColor(ink)
+        inputPill?.background = Glass.well(context, dp(24))
+        paintMute()
         // The scene chip is a well too, and its two labels are the card's greys.
         sceneChip?.background = Glass.well(context, dp(22))
         val soft = Color.parseColor(Glass.SECONDARY)
@@ -1792,6 +1881,7 @@ class FloatingWindowUi(
         backdrop?.visibility = View.GONE
         topBarView?.visibility = View.GONE
         sceneChip?.visibility = View.GONE
+        muteKey?.visibility = View.GONE
         // Not just invisible — GONE, so the ball area has the whole window to
         // itself. A scrollback left in the layout would cover most of a 168dp
         // square and there would be nothing left to see the ball in.
@@ -1856,6 +1946,27 @@ class FloatingWindowUi(
         val ty = ballDrop(bandH) + dp(BALL_NUDGE_DP)
         ball?.translationY = ty.toFloat()
         placeSceneChip(ballH, ty)
+        placeMuteKey(ballH, ty)
+    }
+
+    /** The speaker key just off the sphere's lower right, on the same radius [placeSceneChip] uses. */
+    private fun placeMuteKey(ballH: Int, ty: Int) {
+        val key = muteKey ?: return
+        val w = root?.width ?: return
+        val lp = key.layoutParams as? FrameLayout.LayoutParams ?: return
+        val r = SPHERE_RADIUS_FRACTION * ballH * BALL_SCALE
+        if (key.width == 0) key.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val kw = if (key.width > 0) key.width else key.measuredWidth
+        val kh = if (key.height > 0) key.height else key.measuredHeight
+        // Just outside the sphere at its lower right (45°): it reads as the ball's own, without sitting on it.
+        val d = r + kw / 2f
+        val cx = w / 2f + d * 0.707f + dp(16)
+        val cy = ballH / 2f + ty + d * 0.707f
+        val left = (cx - kw / 2f).toInt()
+        val top = (cy - kh / 2f).toInt()
+        if (lp.leftMargin == left && lp.topMargin == top) return
+        lp.leftMargin = minOf(left, w - kw - dp(8)); lp.topMargin = top
+        key.layoutParams = lp
     }
 
     /**
@@ -2066,6 +2177,7 @@ class FloatingWindowUi(
         // immediately after this, before the next frame.
         topBarView?.visibility = View.VISIBLE
         sceneChip?.visibility = if (sceneTitle != null) View.VISIBLE else View.GONE
+        muteKey?.visibility = View.VISIBLE
         historyView?.visibility = View.VISIBLE
         tipsView?.visibility = View.VISIBLE
         backdrop?.visibility = View.VISIBLE
@@ -2356,7 +2468,7 @@ class FloatingWindowUi(
         //
         // Only in the full card. Folded, the window is a 168 dp square and the
         // tips have nowhere to be; the gestures they describe work there anyway.
-        val tips = TextView(context).apply {
+        val tipsLine = TextView(context).apply {
             text = AppLocale.str(context, R.string.window_tips)
             textSize = Glass.Type.CAPTION
             // PHOTO_INK, not MUTED: this line sits on the photograph itself, and a
@@ -2368,7 +2480,39 @@ class FloatingWindowUi(
             // scrollback's last row used to reserve for itself — this bar
             // inherits that edge of the card.
             setPadding(dp(14), dp(6), dp(14), dp(30))
+        }
+        tipsText = tipsLine
+        // The input pill, always there on the full card like the Mac's composer. It is not a field: an overlay
+        // cannot raise the keyboard on this ROM, so a tap opens the real one ([TextInputActivity]) in its place.
+        val inputRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(4), dp(16), 0)
+        }
+        val hint = TextView(context).apply {
+            text = AppLocale.str(context, R.string.window_input_hint)
+            textSize = Glass.Type.BODY
+            // SECONDARY, not MUTED: the well is translucent over the photograph, and MUTED vanished into it.
+            setTextColor(Color.parseColor(Glass.SECONDARY))
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = dp(40)
+            isClickable = true
+            setOnClickListener { listeners.onTextInputToggle() }
+        }
+        // The same pill the open field draws ([InputPill]); here every part opens the field.
+        val pill = InputPill.build(
+            context, hint,
+            onCamera = { listeners.onTypeThen("camera") },
+            onAlbum = { listeners.onTypeThen("album") },
+            onSend = { listeners.onTextInputToggle() },
+        ).apply { setOnClickListener { listeners.onTextInputToggle() } }
+        inputHint = hint; inputPill = pill
+        inputRow.addView(pill, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        val tips = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             visibility = View.GONE
+            addView(inputRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            addView(tipsLine, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         }
         tipsView = tips
         root.addView(
@@ -2379,6 +2523,25 @@ class FloatingWindowUi(
                 Gravity.BOTTOM,
             ),
         )
+
+        // ---- 朗读 / 静音, at the ball's lower right ----
+        // Beside the ball because it is about the ball's voice. Placed by [placeMuteKey], like the scene chip.
+        val mute = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            // No fill: a bare glyph beside the ball, like the ball's own horns — a pill read as a stray button.
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            isClickable = true
+            Glass.pressable(this)
+            setOnClickListener { listeners.onMuteToggle() }
+            visibility = View.GONE
+        }
+        val icon = ImageView(context)
+        mute.addView(icon, LinearLayout.LayoutParams(dp(22), dp(22)))
+        muteIcon = icon; muteKey = mute
+        mute.contentDescription = "朗读"
+        paintMute()
+        root.addView(mute, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START))
 
         // ---- Top-right controls ----
         //
@@ -2506,7 +2669,10 @@ class FloatingWindowUi(
         keys.addView(
             barButton(R.drawable.ic_artifacts, Glass.PHOTO_INK, "产物") { listeners.onArtifactsClick() }
         )
+        // 产物 · 小本本 · 情景 · 朋友 · 自检 · 设置 — the Mac's sidebar has the same doors in the same order.
+        keys.addView(barButton(R.drawable.ic_notebook, Glass.PHOTO_INK, "小本本") { listeners.onNotebookClick() })
         keys.addView(barButton(R.drawable.ic_scene, Glass.PHOTO_INK, "情景") { listeners.onScenesClick() })
+        keys.addView(friendsKey())
         // ✓ and not ■: the stop button used to sit here, and stop is the one
         // action in this bar the ball can already perform — see onStopClick.
         keys.addView(barButton(R.drawable.ic_check, Glass.PHOTO_INK, "自检") { listeners.onSelfCheckClick() })
@@ -2872,7 +3038,8 @@ class FloatingWindowUi(
          * shrink without leaving a band of dead space where it used to be. As
          * set they draw ~510px, about twice the folded corner ball.
          */
-        private const val BALL_SCALE = 1.05f
+        // 0.8 since 2026-10-23: the user asked for a smaller ball on both shapes of the card.
+        private const val BALL_SCALE = 0.8f
 
         /**
          * How much more sideways than vertical a drag on the ball must be
@@ -2907,7 +3074,7 @@ class FloatingWindowUi(
          * Below about 0.40 the ball starts shrinking faster than the room it
          * gains the list is worth.
          */
-        private const val BALL_AREA_FRACTION = 0.40f
+        private const val BALL_AREA_FRACTION = 0.34f
 
         /**
          * Clearance between the sphere's top edge and the bottom of the control
@@ -2955,7 +3122,7 @@ class FloatingWindowUi(
          * only knob for how big the corner ball reads — the rendered ball is
          * roughly two thirds of it, and the circular hit test tracks it too.
          */
-        private const val COMPACT_DP = 168
+        private const val COMPACT_DP = 136
         private const val COMPACT_MARGIN_DP = 16
 
         /** How long [parkForGesture] waits for the main-thread move to run. */

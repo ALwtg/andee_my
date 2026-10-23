@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
@@ -65,32 +66,20 @@ fun Sidebar(nav: Nav, width: androidx.compose.ui.unit.Dp = 228.dp) {
             .border(1.dp, Palette.panelEdge)
             .padding(horizontal = 10.dp, vertical = 12.dp),
     ) {
-        // Brand row, and the one button that always means "start over".
+        // Brand row. No 新对话 button: the phone has none, and a stretch that is over is put away by the
+        // quiet-hour review (or 整理 below); the menu bar's Andee → 新对话 is still there for whoever wants it.
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Andee", color = Palette.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(
-            Modifier.fillMaxWidth()
-                .background(Palette.tint.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
-                .border(1.dp, Palette.accent.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
-                .clickable { Assistant.newConversation(); nav.go("chat") }
-                .padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(AndeeIcon.PLUS, Palette.title, 16.dp)
-            Spacer(Modifier.width(8.dp))
-            Text(t("新对话", "New chat"), color = Palette.title, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
         Spacer(Modifier.height(12.dp))
 
         NavItem(AndeeIcon.CHAT, t("对话", "Chat"), here == "chat") { nav.go("chat") }
         NavItem(AndeeIcon.DOCUMENT, t("产物", "Artifacts") + if (artifactCount > 0) "  $artifactCount" else "", here == "artifacts") { nav.go("artifacts") }
+        // The same doors, in the same order, as the phone's top bar: 产物 · 小本本 · 情景 · 朋友 · 自检 · 设置.
+        // 形象与表情, 装备 and 保险箱 are opened from 设置 on both, so neither body has a door the other lacks.
         NavItem(AndeeIcon.NOTEBOOK, t("小本本", "Notebook"), here == "notebook") { nav.go("notebook") }
         NavItem(AndeeIcon.SPARKLE, t("情景", "Scenes"), here == "scenes") { nav.go("scenes") }
-        NavItem(AndeeIcon.LOCK, t("保险箱", "Vault"), here == "vault") { nav.go("vault") }
-        NavItem(AndeeIcon.FACE, t("形象与表情", "Look"), here == "expressions") { nav.go("expressions") }
-        NavItem(AndeeIcon.GRID, t("装备", "Gear"), here == "gear") { nav.go("gear") }
+        NavItem(AndeeIcon.FRIENDS, t("朋友", "Friends"), here == "peers", badge = Peers.count.value) { nav.go("peers") }
 
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -137,7 +126,7 @@ fun Sidebar(nav: Nav, width: androidx.compose.ui.unit.Dp = 228.dp) {
 }
 
 @Composable
-private fun NavItem(icon: AndeeIcon, label: String, selected: Boolean, onClick: () -> Unit) {
+private fun NavItem(icon: AndeeIcon, label: String, selected: Boolean, badge: Int = 0, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .background(if (selected) Palette.glass else Color.Transparent, RoundedCornerShape(10.dp))
@@ -148,6 +137,15 @@ private fun NavItem(icon: AndeeIcon, label: String, selected: Boolean, onClick: 
     ) {
         Icon(icon, if (selected) Palette.title else Palette.secondary, 18.dp)
         Spacer(Modifier.width(10.dp))
-        Text(label, color = if (selected) Palette.title else Palette.label, fontSize = 14.sp)
+        Text(label, color = if (selected) Palette.title else Palette.label, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        // A count at the row's end: how many there are, readable without opening the page.
+        if (badge > 0) {
+            Box(
+                Modifier.background(Palette.accent, RoundedCornerShape(9.dp)).padding(horizontal = 7.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (badge > 99) "99+" else badge.toString(), color = Color.White, fontSize = 11.sp)
+            }
+        }
     }
 }
