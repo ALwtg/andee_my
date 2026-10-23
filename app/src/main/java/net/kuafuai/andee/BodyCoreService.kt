@@ -124,11 +124,6 @@ class BodyCoreService : Service() {
     private lateinit var dogSense: net.kuafuai.andee.dog.DogSense
     private lateinit var peers: AndroidPeers
 
-    /**
-     * The one link to the user's other devices, for a screen that wants to show or pair them. One instance per
-     * process: a second would start a second server on the same port and lose to the first.
-     */
-    fun peerLink(): AndroidPeers? = if (::peers.isInitialized) peers else null
     private lateinit var dogMotion: net.kuafuai.andee.dog.DogMotion
 
     /**
@@ -291,7 +286,16 @@ class BodyCoreService : Service() {
             }
 
             override fun onTextInputToggle() {
+                // Opening the field is a new request, like a tap: whatever is running or being read out stops
+                // first. Closing it (the field already up) stops nothing.
+                if (!net.kuafuai.andee.ui.TextInputActivity.isShowing && (dispatcher.isTaskActive() || audio.isStreamPlaying())) {
+                    stopEverything()
+                }
                 toggleTyping()
+            }
+
+            override fun onTypeThen(what: String) {
+                toggleTyping(then = what)
             }
 
             override fun onLongPress() {
@@ -308,6 +312,17 @@ class BodyCoreService : Service() {
 
             override fun onScenesClick() {
                 openScenes()
+            }
+
+            override fun onMuteToggle() {
+                val on = !net.kuafuai.andee.config.VoiceConfig.muted(this@BodyCoreService)
+                net.kuafuai.andee.config.VoiceConfig.setMuted(this@BodyCoreService, on)
+                if (on) tts.stopSpeaking()
+                window.setMuted(on)
+            }
+
+            override fun onNotebookClick() {
+                net.kuafuai.andee.ui.NotebookUi(this@BodyCoreService) {}.show()
             }
 
             override fun onFriendsClick() {
@@ -561,7 +576,8 @@ class BodyCoreService : Service() {
         // And this is how the card knows where to stop: the field's own top
         // edge, reported whenever the keyboard resizes it.
         net.kuafuai.andee.ui.TextInputActivity.onTop = {
-            android.util.Log.i("Body", "field top: $it px")
+            // Every frame while the keyboard slides: logged only when it settles at zero (the card is whole again).
+            if (it == 0) android.util.Log.i("Body", "field released the card")
             window.setTypingTop(it)
         }
         asr = AsrController(
@@ -648,6 +664,7 @@ class BodyCoreService : Service() {
         peers = AndroidPeers(this)
         peers.onCount = { window.setFriendCount(it) }
         window.setFriendCount(peers.store.all().size)
+        window.setMuted(net.kuafuai.andee.config.VoiceConfig.muted(this))
         peers.startIfEnabled()
         // Scanning the Mac's pairing QR from the Devices card: the unfolded card is an overlay above the camera,
         // so it folds for the scan and comes back if it was open. See [net.kuafuai.andee.ui.StandAside].
@@ -1110,11 +1127,14 @@ class BodyCoreService : Service() {
      * hidden card is whatever app the user was on, so typing looked like being
      * thrown out of the assistant and then dropped back in.
      */
-    private fun toggleTyping() {
-        if (net.kuafuai.andee.ui.TextInputActivity.isShowing) {
+    private fun toggleTyping(then: String? = null) {
+        if (net.kuafuai.andee.ui.TextInputActivity.isShowing && then == null) {
             net.kuafuai.andee.ui.TextInputActivity.dismiss()
             return
         }
+        // Typing is a conversation, and the conversation is the full card: unfold first, the way the Mac's
+        // double-click brings the chat window up with the cursor in the box.
+        if (window.isCompact()) dispatcher.expand()
         // No keyboard to borrow and nothing to switch: the device's own IME is
         // the user's, and this field types on it like any other app's would.
         // The only way this fails is a tablet whose single IME is the headless
@@ -1126,8 +1146,8 @@ class BodyCoreService : Service() {
             )
             return
         }
-        typingFromFullscreen = !window.isCompact()
-        net.kuafuai.andee.ui.TextInputActivity.start(this)
+        typingFromFullscreen = true
+        net.kuafuai.andee.ui.TextInputActivity.start(this, then)
     }
 
     /**
@@ -1894,7 +1914,6 @@ class BodyCoreService : Service() {
         var rebuiltByReset = false
         val s = SettingsUi(
             context = this,
-            peers = peers,
             onDismiss = {
                 settings = null
                 voiceFailureReported = false
@@ -3077,7 +3096,10 @@ class BodyCoreService : Service() {
             // same way it displaces the meeting recorder's. The
             // scrollback row above is already the answer; the user
             // reads it after they hang up.
-            if (!meeting.isActive() && !net.kuafuai.andee.device.CallState.isActive) {
+            // And not when the user has muted answers (the card's 朗读 key): the row above is the answer.
+            if (!meeting.isActive() && !net.kuafuai.andee.device.CallState.isActive &&
+                !net.kuafuai.andee.config.VoiceConfig.muted(this)
+            ) {
                 tts.speak(plain, script.cues)
             }
         }

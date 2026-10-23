@@ -22,7 +22,6 @@ import net.kuafuai.andee.config.FactoryReset
 import net.kuafuai.andee.config.Notebook
 import net.kuafuai.andee.config.Vault
 import net.kuafuai.andee.config.VoiceConfig
-import net.kuafuai.andee.device.AndroidPeers
 import net.kuafuai.andee.i18n.AppLocale
 import net.kuafuai.andee.wake.WakeTemplates
 import net.kuafuai.andee.wake.WakeWord
@@ -80,7 +79,6 @@ import net.kuafuai.andee.wake.WakeWord
  */
 class SettingsUi(
     private val context: Context,
-    private val peers: AndroidPeers,
     private val onDismiss: () -> Unit,
     /**
      * 恢复出厂设置, after the user has confirmed twice. Wired to
@@ -370,13 +368,16 @@ class SettingsUi(
         // 外观 is the only appearance setting left up here: 形象与表情 moved into 高级,
         // so the "these two are the same kind of setting" argument went with it. What is
         // left in 常用 is what a person opens settings to change.
+        // The same order as the Mac's settings page. 形象与表情, 装备 and 保险箱 are opened from here on both bodies;
+        // 小本本 and 朋友 have their own keys on the top bar (and the Mac's sidebar), so this card only holds
+        // the notebook's review settings and no door to the friends list.
         themeSection(form)
+        expressionsSection(form)
         wakeSection(form)
         notebookSection(form)
         gearSection(form)
         notifySection(form)
         vaultSection(form)
-        peersSection(form)
         maxStepsSection(form)
 
         advancedSection(form)
@@ -440,7 +441,6 @@ class SettingsUi(
         // 形象与表情, moved down here from 常用. It is a door rather than a setting —
         // see [expressionsSection] — and a door that most users never open belongs
         // behind the disclosure rather than in the column everyone scrolls.
-        expressionsSection(body)
         showHubSection(body)
         typingSection(body)
         diagnosticsSection(body)
@@ -1019,25 +1019,6 @@ class SettingsUi(
     }
 
 
-    /**
-     * Devices: pair, view, unpair. The list lives in [PeersUi]; this section is just the door and count.
-     */
-    private fun peersSection(form: LinearLayout) {
-        val panel = group(form, lctx.getString(R.string.settings_section_peers))
-        val state = TextView(context).apply {
-            val n = peers.store.all().size
-            text = if (n == 0) lctx.getString(R.string.settings_peers_note) else lctx.getString(R.string.settings_peers_count_note, n)
-            textSize = Glass.Type.CAPTION
-            setTextColor(Color.parseColor(Glass.LABEL))
-            setLineSpacing(dp(3).toFloat(), 1f)
-        }
-        panel.addView(state, rowParams(0))
-        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        row.addView(button(lctx.getString(R.string.settings_peers_manage), filled = false) {
-            PeersUi(context, peers).show()
-        })
-        panel.addView(row, rowParams(dp(12)))
-    }
     private fun diagnosticsSection(form: LinearLayout) {
         val panel = group(form, lctx.getString(R.string.settings_section_diagnostics))
         rowLabel(panel, lctx.getString(R.string.settings_grounding))
@@ -1264,26 +1245,11 @@ class SettingsUi(
 
         // The bill, such as it is. These calls are paid for with the user's own
         // key, so the count and the spend are shown rather than hidden.
-        val stats = readOnly(
+        // Read-only, like the Mac's line. Browsing memories and scenes is the top bar's 小本本 and 情景 keys.
+        readOnly(
             panel,
             lctx.getString(R.string.settings_notebook_today),
             notebookStats(),
-        )
-        // Refresh only what a delete can change, not the whole card: a rebuild
-        // cross-fades the sheet the user is about to look at again.
-        panel.addView(
-            button(lctx.getString(R.string.settings_notebook_browse), filled = false) {
-                NotebookUi(context) { stats.text = notebookStats() }.show()
-            },
-            LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(10) },
-        )
-        // Scenes are learned the same way memories are, so they are reached
-        // from the same section — the control bar's 情景 key is the other door.
-        panel.addView(
-            button(lctx.getString(R.string.settings_scenes_browse), filled = false) {
-                ScenesUi(context).show()
-            },
-            LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(10) },
         )
     }
 

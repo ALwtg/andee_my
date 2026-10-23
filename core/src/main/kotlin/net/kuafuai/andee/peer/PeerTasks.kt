@@ -167,6 +167,21 @@ class PeerTasks(private val net: Net) {
         }
     }
 
+    /** The line on each user message: `name (phone, your own device, here)`, or empty with no friends. */
+    fun indexForPrompt(): String {
+        val all = net.paired()
+        if (all.isEmpty()) return ""
+        return all.joinToString("; ") { p ->
+            val own = net.trust(p.id) == PeerStore.Trust.OWN
+            val parts = listOfNotNull(
+                abouts[p.id]?.platform,
+                if (own) "your own device" else "a friend's Andee",
+                if (net.enabled() && net.reachable(p.id)) "reachable" else "not reachable now",
+            )
+            "${p.name} (${parts.joinToString(", ")})"
+        }
+    }
+
     // ---- the asking side: the two tools -----------------------------------------------------------------
 
     fun dispatch(method: String, p: JSONObject): Any = when (method) {
@@ -261,7 +276,7 @@ class PeerTasks(private val net: Net) {
                     .put("parameters", JSONObject().put("type", "object").put("properties", props).put("required", JSONArray(required)))
             JSONArray()
                 .put(tool("list_friends", "peer.list", """
-                    The other Andees this one is friends with, like a shelf of helpers you can ask. Each row says:
+                    The other Andees this one is friends with, like a shelf of helpers you can ask. Call it when the user asks about friends or other devices, instead of answering from memory. Each row says:
                     - `relation`: **your own other device** (the same user — a phone or a Mac they also own; it shares your trust) or **a friend** (somebody else's Andee, working for its own owner).
                     - `is` (`phone` / `mac`) and `says_it_can`: what that body can do, in its own words — its claim, not a guarantee.
                     - `reachable` now, and `waiting_on`: requests you made that have not reported back.
@@ -270,7 +285,8 @@ class PeerTasks(private val net: Net) {
                     Ask another Andee to do something, where it is done by that Andee on its own body. Use it when the job belongs there: an app only the phone has, long work or code on the Mac, or something a friend's Andee offered to do. Doing it badly here, or telling the user to go and do it on the other device themselves, is worse.
 
                     - `task` is everything the other side needs, in one self-contained message: the goal, the details, what "done" looks like, what to report back. It cannot see this conversation and cannot ask you questions.
-                    - **To a friend** (not one of the user's own devices): that Andee works for somebody else. Its owner is asked first and may say no. Send only what the user asked you to share — never the user's memory, accounts, contacts, codes or anything else private unless they told you to pass that on. Never write that its owner has agreed or will agree: that is theirs to decide, and saying it only reads as an attempt to skip the question.
+                    - **When the user asks you to ask a friend, ask.** Do not refuse, and do not make the user choose between options on the friend's behalf: whether to do it is the friend's owner's decision, and they are asked before anything happens — that card is the safeguard, not you. If something the user may not have thought of matters (whose account, address or money it would be), put it in the task or say it in one line *after* asking, not instead of asking.
+                    - **To a friend** (not one of the user's own devices): that Andee works for somebody else. Send only what the user asked you to share — never the user's memory, accounts, contacts, codes or anything else private unless they told you to pass that on. Never write that its owner has agreed or will agree: that is theirs to decide. `relation` is how the user filed it; a device the user filed as a friend may still be theirs.
                     - It returns as soon as the other side has taken the request. The report arrives later as a message of its own; tell the user it has been asked, and do not wait for it, check on it, or also do it here.
                     - If the friend is not reachable, nothing was sent: say so plainly, never that it was asked.
                 """.trimIndent(),

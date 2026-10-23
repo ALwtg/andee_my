@@ -83,6 +83,12 @@ interface BrainHost {
     fun gearIndex(): String = ""
 
     /**
+     * One line naming the other Andees this one can ask (see `PeerTasks`), empty when it has none. Without it the
+     * model answers "do you have friends" from nothing; a default, so a host without friends changes by not a byte.
+     */
+    fun friendsIndex(): String = ""
+
+    /**
      * Archive [rows] as one finished topic. Returns null when nothing was
      * written — the caller then keeps the conversation as it was.
      */

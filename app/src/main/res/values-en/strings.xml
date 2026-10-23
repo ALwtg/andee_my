@@ -228,7 +228,7 @@
          style ("1tap: talk") is deliberate: the long-form sentence wrapped to
          two lines on the card, and a hint the user has to scroll past is
          longer than one they can read at a glance. -->
-    <string name="window_tips">1tap: talk · 2tap: type · 3tap: stop · swipe: character</string>
+    <string name="window_tips">1tap: talk · 2tap: type · swipe: character</string>
 
     <string name="artifacts_title">Made for you</string>
     <string name="artifacts_subtitle">Pages it has built for you</string>
@@ -685,4 +685,7 @@
     <string name="peer_allow">Allow</string>
     <string name="peer_allow_always">Always allow</string>
     <string name="peer_decline">Decline</string>
+    <string name="window_input_hint">Type to it…</string>
+    <string name="window_voice_on">Voice on</string>
+    <string name="window_muted">Muted</string>
 </resources>

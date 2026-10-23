@@ -28,7 +28,10 @@ fun AppRoot(nav: Nav) {
                 val card = if (screen == "chat") Modifier else Modifier.padding(14.dp).frostedCard()
                 Box(Modifier.widthIn(max = 900.dp).fillMaxHeight().then(card)) {
                     when {
-                        screen == "settings" -> SettingsScreen(onDone = { nav.back() }, onOpenGear = { nav.push("gear") })
+                        screen == "settings" -> SettingsScreen(
+                            onDone = { nav.back() }, onOpenGear = { nav.push("gear") },
+                            onOpenVault = { nav.push("vault") }, onOpenExpressions = { nav.push("expressions") },
+                        )
                         screen == "selfcheck" -> SelfCheckCard(onDone = { nav.back() }, onOpenSettings = { nav.push("settings") })
                         screen == "notebook" -> NotebookCard(onDone = { nav.back() })
                         screen == "vault" -> VaultCard(onDone = { nav.back() })

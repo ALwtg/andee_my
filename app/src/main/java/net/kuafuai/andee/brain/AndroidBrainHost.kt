@@ -79,6 +79,8 @@ class AndroidBrainHost(
 
     override fun gearIndex(): String = dispatcher.gearShelf.indexForPrompt()
 
+    override fun friendsIndex(): String = peers.tasks.indexForPrompt()
+
     override fun topicsIndex(): String = ChatHistory.topicsForPrompt()
 
     override fun foldTopic(title: String, summary: String, rows: List<ScrollRow>, text: String): FoldedTopic? {

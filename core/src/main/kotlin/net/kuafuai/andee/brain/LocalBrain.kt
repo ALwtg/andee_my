@@ -700,6 +700,7 @@ class LocalBrain(
             // above: the shelf changes whenever an app is used or learned, and the system prompt is the one
             // place that must never move. Empty until there is something worth a line.
             val gear = host.gearIndex()
+            val friends = host.friendsIndex()
             // Photos with no words: there is no sentence of the user's to take
             // the language from, so the bracketed fallback comes back for it.
             val wordless = userText.isEmpty()
@@ -779,6 +780,12 @@ class LocalBrain(
                         } else {
                             "\n\n(installed here and worth reaching for first, most used first — if one of these is built " +
                                 "for the job, prefer handing it over to doing every step yourself; list_gear has the rest)\n$gear"
+                        } +
+                        // The other Andees it can ask. Same position, same reason: who is reachable changes all day.
+                        if (friends.isEmpty()) {
+                            ""
+                        } else {
+                            "\n\n(other Andees you can ask with ask_friend; list_friends has detail)\n$friends"
                         },
                 )
         }

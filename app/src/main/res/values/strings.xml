@@ -202,7 +202,7 @@
     <!-- The pinned gesture tips at the bottom of the full card. The swipe hint
          is last because it is the one gesture that only exists unfolded — the
          folded ball reads a horizontal flick as a move instead. -->
-    <string name="window_tips">点小球说话 · 双击打字 · 三连击停止 · 滑动切换性格</string>
+    <string name="window_tips">点小球说话 · 双击打字 · 滑动切换性格</string>
 
     <!-- 产物: the pages the assistant has made. See ui/ArtifactsUi.kt. -->
     <string name="artifacts_title">产物</string>
@@ -766,4 +766,7 @@
     <string name="peer_allow">允许</string>
     <string name="peer_allow_always">总是允许</string>
     <string name="peer_decline">拒绝</string>
+    <string name="window_input_hint">打字跟它说…</string>
+    <string name="window_voice_on">朗读</string>
+    <string name="window_muted">静音</string>
 </resources>

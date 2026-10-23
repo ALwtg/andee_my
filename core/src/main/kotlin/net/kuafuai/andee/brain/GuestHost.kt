@@ -30,6 +30,7 @@ class GuestHost(private val inner: BrainHost) : BrainHost by inner {
     override fun pagesIndex(): String = ""
     override fun topicsIndex(): String = ""
     override fun gearIndex(): String = ""
+    override fun friendsIndex(): String = ""
     override fun foldTopic(title: String, summary: String, rows: List<ScrollRow>, text: String): FoldedTopic? = null
 
     /** Not forwarded: the owner's own turn state (the Mac's command policy) must not be moved by a guest. */
