@@ -114,8 +114,126 @@ object Assistant {
             screen,
             device,
             gear,
+            peerTools,
         )
     }
+
+    /**
+     * `list_devices` / `ask_device`. Listed only while some device is paired: a tool that can only ever answer
+     * "nothing is paired" is a promise the model would make to every user who never set this up.
+     */
+    private val peerTools = object : DesktopBrainHost.ToolProvider {
+        override fun handles(method: String) = method.startsWith("peer.")
+        override fun dispatch(method: String, p: JSONObject, silent: Boolean, untrusted: Boolean): Any =
+            Peers.tasks.dispatch(method, p)
+        override fun extraTools() =
+            if (Peers.store.all().isNotEmpty()) net.kuafuai.andee.peer.PeerTasks.TOOLS else org.json.JSONArray()
+        override fun methodOfExtra(toolName: String) = net.kuafuai.andee.peer.PeerTasks.methodOf(toolName)
+    }
+
+    /**
+     * The other half of [peerTools]: requests from friends, and reports coming back.
+     *
+     * One of the user's own devices is the user: its request runs in this conversation, like a todo. A friend is
+     * somebody else: the user is asked first (unless they chose "always" for that friend), and the work runs in a
+     * brain of its own over [net.kuafuai.andee.brain.GuestHost] — no memory, no history, no vault, no terminal —
+     * which is dropped when it answers, so one friend's request never sees another's.
+     */
+    private val peerBrain = object : net.kuafuai.andee.peer.PeerTasks.Brain {
+        override fun run(
+            from: net.kuafuai.andee.peer.PeerProtocol.Peer, trust: net.kuafuai.andee.peer.PeerStore.Trust, text: String,
+            reply: (String?) -> Unit, decline: (String) -> Unit,
+        ): Boolean {
+            if (config().apiKey.isEmpty()) return false
+            val zh = Strings.lang() == "zh"
+            if (trust == net.kuafuai.andee.peer.PeerStore.Trust.OWN) {
+                // In the scrollback as the user's words, because they are — said on another device. The tag is
+                // what tells the person in front of the Mac why Andee just started working on its own.
+                Scrollback.add(Scrollback.Role.USER, (if (zh) "（${from.name} 交来的任务）" else "(task from ${from.name}) ") + text)
+                whenQuiet("peer-task") {
+                    if (brain?.isBusy() != true) busy(true)
+                    ensure().peerTask(net.kuafuai.andee.peer.PeerTasks.ownTaskText(from, Peers.tasks.platformOf(from.id), text), reply)
+                }
+                return true
+            }
+            Scrollback.add(Scrollback.Role.USER, (if (zh) "（朋友 ${from.name} 请求）" else "(${from.name}, a friend, asks) ") + text)
+            whenQuiet("friend-ask") {
+                if (!Peers.store.autoAccept(from.id)) {
+                    val yes = if (zh) "允许" else "Allow"
+                    val always = if (zh) "总是允许" else "Always allow"
+                    val no = if (zh) "拒绝" else "Decline"
+                    val q = (if (zh) "朋友 ${from.name} 的 Andee 想请我做：" else "${from.name}, a friend's Andee, asks me to: ") + text.take(300)
+                    // The card sits beside the ball, which may be on a screen the user is not looking at — and
+                    // nobody here asked for anything, so nothing else says a question is waiting. A sound and a
+                    // wave are the knock on the door. (Measured: the first friend request timed out unseen.)
+                    runCatching { ProcessBuilder("afplay", "/System/Library/Sounds/Glass.aiff").start() }
+                    MacBall.onAnswer("[wave]")
+                    val a = AskGate.ask(q, listOf(yes, always, no), FRIEND_ASK_MS)
+                    when (a.button) {
+                        always -> Peers.setAutoAccept(from.id, true)
+                        yes -> Unit
+                        else -> {
+                            Scrollback.add(Scrollback.Role.ASSISTANT, if (zh) "没有替 ${from.name} 做。" else "Did not do it for ${from.name}.")
+                            return@whenQuiet decline(
+                                if (a.button == no) "Its owner declined this request." else "Its owner did not answer, so it was not done.",
+                            )
+                        }
+                    }
+                }
+                runAsGuest(from, text, reply)
+            }
+            return true
+        }
+
+        override fun answered(
+            from: net.kuafuai.andee.peer.PeerProtocol.Peer, trust: net.kuafuai.andee.peer.PeerStore.Trust,
+            task: String, report: String, done: Boolean,
+        ) {
+            if (config().apiKey.isEmpty()) {
+                Scrollback.add(Scrollback.Role.ASSISTANT, report)
+                return
+            }
+            whenQuiet("peer-report") {
+                if (brain?.isBusy() != true) busy(true)
+                // A friend's report is somebody else's words, and is run as such: no vault, no commands from it.
+                ensure().wake(
+                    net.kuafuai.andee.peer.PeerTasks.answerText(from, trust, task, report, done),
+                    untrusted = trust != net.kuafuai.andee.peer.PeerStore.Trust.OWN,
+                )
+            }
+        }
+    }
+
+    /** The friend's request running now, if any. One at a time: two brains driving one screen is chaos. */
+    @Volatile private var guest: LocalBrain? = null
+
+    private fun runAsGuest(from: net.kuafuai.andee.peer.PeerProtocol.Peer, text: String, reply: (String?) -> Unit) {
+        // The owner's own turn goes first, and so does a friend's request already running.
+        while (brain?.isBusy() == true || guest != null) Thread.sleep(500)
+        val zh = Strings.lang() == "zh"
+        val g = LocalBrain(
+            cfg = config(),
+            host = net.kuafuai.andee.brain.GuestHost(DesktopBrainHost(providers(), MacPrompt.Capabilities(shell = false, screen = true, voice = false))),
+            onProgress = { BallCaption.push(it); onProgress(it) },
+            onFinal = { answer ->
+                val clean = net.kuafuai.andee.brain.SpeechMood.parse(answer).text.replace("[END]", "").trim()
+                Scrollback.add(Scrollback.Role.ASSISTANT, (if (zh) "（回复 ${from.name}）" else "(to ${from.name}) ") + clean)
+                BallCaption.clear()
+            },
+        )
+        guest = g
+        busy(true)
+        g.peerTask(net.kuafuai.andee.peer.PeerTasks.friendTaskText(from, text)) { answer ->
+            reply(answer)
+            guest = null
+            busy(false)
+            // Not from inside its own loop thread: stop() shuts that thread down.
+            Thread { g.stop() }.apply { isDaemon = true }.start()
+        }
+    }
+
+    /** Long enough to come back to the desk. Nothing else waits on it but the friend, who was told it may take a while. */
+    private const val FRIEND_ASK_MS = 300_000L
 
     @Synchronized
     fun ensure(): LocalBrain {
@@ -212,6 +330,8 @@ object Assistant {
         // turn (which would queue behind the very tool call waiting for them). Attachments cannot be
         // an answer, so a message carrying any is still a message.
         if (attachments.isEmpty() && AskGate.tryAnswer(t)) return
+        // The owner speaking outranks a friend's request on the same screen: it is cut off, and told so.
+        guest?.cancel()
         val photos = attachments.filterIsInstance<Attachment.Photo>()
         val files = attachments.filterIsInstance<Attachment.FileRef>()
         // Pictures alone are a complete message ("what is this"); so are files.
@@ -299,6 +419,7 @@ object Assistant {
     fun stop() {
         cancelPending()
         brain?.cancel()
+        guest?.cancel()
         shell.stopAll()
         net.kuafuai.andee.desktop.voice.MacVoice.stopSpeaking()
         busy(false)
@@ -334,6 +455,7 @@ object Assistant {
         Meeting.onRecordingChanged = { MacBall.onRecording(it) }
         net.kuafuai.andee.desktop.mac.MacNotifications.start(notifyHost)
         DesktopScheduler.onDue = { todo -> wakeFor(todo) }
+        Peers.tasks.brain = peerBrain
         DesktopScheduler.catchUp()
     }
 
@@ -349,18 +471,27 @@ object Assistant {
      * The wait is bounded, so a card nobody answers cannot hold an alarm back forever — it fires anyway
      * after [WAKE_PATIENCE_MS], when the card has timed out on its own.
      */
-    private fun wakeFor(todo: net.kuafuai.andee.config.Todo) {
+    private fun wakeFor(todo: net.kuafuai.andee.config.Todo) = whenQuiet("wake-${todo.id}") {
+        // busy() is the window's "working" light: only turn it on when a turn really starts, not when
+        // the wake-up is merely parked behind another one.
+        if (brain?.isBusy() != true) busy(true)
+        ensure().wake(dueText(todo), untrusted = todo.untrusted)
+    }
+
+    /**
+     * Run [then] once nobody is mid-exchange with the Mac — no answer being read aloud, no question card
+     * waiting, no mic open — or after [WAKE_PATIENCE_MS] regardless. On its own thread. Shared by every turn
+     * nobody here just asked for: a todo, a task from another device, a report coming back.
+     */
+    private fun whenQuiet(name: String, then: () -> Unit) {
         Thread {
             val until = System.currentTimeMillis() + WAKE_PATIENCE_MS
             while (System.currentTimeMillis() < until && (net.kuafuai.andee.desktop.voice.MacVoice.isSpeaking() ||
                     AskGate.isWaiting || net.kuafuai.andee.desktop.voice.MacVoice.isListening())) {
                 Thread.sleep(500)
             }
-            // busy() is the window's "working" light: only turn it on when a turn really starts, not when
-            // the wake-up is merely parked behind another one.
-            if (brain?.isBusy() != true) busy(true)
-            ensure().wake(dueText(todo), untrusted = todo.untrusted)
-        }.apply { isDaemon = true; name = "wake-${todo.id}" }.start()
+            then()
+        }.apply { isDaemon = true; this.name = name }.start()
     }
 
     private const val WAKE_PATIENCE_MS = 150_000L

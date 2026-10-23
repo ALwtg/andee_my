@@ -28,6 +28,8 @@ class AndroidBrainHost(
     private val registry: CallExtensionRegistry,
     /** The CodeFlying market; empty outside that mode. See [MarketTools]. */
     private val market: MarketTools,
+    /** The user's other devices; `list_devices` / `ask_device` exist only while one is paired. */
+    private val peers: net.kuafuai.andee.device.AndroidPeers,
 ) : BrainHost {
 
     private val ctx = context.applicationContext
@@ -86,15 +88,27 @@ class AndroidBrainHost(
         return FoldedTopic(id = t.id, title = t.title, summary = t.summary)
     }
 
-    override fun toolLists(): List<JSONArray> = listOf(ToolSchemas.all(), registry.tools(), market.tools())
+    override fun toolLists(): List<JSONArray> = listOfNotNull(
+        ToolSchemas.all(), registry.tools(), market.tools(),
+        // A tool that can only ever answer "nothing is paired" is a promise made to every user who never set this up.
+        net.kuafuai.andee.peer.PeerTasks.TOOLS.takeIf { peers.store.all().isNotEmpty() },
+    )
 
     override fun methodOf(toolName: String): String? =
         ToolSchemas.methodOf(toolName)
             ?: toolName.takeIf { registry.hasMethod(it) }
             ?: toolName.takeIf { market.hasMethod(it) }
+            ?: net.kuafuai.andee.peer.PeerTasks.methodOf(toolName)
 
-    override fun dispatch(method: String, params: JSONObject, silent: Boolean, untrusted: Boolean): Any? =
-        dispatcher.dispatch(method, params, driving = true, silent = silent, untrusted = untrusted)
+    override fun dispatch(method: String, params: JSONObject, silent: Boolean, untrusted: Boolean): Any? {
+        // Not the dispatcher's: the link to the other devices is not part of this body, and the hub must never
+        // see it. The turn guard still runs first — it is what keeps a stranger's notification from handing work on.
+        if (method.startsWith("peer.")) {
+            net.kuafuai.andee.net.TurnGuards.check(method, silent, untrusted)
+            return peers.tasks.dispatch(method, params)
+        }
+        return dispatcher.dispatch(method, params, driving = true, silent = silent, untrusted = untrusted)
+    }
 
     override fun traceDir(): File = ctx.filesDir
 

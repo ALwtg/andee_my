@@ -146,7 +146,14 @@ class LocalBrain(
      * specifically not allowed to touch. A capability that depends on a turn
      * arriving at an uncontended moment is not a capability check.
      */
-    private val pendingWakes = ArrayDeque<Pair<String, TurnKind>>()
+    private val pendingWakes = ArrayDeque<Queued>()
+
+    /**
+     * A turn waiting its turn. [onAnswer] rides with it for the same reason the
+     * kind does: a task another device handed us must still send its answer back
+     * when it happened to arrive while something else was running.
+     */
+    private data class Queued(val text: String, val kind: TurnKind, val onAnswer: ((String?) -> Unit)? = null)
 
     /**
      * Why a turn is running — which decides two things: whether the user hears
@@ -173,6 +180,16 @@ class LocalBrain(
          * not depend on the model agreeing.
          */
         NOTIFY,
+
+        /**
+         * Another device of this user's handed us a job (`ask_device` over there). Speaks and may drive the
+         * device like [WAKE] — the user asked for it, only through a different body — and its final answer
+         * is also sent back as the report. Not [untrusted]: a device refuses to hand work on from a turn that
+         * was, so nothing a stranger wrote can arrive this way. It may not hand the job on again
+         * (`peer.ask` is refused in [runTool]); two bodies passing a task back and forth is a loop that
+         * spends the user's money with nobody watching.
+         */
+        PEER,
 
         /** The quiet-hour review. Silent; notebook tools only. */
         SWEEP,
@@ -303,12 +320,12 @@ class LocalBrain(
                 // The same alarm twice (a check that came due while its predecessor was still waiting its
                 // turn) is one check. Two copies would each do the full look, and the second would find
                 // nothing new to say.
-                if (pendingWakes.any { it.first == t && it.second == kind }) {
+                if (pendingWakes.any { it.text == t && it.kind == kind }) {
                     host.logInfo(TAG, "wake already queued, not queueing it twice: ${t.take(60)}")
                     return@execute
                 }
                 host.logInfo(TAG, "wake queued behind a running turn: ${t.take(60)}")
-                pendingWakes.addLast(t to kind)
+                pendingWakes.addLast(Queued(t, kind))
                 return@execute
             }
             launch(t, kind)
@@ -333,10 +350,30 @@ class LocalBrain(
         loop.execute {
             if (busy.get()) {
                 host.logInfo(TAG, "notification queued behind a running turn: ${t.take(60)}")
-                pendingWakes.addLast(t to TurnKind.NOTIFY)
+                pendingWakes.addLast(Queued(t, TurnKind.NOTIFY))
                 return@execute
             }
             launch(t, TurnKind.NOTIFY)
+        }
+    }
+
+    /**
+     * Run a task another of the user's devices handed us, and call [onAnswer] with the final answer — or
+     * with null when the turn produced none (cut off by the user here, by a stop, or by a failure that
+     * already said so). Deferred like [wake]: the person in front of *this* device goes first.
+     * [onAnswer] is called on the loop thread and must not block.
+     */
+    fun peerTask(text: String, onAnswer: (String?) -> Unit) {
+        val t = text.trim()
+        if (t.isEmpty()) return onAnswer(null)
+        if (cfg.apiKey.isEmpty()) return onAnswer(host.text(BrainText.NO_KEY))
+        loop.execute {
+            if (busy.get()) {
+                host.logInfo(TAG, "peer task queued behind a running turn: ${t.take(60)}")
+                pendingWakes.addLast(Queued(t, TurnKind.PEER, onAnswer))
+                return@execute
+            }
+            launch(t, TurnKind.PEER, onAnswer = onAnswer)
         }
     }
 
@@ -430,11 +467,17 @@ class LocalBrain(
      * it, draining queued wakes, harvesting, telling the service the turn is
      * over — is here once, so no entry point can forget a step.
      */
-    private fun launch(text: String, kind: TurnKind, images: List<String> = emptyList()) {
+    private fun launch(
+        text: String,
+        kind: TurnKind,
+        images: List<String> = emptyList(),
+        onAnswer: ((String?) -> Unit)? = null,
+    ) {
         val gen = generation.incrementAndGet()
         loop.execute {
             busy.set(true)
             currentKind = kind
+            turnAnswer = null
             host.turnStarted(kind.name)
             turnTokens = 0
             turnWaitSeconds = 0.0
@@ -446,7 +489,7 @@ class LocalBrain(
                 if (gen == generation.get()) {
                     host.logError(TAG, "turn $gen ($kind) failed", t)
                     // A silent turn has nobody to apologise to; it just ends.
-                    if (!kind.silent) onFinal(explainFailure(t))
+                    if (!kind.silent) finish(explainFailure(t))
                 } else {
                     // Almost always the cancelled call's own IOException.
                     host.logInfo(TAG, "turn $gen abandoned: ${t.message}")
@@ -463,6 +506,12 @@ class LocalBrain(
                 // here, which is exactly why this clears rather than being
                 // consumed on read — see [BrainTrace.current].
                 BrainTrace.clearTurn()
+                // Whoever is waiting on this turn's answer hears exactly once, cut off or not. Only an
+                // answer of the turn that is still current counts: a turn the user talked over here has
+                // nothing to report, and a stale answer would read as the job being done.
+                val answer = turnAnswer.takeIf { gen == generation.get() }
+                turnAnswer = null
+                onAnswer?.let { cb -> runCatching { cb(answer) }.onFailure { host.logWarn(TAG, "answer callback failed", it) } }
                 busy.set(false)
                 dropUnfinishedHarvest(kind)
                 // After the turn, never during it — see [pendingFolds]. A fold
@@ -521,9 +570,21 @@ class LocalBrain(
      * turn instead, which is the right order: the person who just spoke goes first.
      */
     private fun drainWakes() {
-        val (next, kind) = pendingWakes.removeFirstOrNull() ?: return
-        host.logInfo(TAG, "running a queued $kind turn: ${next.take(60)}")
-        launch(next, kind)
+        val next = pendingWakes.removeFirstOrNull() ?: return
+        host.logInfo(TAG, "running a queued ${next.kind} turn: ${next.text.take(60)}")
+        launch(next.text, next.kind, onAnswer = next.onAnswer)
+    }
+
+    /**
+     * Loop thread only. The final answer of the turn running now, for [launch] to hand to whoever is
+     * waiting on it (see [peerTask]). Set by [finish] and by nothing else.
+     */
+    private var turnAnswer: String? = null
+
+    /** A turn's final answer: the one place it is both said and remembered. Loop thread only. */
+    private fun finish(text: String) {
+        turnAnswer = text
+        onFinal(text)
     }
 
     /**
@@ -771,7 +832,7 @@ class LocalBrain(
                 } else if (!internal) {
                     // A silent turn has nobody to answer; whatever it wrote
                     // stays in the history as its own note and that is all.
-                    onFinal(
+                    finish(
                         answer.ifEmpty {
                             // A tool-call-free reply with no prose is the model
                             // ending the turn with nothing in it. Saying so beats
@@ -800,7 +861,7 @@ class LocalBrain(
                     host.logWarn(TAG, "same call $MAX_REPEATS× in a row: $sig")
                     BrainTrace.end(gen, "same call $MAX_REPEATS× in a row: ${tc.name}")
                     if (!internal) {
-                        onFinal(
+                        finish(
                             host.text(BrainText.REPEAT_STOP,
                                 tc.name,)
                         )
@@ -824,7 +885,7 @@ class LocalBrain(
         host.logWarn(TAG, "hit max steps ($maxSteps)")
         BrainTrace.end(gen, "hit max steps ($maxSteps)")
         if (!internal) {
-            onFinal(
+            finish(
                 host.text(BrainText.MAX_STEPS,
                     maxSteps,)
             )
@@ -884,6 +945,15 @@ class LocalBrain(
             // that name goes straight through to the dispatcher.
             val method = host.methodOf(tc.name)
                 ?: return toolMessage(tc.id, "No such tool: ${tc.name}")
+
+            // A task another device handed over is done here, never handed on: see [TurnKind.PEER].
+            if (method == "peer.ask" && currentKind == TurnKind.PEER) {
+                return toolMessage(
+                    tc.id,
+                    "This turn is itself a task another of the user's devices handed you, so it cannot be handed " +
+                        "on. Do what you can here, and say in your report what this device could not do.",
+                )
+            }
 
             // The wait budget. Watching somebody else's twenty-minute job by waiting and looking is the
             // most expensive thing this loop can do — every look carries a screenshot and the whole tool

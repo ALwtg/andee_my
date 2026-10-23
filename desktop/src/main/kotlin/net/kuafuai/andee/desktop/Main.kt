@@ -26,6 +26,7 @@ fun main() {
     Assistant.askApproval = { ApprovalGate.request(it) }
     MacBall.restoreLook()
     Assistant.start()
+    Peers.startIfEnabled()
     application {
         var pending by remember { mutableStateOf(ApprovalGate.current) }
         // The chat window comes and goes (the ball is always there); the nav says what it shows.

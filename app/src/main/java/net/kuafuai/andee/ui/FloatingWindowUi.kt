@@ -162,6 +162,9 @@ class FloatingWindowUi(
         /** The 产物 key — the pages the assistant has made. See [ArtifactsUi]. */
         fun onArtifactsClick()
 
+        /** The 朋友 key — the other Andees this one knows. See [PeersUi]. */
+        fun onFriendsClick() {}
+
         /** The 情景 key — the scenes it has learned. See [ScenesUi]. */
         fun onScenesClick()
 
@@ -301,6 +304,58 @@ class FloatingWindowUi(
      * `#092E54` pill, which is a day value on a night ground.
      */
     private val barIcons = mutableListOf<ImageView>()
+
+    /** How many friends to show on the 朋友 key; 0 hides the count. Main thread only once the bar exists. */
+    private var friendCount = 0
+    private var friendBadge: TextView? = null
+
+    /** The number on the 朋友 key. Safe from any thread; kept for a bar built later. */
+    fun setFriendCount(n: Int) {
+        ui.post {
+            friendCount = n
+            friendBadge?.let { paintBadge(it) }
+        }
+    }
+
+    private fun paintBadge(b: TextView) {
+        b.text = if (friendCount > 99) "99+" else friendCount.toString()
+        b.visibility = if (friendCount > 0) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * 朋友 with its count in the corner, so the user can see at a glance how many Andees this one can ask without
+     * opening anything. The key itself is an ordinary [barButton]; the badge sits on top of it and ignores touches.
+     */
+    private fun friendsKey(): View {
+        val key = barButton(R.drawable.ic_friends, Glass.PHOTO_INK, "朋友") { listeners.onFriendsClick() }
+        val lp = key.layoutParams as LinearLayout.LayoutParams
+        key.layoutParams = FrameLayout.LayoutParams(lp.width, lp.height)
+        val box = FrameLayout(context).apply {
+            layoutParams = LinearLayout.LayoutParams(lp.width, lp.height).apply { leftMargin = lp.leftMargin }
+            clipChildren = false
+        }
+        box.addView(key)
+        val badge = TextView(context).apply {
+            textSize = 9f
+            setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            minWidth = dp(15); minHeight = dp(15)
+            setPadding(dp(4), 0, dp(4), 0)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor(Glass.ACCENT))
+            }
+            isClickable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        box.addView(badge, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(15), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(2); rightMargin = dp(1)
+        })
+        friendBadge = badge
+        paintBadge(badge)
+        return box
+    }
 
     /** The scene chip's ✕, for the same reason — its colour is set at build too. */
     private var sceneChipExit: TextView? = null
@@ -2507,6 +2562,7 @@ class FloatingWindowUi(
             barButton(R.drawable.ic_artifacts, Glass.PHOTO_INK, "产物") { listeners.onArtifactsClick() }
         )
         keys.addView(barButton(R.drawable.ic_scene, Glass.PHOTO_INK, "情景") { listeners.onScenesClick() })
+        keys.addView(friendsKey())
         // ✓ and not ■: the stop button used to sit here, and stop is the one
         // action in this bar the ball can already perform — see onStopClick.
         keys.addView(barButton(R.drawable.ic_check, Glass.PHOTO_INK, "自检") { listeners.onSelfCheckClick() })

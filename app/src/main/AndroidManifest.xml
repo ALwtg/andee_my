@@ -10,6 +10,10 @@
     <!-- App list: query-all is required on API 30+ to see other packages. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- Finding the user's other devices on the same Wi-Fi (mDNS needs the multicast lock; NSD needs wifi state).
+         Normal permissions, granted at install; nothing listens until the user turns pairing on. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- How much each app is used, for the gear shelf. A special access the user grants in Settings (the app can
          only point at the page); without it the shelf ranks by what Andee itself opened. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"

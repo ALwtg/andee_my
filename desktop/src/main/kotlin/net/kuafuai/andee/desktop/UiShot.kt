@@ -51,6 +51,17 @@ fun main(args: Array<String>) {
         }
         seedGear()
     }
+    if (screen == "peers") {
+        Peers.storeOverride = object : net.kuafuai.andee.config.NotebookStore {
+            var s: String? = null
+            override fun read() = s
+            override fun write(plain: String): Boolean { s = plain; return true }
+            override fun wipe() { s = null }
+        }
+        // An invented paired phone, so the card has a row to show. Nothing real.
+        Peers.store.add(net.kuafuai.andee.peer.PeerProtocol.Peer("phone-demo", "My phone", net.kuafuai.andee.peer.PeerCrypto.publicBytes(net.kuafuai.andee.peer.PeerCrypto.newKeyPair().public)))
+        Peers.count.value = Peers.store.all().size
+    }
     val nav = Nav().also { if (screen != "chat") it.go(screen) }
     val density = Density(2f)
     val scene = ImageComposeScene(width = w * 2, height = h * 2, density = density) { AppRoot(nav) }

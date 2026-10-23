@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
@@ -91,6 +92,7 @@ fun Sidebar(nav: Nav, width: androidx.compose.ui.unit.Dp = 228.dp) {
         NavItem(AndeeIcon.LOCK, t("保险箱", "Vault"), here == "vault") { nav.go("vault") }
         NavItem(AndeeIcon.FACE, t("形象与表情", "Look"), here == "expressions") { nav.go("expressions") }
         NavItem(AndeeIcon.GRID, t("装备", "Gear"), here == "gear") { nav.go("gear") }
+        NavItem(AndeeIcon.FRIENDS, t("朋友", "Friends"), here == "peers", badge = Peers.count.value) { nav.go("peers") }
 
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -137,7 +139,7 @@ fun Sidebar(nav: Nav, width: androidx.compose.ui.unit.Dp = 228.dp) {
 }
 
 @Composable
-private fun NavItem(icon: AndeeIcon, label: String, selected: Boolean, onClick: () -> Unit) {
+private fun NavItem(icon: AndeeIcon, label: String, selected: Boolean, badge: Int = 0, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .background(if (selected) Palette.glass else Color.Transparent, RoundedCornerShape(10.dp))
@@ -148,6 +150,15 @@ private fun NavItem(icon: AndeeIcon, label: String, selected: Boolean, onClick: 
     ) {
         Icon(icon, if (selected) Palette.title else Palette.secondary, 18.dp)
         Spacer(Modifier.width(10.dp))
-        Text(label, color = if (selected) Palette.title else Palette.label, fontSize = 14.sp)
+        Text(label, color = if (selected) Palette.title else Palette.label, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        // A count at the row's end: how many there are, readable without opening the page.
+        if (badge > 0) {
+            Box(
+                Modifier.background(Palette.accent, RoundedCornerShape(9.dp)).padding(horizontal = 7.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (badge > 99) "99+" else badge.toString(), color = Color.White, fontSize = 11.sp)
+            }
+        }
     }
 }

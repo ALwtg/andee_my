@@ -36,7 +36,7 @@ object Settings {
         "voice_provider", "lang", "max_steps", "scene", "ball", "ball_pos", "notify", "sweep", "sweep_quiet_minutes", "sweep_daily_cap",
         "shell_mode", "shell_workdirs", "shell_critical_confirm", "mute",
         "google_api_key", "google_project", "google_location", "google_asr_model", "google_tts_model", "google_base_url",
-        "google_language", "tts_sample_rate", "grounding", "show_hub", "hub_url", "device_name", "theme",
+        "google_language", "tts_sample_rate", "grounding", "show_hub", "hub_url", "device_name", "theme", "peers",
     )
 
     /**

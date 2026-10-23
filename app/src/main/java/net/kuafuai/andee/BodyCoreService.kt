@@ -16,6 +16,7 @@ import android.provider.Settings
 import net.kuafuai.andee.asr.AsrController
 import net.kuafuai.andee.audio.AudioIO
 import net.kuafuai.andee.brain.SpeechMood
+import net.kuafuai.andee.device.AndroidPeers
 import net.kuafuai.andee.i18n.AppLocale
 import net.kuafuai.andee.net.BodyWsServer
 import net.kuafuai.andee.net.CommandDispatcher
@@ -121,6 +122,13 @@ class BodyCoreService : Service() {
     private lateinit var meeting: net.kuafuai.andee.meeting.MeetingRecorder
     private lateinit var dogLink: net.kuafuai.andee.dog.DogLink
     private lateinit var dogSense: net.kuafuai.andee.dog.DogSense
+    private lateinit var peers: AndroidPeers
+
+    /**
+     * The one link to the user's other devices, for a screen that wants to show or pair them. One instance per
+     * process: a second would start a second server on the same port and lose to the first.
+     */
+    fun peerLink(): AndroidPeers? = if (::peers.isInitialized) peers else null
     private lateinit var dogMotion: net.kuafuai.andee.dog.DogMotion
 
     /**
@@ -300,6 +308,10 @@ class BodyCoreService : Service() {
 
             override fun onScenesClick() {
                 openScenes()
+            }
+
+            override fun onFriendsClick() {
+                if (::peers.isInitialized) net.kuafuai.andee.ui.PeersUi(this@BodyCoreService, peers).show()
             }
 
             override fun onSceneExitClick() {
@@ -633,6 +645,22 @@ class BodyCoreService : Service() {
         // dog from should not be sampling one. DogMotion attaches on first use.
         dogLink = net.kuafuai.andee.dog.DogLink(this)
         dogSense = net.kuafuai.andee.dog.DogSense(this)
+        peers = AndroidPeers(this)
+        peers.onCount = { window.setFriendCount(it) }
+        window.setFriendCount(peers.store.all().size)
+        peers.startIfEnabled()
+        // Scanning the Mac's pairing QR from the Devices card: the unfolded card is an overlay above the camera,
+        // so it folds for the scan and comes back if it was open. See [net.kuafuai.andee.ui.StandAside].
+        var unfoldAfterScan = false
+        net.kuafuai.andee.ui.StandAside.host = { aside ->
+            if (aside) {
+                unfoldAfterScan = !window.isCompact()
+                if (unfoldAfterScan) window.setCompact(true)
+            } else if (unfoldAfterScan) {
+                unfoldAfterScan = false
+                dispatcher.expand()
+            }
+        }
         dogMotion = net.kuafuai.andee.dog.DogMotion(dogLink, dogSense)
         // A *provider*, not the controller: the screen half can be taken away
         // and handed back at any time, and the dispatcher outlives both. See
@@ -1009,6 +1037,8 @@ class BodyCoreService : Service() {
             android.util.Log.i("Body", "$how answered card: $said")
             return
         }
+        // The owner speaking outranks a friend's request on the same screen: it is cut off, and the friend told so.
+        guestBrain?.cancel()
         android.util.Log.i("Body", "$how: $said" + if (images.isEmpty()) "" else " (+${images.size} images)")
         // Hand the keyboard back before the turn exists: the brain may call
         // `type_text` inside it, and it can only do that on ADBKeyboard.
@@ -1864,6 +1894,7 @@ class BodyCoreService : Service() {
         var rebuiltByReset = false
         val s = SettingsUi(
             context = this,
+            peers = peers,
             onDismiss = {
                 settings = null
                 voiceFailureReported = false
@@ -2354,6 +2385,7 @@ class BodyCoreService : Service() {
             return
         }
         acceptBrainOutput = false
+        guestBrain?.cancel()
         // A 继续修改 / 继续话题 the user walked away from must not attach itself
         // to whatever they ask next.
         pendingArtifact = null
@@ -2619,12 +2651,13 @@ class BodyCoreService : Service() {
         marketTools = market
         localBrain = net.kuafuai.andee.brain.LocalBrain(
             cfg = bc,
-            host = net.kuafuai.andee.brain.AndroidBrainHost(this, dispatcher, callExtensions, market),
+            host = net.kuafuai.andee.brain.AndroidBrainHost(this, dispatcher, callExtensions, market, peers),
             onProgress = ::onBrainProgress,
             onFinal = ::onBrainFinal,
             onTurnEnd = ::onTurnEnd,
             onSweepSpent = { tokens -> net.kuafuai.andee.config.Notebook.noteSweep(this, tokens) },
         )
+        peers.tasks.brain = peerBrain
         refreshSceneChip()
         // Promises outlive the process: anything that came due while the
         // accessibility service was off (or the tablet was off) is dealt with
@@ -2643,6 +2676,7 @@ class BodyCoreService : Service() {
         net.kuafuai.andee.config.Scheduler.cancelSweep(this)
         val lb = localBrain ?: return
         localBrain = null
+        peers.tasks.brain = null
         lb.stop()
         refreshSceneChip()
     }
@@ -2764,6 +2798,107 @@ class BodyCoreService : Service() {
         waitForQuiet {
             wakeBrainFor(brain, todo)
         }
+    }
+
+    /**
+     * Jobs one of the user's other devices handed here, and reports on jobs this one handed out. Both are
+     * turns nobody in front of the phone just asked for, so both wait like a todo does ([waitForQuiet]) and
+     * neither interrupts the person who is here.
+     */
+    private val peerBrain = object : net.kuafuai.andee.peer.PeerTasks.Brain {
+        override fun run(
+            from: net.kuafuai.andee.peer.PeerProtocol.Peer, trust: net.kuafuai.andee.peer.PeerStore.Trust, text: String,
+            reply: (String?) -> Unit, decline: (String) -> Unit,
+        ): Boolean {
+            val brain = localBrain ?: return false
+            if (trust == net.kuafuai.andee.peer.PeerStore.Trust.OWN) {
+                // The user's words, said on another device — and the one thing that tells whoever is holding the
+                // phone why it just started working on its own.
+                net.kuafuai.andee.ui.ChatHistory.addUser(AppLocale.str(this@BodyCoreService, R.string.peer_task_row, from.name, text))
+                closeTyping()
+                waitForQuiet {
+                    // A ■ earlier closed the gate; this is new work the user asked for, so its answer is wanted.
+                    acceptBrainOutput = true
+                    brain.peerTask(net.kuafuai.andee.peer.PeerTasks.ownTaskText(from, peers.tasks.platformOf(from.id), text), reply)
+                }
+                return true
+            }
+            // Somebody else's Andee. The owner decides, and the work runs out of sight of their life.
+            net.kuafuai.andee.ui.ChatHistory.addUser(AppLocale.str(this@BodyCoreService, R.string.peer_friend_row, from.name, text))
+            waitForQuiet {
+                if (peers.store.autoAccept(from.id)) return@waitForQuiet runAsGuest(from, text, reply)
+                val yes = AppLocale.str(this@BodyCoreService, R.string.peer_allow)
+                val always = AppLocale.str(this@BodyCoreService, R.string.peer_allow_always)
+                val no = AppLocale.str(this@BodyCoreService, R.string.peer_decline)
+                net.kuafuai.andee.ui.CardUi.ask(
+                    AppLocale.str(this@BodyCoreService, R.string.peer_friend_ask, from.name, text.take(300)),
+                    listOf(yes, always, no),
+                    timeoutMs = FRIEND_ASK_MS,
+                ) { r ->
+                    when (r.button) {
+                        always -> { peers.setAutoAccept(from.id, true); runAsGuest(from, text, reply) }
+                        yes -> runAsGuest(from, text, reply)
+                        else -> {
+                            net.kuafuai.andee.ui.ChatHistory.addAssistant(AppLocale.str(this@BodyCoreService, R.string.peer_friend_declined_row, from.name), null)
+                            decline(if (r.button == no) "Its owner declined this request." else "Its owner did not answer, so it was not done.")
+                        }
+                    }
+                }
+            }
+            return true
+        }
+
+        override fun answered(
+            from: net.kuafuai.andee.peer.PeerProtocol.Peer, trust: net.kuafuai.andee.peer.PeerStore.Trust,
+            task: String, report: String, done: Boolean,
+        ) {
+            val brain = localBrain ?: return
+            waitForQuiet {
+                acceptBrainOutput = true
+                // A friend's report is somebody else's words, and runs as such: no vault, no scenes, no handing on.
+                brain.wake(
+                    net.kuafuai.andee.peer.PeerTasks.answerText(from, trust, task, report, done),
+                    untrusted = trust != net.kuafuai.andee.peer.PeerStore.Trust.OWN,
+                )
+            }
+        }
+    }
+
+    /** The friend's request running now, if any. One at a time: two brains on one screen is chaos. */
+    @Volatile private var guestBrain: net.kuafuai.andee.brain.LocalBrain? = null
+
+    /**
+     * Run a friend's request the owner allowed, in a brain of its own over [net.kuafuai.andee.brain.GuestHost]: no
+     * memory, no history, no vault, no personal data. Dropped when it answers, so one friend never sees another's.
+     * Waits for the owner's own turn to finish first; the owner speaking cuts it off ([submitUserTurn], ■).
+     * Silent: the owner is shown the work and the reply, but the voice is theirs to hear, not a friend's report.
+     */
+    private fun runAsGuest(from: net.kuafuai.andee.peer.PeerProtocol.Peer, text: String, reply: (String?) -> Unit) {
+        Thread {
+            while (localBrain?.isBusy() == true || guestBrain != null) Thread.sleep(500)
+            val cfg = net.kuafuai.andee.config.VoiceConfig.brainConfig(this)
+            val market = marketTools ?: net.kuafuai.andee.market.MarketTools("", "", enabled = false)
+            val g = net.kuafuai.andee.brain.LocalBrain(
+                cfg = cfg,
+                host = net.kuafuai.andee.brain.GuestHost(net.kuafuai.andee.brain.AndroidBrainHost(this, dispatcher, callExtensions, market, peers)),
+                onProgress = ::onBrainProgress,
+                onFinal = { answer ->
+                    val plain = SpeechMood.parse(stripMarkdown(END_MARKER.replace(answer, ""))).text
+                    net.kuafuai.andee.ui.ChatHistory.addAssistant(AppLocale.str(this, R.string.peer_friend_reply_row, from.name, plain), null)
+                    dispatcher.endTask()
+                    window.clearSubtitle()
+                    window.setState(FloatingWindowUi.State.IDLE)
+                },
+            )
+            guestBrain = g
+            acceptBrainOutput = true
+            g.peerTask(net.kuafuai.andee.peer.PeerTasks.friendTaskText(from, text)) { answer ->
+                reply(answer)
+                guestBrain = null
+                // Not from inside its own loop thread: stop() shuts that thread down.
+                Thread { g.stop() }.apply { isDaemon = true }.start()
+            }
+        }.apply { isDaemon = true; name = "friend-task" }.start()
     }
 
     /** Poll until nothing is speaking, asking or listening, or [WAKE_PATIENCE_MS] passes; then run [then]. */
@@ -3012,6 +3147,7 @@ class BodyCoreService : Service() {
 
         /** How long a wake-up waits for the user's exchange to settle before it goes ahead anyway. */
         private const val WAKE_PATIENCE_MS = 150_000L
+        private const val FRIEND_ASK_MS = 300_000L
 
         private val instanceRef = AtomicReference<BodyCoreService?>()
 

@@ -149,6 +149,8 @@ dependencies {
     implementation "androidx.camera:camera-lifecycle:$camerax_version"
     implementation "androidx.camera:camera-view:$camerax_version"
     implementation 'com.google.mlkit:barcode-scanning:17.2.0'
+    // Drawing the QR code a friend scans to add this phone. Encoder only, pure Java; ML Kit only reads.
+    implementation 'com.google.zxing:core:3.5.3'
 
     implementation project(':core')
 

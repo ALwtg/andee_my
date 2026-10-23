@@ -13,6 +13,7 @@ import net.kuafuai.andee.ScreenBodyService
 import net.kuafuai.andee.config.FactoryReset
 import net.kuafuai.andee.config.Notebook
 import net.kuafuai.andee.config.VoiceConfig
+import net.kuafuai.andee.device.AndroidPeers
 import net.kuafuai.andee.device.SelfCheck
 import net.kuafuai.andee.i18n.AppLocale
 
@@ -538,6 +539,7 @@ class SelfCheckActivity : StageActivity() {
         if (settings?.isShowing() == true) return
         val s = SettingsUi(
             context = this,
+            peers = net.kuafuai.andee.BodyCoreService.get()?.peerLink() ?: AndroidPeers(this),
             onDismiss = {
                 settings = null
                 paintedLang = VoiceConfig.uiLanguage(this)

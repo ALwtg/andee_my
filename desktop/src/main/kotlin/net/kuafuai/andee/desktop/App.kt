@@ -35,6 +35,7 @@ fun AppRoot(nav: Nav) {
                         screen == "scenes" -> ScenesCard(onDone = { nav.back() })
                         screen == "expressions" -> ExpressionsCard(onDone = { nav.back() })
                         screen == "gear" -> GearCard(onDone = { nav.back() })
+                        screen == "peers" -> PeersCard(onDone = { nav.back() })
                         screen == "artifacts" -> ArtifactsCard(onDone = { nav.back() }, onContinue = { nav.go("chat"); ComposerFocus.pending = true })
                         screen.startsWith("topic:") -> TopicScreen(screen.removePrefix("topic:").toLongOrNull() ?: -1L, onDone = { nav.back() },
                             onContinue = { nav.go("chat"); ComposerFocus.pending = true })

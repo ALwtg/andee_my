@@ -22,6 +22,7 @@ import net.kuafuai.andee.config.FactoryReset
 import net.kuafuai.andee.config.Notebook
 import net.kuafuai.andee.config.Vault
 import net.kuafuai.andee.config.VoiceConfig
+import net.kuafuai.andee.device.AndroidPeers
 import net.kuafuai.andee.i18n.AppLocale
 import net.kuafuai.andee.wake.WakeTemplates
 import net.kuafuai.andee.wake.WakeWord
@@ -79,6 +80,7 @@ import net.kuafuai.andee.wake.WakeWord
  */
 class SettingsUi(
     private val context: Context,
+    private val peers: AndroidPeers,
     private val onDismiss: () -> Unit,
     /**
      * 恢复出厂设置, after the user has confirmed twice. Wired to
@@ -225,7 +227,11 @@ class SettingsUi(
         } catch (t: Throwable) {
             // ignore
         }
+        // Devices → 扫码配对 opens the camera from on top of this card; see [StandAside].
+        if (aside == null) aside = StandAside.register(wm) { root }
     }
+
+    private var aside: Any? = null
 
     /**
      * Swap the whole card for a freshly built one, in place.
@@ -303,6 +309,7 @@ class SettingsUi(
     fun hide() {
         val v = root ?: return
         root = null
+        aside?.let { StandAside.unregister(it) }; aside = null
         closing = v
         fields.clear()
         picks.clear()
@@ -369,6 +376,7 @@ class SettingsUi(
         gearSection(form)
         notifySection(form)
         vaultSection(form)
+        peersSection(form)
         maxStepsSection(form)
 
         advancedSection(form)
@@ -1010,6 +1018,26 @@ class SettingsUi(
         panel.addView(row, rowParams(dp(12)))
     }
 
+
+    /**
+     * Devices: pair, view, unpair. The list lives in [PeersUi]; this section is just the door and count.
+     */
+    private fun peersSection(form: LinearLayout) {
+        val panel = group(form, lctx.getString(R.string.settings_section_peers))
+        val state = TextView(context).apply {
+            val n = peers.store.all().size
+            text = if (n == 0) lctx.getString(R.string.settings_peers_note) else lctx.getString(R.string.settings_peers_count_note, n)
+            textSize = Glass.Type.CAPTION
+            setTextColor(Color.parseColor(Glass.LABEL))
+            setLineSpacing(dp(3).toFloat(), 1f)
+        }
+        panel.addView(state, rowParams(0))
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+        row.addView(button(lctx.getString(R.string.settings_peers_manage), filled = false) {
+            PeersUi(context, peers).show()
+        })
+        panel.addView(row, rowParams(dp(12)))
+    }
     private fun diagnosticsSection(form: LinearLayout) {
         val panel = group(form, lctx.getString(R.string.settings_section_diagnostics))
         rowLabel(panel, lctx.getString(R.string.settings_grounding))
