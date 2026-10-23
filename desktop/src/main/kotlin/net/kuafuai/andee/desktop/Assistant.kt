@@ -204,6 +204,10 @@ object Assistant {
 
     fun say(text: String, attachments: List<Attachment> = emptyList()) {
         val t = text.trim()
+        // A question card is up and the brain is blocked on it: these words are its answer, not a new
+        // turn (which would queue behind the very tool call waiting for them). Attachments cannot be
+        // an answer, so a message carrying any is still a message.
+        if (attachments.isEmpty() && AskGate.tryAnswer(t)) return
         val photos = attachments.filterIsInstance<Attachment.Photo>()
         val files = attachments.filterIsInstance<Attachment.FileRef>()
         // Pictures alone are a complete message ("what is this"); so are files.

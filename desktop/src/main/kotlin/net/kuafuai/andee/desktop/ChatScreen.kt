@@ -179,7 +179,9 @@ fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, on
 
     fun send() {
         val t = input.trim()
-        if ((t.isEmpty() && attached.isEmpty()) || busy) return
+        // Busy blocks a new message, but not the answer to a question the brain is waiting on.
+        val answering = AskGate.isWaiting
+        if ((t.isEmpty() && attached.isEmpty()) || (busy && !answering)) return
         val sending = attached.toList()
         input = ""
         attached.clear()
@@ -285,7 +287,7 @@ fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, on
             input = input,
             onInput = { input = it },
             listening = voice == net.kuafuai.andee.desktop.voice.MacVoice.State.LISTENING,
-            canSend = (input.isNotBlank() || attached.isNotEmpty()) && !busy,
+            canSend = (input.isNotBlank() || attached.isNotEmpty()) && (!busy || AskGate.isWaiting),
             attached = attached,
             onRemove = { attached.remove(it) },
             onAttach = { choose() },

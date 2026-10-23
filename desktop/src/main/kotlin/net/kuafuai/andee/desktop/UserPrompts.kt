@@ -215,6 +215,10 @@ object AskGate {
         private set
     @Volatile var onChange: () -> Unit = {}
 
+    /** Compose-readable twin of "a question card is up", so the input box can stay open to answer it. */
+    private val waiting = androidx.compose.runtime.mutableStateOf(false)
+    val isWaiting: Boolean get() = waiting.value
+
     fun ask(question: String, buttons: List<String>, timeoutMs: Long): Result =
         run(question, buttons, timeoutMs)
 
@@ -227,12 +231,14 @@ object AskGate {
             current?.answer?.complete(Result(null, null, "superseded"))
             current = p
         }
+        waiting.value = p.buttons.isNotEmpty()
         onChange()
         // Voice-first: the question is read out, exactly as the phone says it.
         MacVoice.speak(question)
         val r = runCatching { p.answer.get(timeoutMs, TimeUnit.MILLISECONDS) }
             .getOrDefault(Result(null, null, "timeout"))
         synchronized(this) { if (current === p) current = null }
+        waiting.value = current?.buttons?.isNotEmpty() == true
         onChange()
         return r
     }
@@ -241,6 +247,36 @@ object AskGate {
         val p = current ?: return
         p.answer.complete(Result(button, null, "button"))
     }
+
+    /**
+     * Answer the card that is up with words, typed or spoken. A sentence that is (nearly) just a
+     * button label presses it; any other sentence to a question is the answer too, and travels back
+     * in the tool result for the model to judge against the options it offered.
+     *
+     * This is why those words must never start a turn of their own: the brain is blocked inside
+     * the very tool call this card belongs to, so a new turn would queue behind it while it waits
+     * for this answer — each waiting on the other, until the card times out. Same rule and same
+     * matching as the phone's `CardUi.tryAnswerByVoice`.
+     *
+     * @return true when the card took the words, so the caller must not send them as a message.
+     */
+    fun tryAnswer(said: String): Boolean {
+        val text = said.trim()
+        val p = current ?: return false
+        if (text.isEmpty() || p.answer.isDone) return false
+        // Alerts have no answer to give; a sentence said over one is an ordinary message.
+        if (p.buttons.isEmpty()) return false
+        val spoken = normalize(text)
+        val hit = p.buttons.firstOrNull { label ->
+            val l = normalize(label)
+            l.isNotEmpty() && (spoken == l || (spoken.contains(l) && l.length * 2 >= spoken.length))
+        }
+        return if (hit != null) p.answer.complete(Result(hit, text, "voice")) .let { true }
+        else p.answer.complete(Result(null, text, "voice_other")).let { true }
+    }
+
+    /** Lower-cased, spaces and punctuation dropped, so "好的。" equals "好的". */
+    private fun normalize(s: String): String = s.lowercase().filter { it.isLetterOrDigit() }
 
     fun dismiss() {
         current?.answer?.complete(Result(null, null, "tap_outside"))
