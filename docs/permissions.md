@@ -55,6 +55,7 @@ The "What you get" column is the copy the app actually shows (`dev_perm_feature_
 | Boot<br>`RECEIVE_BOOT_COMPLETED` | Tasks survive a reboot | Rebuilding the `AlarmManager` alarms | After a reboot, due tasks stop reminding |
 | Battery optimisation exemption<br>`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Reminders arrive on time | Task scheduling | With the screen off, reminders arrive late |
 | Write secure settings<br>`WRITE_SECURE_SETTINGS` | Switch the input method, for the spare typing route | Prerequisite for the ADBKeyboard fallback | Nothing on Android 13 and above — typing goes through the accessibility input method. On Android 12 and below, **`type_text` fails outright**, and tells you exactly why. It will not pretend to succeed |
+| Wi-Fi state, multicast<br>`ACCESS_WIFI_STATE`<br>`CHANGE_WIFI_MULTICAST_STATE` | Finding your friends' Andees on the same Wi-Fi (mDNS) | `list_friends` / `ask_friend` | Normal permissions, granted at install. Nothing listens or announces until you add a friend or switch **Let other devices find me** on |
 
 > On **Android 13 and above you do not need this.** The app types through its own accessibility service's input connection: nothing to install, no keyboard to switch to, and your own keyboard stays active throughout.
 >
@@ -106,6 +107,7 @@ Andee has a vault (`config/Vault.kt`) for the account passwords you enter yourse
 | Conversation content, **and every tool result** | The "brain" **you** configured | `brain=local` (the out-of-box default) → `api.deepseek.com` on a Chinese UI and `api.openai.com` on an English one; in hub mode, your own `hub_url` |
 | Private notebook (`config/Notebook.kt`: what he remembers about you, what he promised) | **On-device only** | It is `localOnly` and never enters the hub payload |
 | **Version check**: your version number, phone model / brand / OS version, UI language, one random install ID | **A server the maintainers run** (not a third party) | Once on first launch, and once per tap on **Check again**; capped at 10 per IP per day |
+| **A request you send a friend**, and its report back | **Directly to that device**, over an end-to-end encrypted link on your Wi-Fi — no server in between | Only what the model put in the request. It is told never to pass on your memory, accounts or contacts unless you asked; a friend's request on *your* device runs where it cannot see any of them |
 
 The second row deserves spelling out: **a tool result is part of the conversation.** The SMS bodies, contacts, call log, notification content and location he reads, along with his "reading" of the screen, all travel with the conversation to the endpoint you configured.
 

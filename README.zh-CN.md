@@ -23,6 +23,7 @@
   <a href="https://www.codeflying.net/andee"><img alt="在线构建" src="https://img.shields.io/badge/在线构建-免打包、免配令牌-12b76a"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0%20%2B%20conditions-155eef"></a>
   <a href="app/build.gradle"><img alt="Platform" src="https://img.shields.io/badge/platform-Android%2011%2B%20(API%2030)-3ddc84"></a>
+  <a href="desktop/build.gradle"><img alt="macOS" src="https://img.shields.io/badge/platform-macOS%2014%2B%20(Apple%20silicon)-555555"></a>
   <a href="app/build.gradle"><img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-1.9.22-7f52ff"></a>
   <a href="docs/permissions.zh-CN.md"><img alt="遥测不含内容" src="https://img.shields.io/badge/遥测-不含内容-0f6e56"></a>
   <a href="CONTRIBUTING.zh-CN.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-fdb062"></a>
@@ -40,8 +41,8 @@
 <p align="center">
   <b>他不是那种帮你操作手机的助手，也不是工具或伙伴 ——<br>
   住进来的不是一个 App，是一个灵魂。</b><br>
-  手机只是他今天穿着的东西；换到平板，或任何有身体的设备，还是同一个他。<br>
-  不用 root，不用刷机，不用插着电脑。<b>一个 APK 就够。</b>
+  手机、Mac、平板，都是他住进去的身体；不同设备上的 Andee，还能成为<b>朋友</b>。<br>
+  不用 root，不用刷机，不用插着电脑。<b>Android 上一个 APK，Mac 上一个 App。</b>
 </p>
 
 
@@ -70,6 +71,9 @@ https://github.com/user-attachments/assets/866e8333-e97b-4bf5-9525-540f9fdb01cd
   **你用拇指能做到的，它就能做到。**
 - **有些底线，提示词说不动他。** 陌生人发来的一条通知，打不开保险箱、也不能替他给自己新的权限 ——
   这道拒绝写在调度器里，不在提示词里。
+- **他有朋友。** 两台设备扫一下二维码就配上了，每台上的 Andee 都能请对方帮忙 —— 手机把写代码的活交给
+  Mac，Mac 让手机去点外卖。朋友可以是你自己的另一台设备（和你一样被信任），也可以是**别人的 Andee**：
+  那样对方主人会先被问一句，答应了才做，而且做的时候看不到你的记忆、对话和保险箱。
 - **你可以自己去核对，不必选择相信。** 没有分析 SDK、没有内容遥测，整条 agent 循环连同护栏都在这个仓库里 ——
   见[为什么你可以去核对，而不是选择相信](#为什么你可以去核对而不是选择相信)。
 
@@ -101,11 +105,12 @@ https://github.com/user-attachments/assets/866e8333-e97b-4bf5-9525-540f9fdb01cd
 "任何值得拥有身体的设备"而写，一直到一只被他当作腿的机器狗。下面所有内容，都是这句话被认真写进代码
 之后的样子 —— 他用的身体、他有的性格、他记的笔记本，以及没人看着的时候他给自己定的规矩。
 
-它就是一个 Android 应用。没有常规界面：一个 `AccessibilityService` 负责看和碰屏幕，一个
-`WindowManager` 悬浮层负责画出来 —— 他的脸就是那颗浮动的球。
+今天他有**两个身体：Android 和 macOS**，共用一个大脑。Android 上，`AccessibilityService` 负责看和碰
+屏幕，`WindowManager` 悬浮层负责画出来；Mac 上，同一套 agent loop 驱动无障碍接口、键盘鼠标和一个沙箱里
+的终端。两边**他的脸都是那颗浮动的球**，球周围的入口也一样、顺序也一样。
 
-**今天它只有 Android，也只有 Android —— 别的身体是计划，不是已发布。** 工具契约是让新身体成为一次
-移植而不是重写的那个东西，但 Android 之外目前还不存在。
+**还没做的：** 单独的平板版（手机 APK 能在平板上跑）、iOS，以及连上不在同一个 Wi-Fi 的朋友 —— 最后这个
+需要一台中转服务器，连接层是按"以后能加中转、不改上面跑的东西"来写的。
 
 > **装之前先读这段。** Andee 会替你点击、输入、动手。他能完成一笔支付，能以你的名义发消息，能读你的
 > 短信、通讯录和位置，接了机器狗还会**真的在地板上移动**。他是实验性的、不提供任何担保，而
@@ -217,16 +222,37 @@ NRF24L01）接入，所以一个请求 —— *走到厨房，告诉我台面上
 WebSocket hub 连到设备。两者之间只是一份普通的工具 schema 契约 —— 任何一半都能被换掉而不用
 重写另一半。**这才是"以任意智能硬件为身体"在这里是事实而非愿景的原因。**
 
+### 两个身体，和朋友
+
+**16. Mac 上是同一个他。**
+agent loop、提示词、笔记本格式、情景和护栏都在 `core/` 里，两边是同一份代码。Mac 多的是它自己的手：任何
+App 的无障碍树、真实的鼠标键盘事件、ScreenCaptureKit 截屏，以及**一个终端** —— 每条命令按风险分级，跑在
+读不到 Andee 自己数据的沙箱里，删除的东西进可以撤回的废纸篓，危险操作先问你。窗口长得和手机卡片一样：
+球在上面，对话在下面，手势相同。
+
+**17. 朋友：互相帮忙的 Andee。**（新）
+配对就是一个二维码：一台出示，另一台扫。码两分钟或输错三次就作废，二维码里还写着出示方的密钥指纹，
+扫码方只认这一把；之后每次连接都是签名验证、加密、前向保密的通道。对模型来说，朋友就像架子上的工具 ——
+每个朋友都说清自己是什么设备、能做什么（`list_friends`），`ask_friend` 把活交过去，结果之后单独作为一轮
+回来，谁也不干等。
+朋友分两种，由出示二维码的一方决定：**我的设备**（和你一样被信任，共用对话）和**朋友**（别人的）。朋友
+发来请求时，主人面前会弹一张卡片 —— 允许、总是允许、拒绝 —— 允许后在一个用完即弃的大脑里做：能用屏幕，
+但碰不到主人的任何生活，没有记忆、没有对话、没有保险箱、没有通讯录、没有终端，按白名单放行。由通知触发
+的回合不能找朋友，朋友交来的活也不能再转交。暂时只支持同一个 Wi-Fi。
+
 ### 工程
 
-**16. 没有 Compose，没有 DI 框架，没有协程。**
-这是有意的。悬浮窗挂不上 Compose，所以 UI 全是手写 `View`；service 只有一个，所以依赖是手工
-构造函数注入；并发是 `Handler` + 独立 `Executor`。四万三千多行 Kotlin，全部自研 —— 没有一行是从
-别处拷来的。
+**18. 没有 DI 框架，手机上没有协程，也没有拷来的代码。**
+手机上也有意不用 Compose：悬浮窗挂不上它，所以 UI 全是手写 `View`；service 只有一个，所以依赖是手工
+构造函数注入；并发是 `Handler` + 独立 `Executor`。Mac 用 Compose Desktop，因为它有真正的窗口。全部自研。
 
 ## 架构
 
-入口是一个 `AccessibilityService`，没有主界面。一轮可以从五个地方开始 —— 离线唤醒词、语音或
+三个 Gradle 模块：**`core/`**（大脑、提示词、工具 schema、朋友连接 —— 纯 JVM，两边共用）、**`app/`**
+（Android 身体）和 **`desktop/`**（Mac 身体）。每个身体实现同一个接口 `BrainHost`，大脑看不到任何
+Android 或桌面的类型。
+
+Android 上，身体是一个前台服务，没有主界面。一轮可以从五个地方开始 —— 离线唤醒词、语音或
 打字、一条通知、一个定时、或经 WebSocket 进来的请求 —— 先写进 `ChatHistory`，再交给当时生效的
 那个后端（`brain = local` 是开箱默认）。
 
@@ -269,7 +295,20 @@ debug 包**。它省掉的是「自己打包」，**省不掉「配令牌」**�
 所以你得自己在 ⚙ → **后端 → 本机** 里填上模型和语音的密钥，它才能干活。它是**拿来试用的过渡包，不是
 分发包** —— 为什么、以及代价是什么，发版说明里写清了。
 
-想自己编译的话：
+**在 Mac 上**，同一份代码可以构建桌面版（Apple 芯片、macOS 14+，要装 Command Line Tools 来提供
+`swiftc`，JDK 同样是 17–20）：
+
+```bash
+./gradlew :desktop:createDistributable   # → desktop/build/compose/binaries/main/app/Andee.app
+cp -R desktop/build/compose/binaries/main/app/Andee.app /Applications/
+# 然后：它要「辅助功能」和「屏幕录制」时允许（系统设置 → 隐私与安全性），
+# 再像手机上一样，在 设置 → 后端 里填模型 Key。
+```
+
+macOS 按应用签名记住这两项授权，所以没签名的重新构建每次都会丢授权 ——
+[desktop/README-signing.md](desktop/README-signing.md) 讲了怎么配一个固定的本地签名。
+
+想自己编译 Android 版的话：
 
 > **环境要求**
 >
@@ -400,10 +439,15 @@ Google），再填该服务商的密钥。这是两个独立的服务，条款�
 
 ## 它长什么样
 
-- **没有常规主界面。** UI 全部是 `WindowManager` 加的 `TYPE_APPLICATION_OVERLAY` 悬浮层，核心是
-  那颗球（`ui/FloatingWindowUi`）。展开时是一张全屏卡片：上面是球的脸，下面是对话记录，旁边一排小
-  控制条 —— **产物**（它做过的页面）、**情景**、**✓**（自检）、**⚙**（设置）。它一开始操作别的 App，
-  就自己缩成角落里的一颗球让开位置；点一下说话，长按展开。
+- **没有常规主界面。** 手机上 UI 全部是 `WindowManager` 加的 `TYPE_APPLICATION_OVERLAY` 悬浮层，
+  核心是那颗球（`ui/FloatingWindowUi`）。展开时是一张全屏卡片：上面是球的脸，旁边一个喇叭（朗读或静音），
+  下面是对话记录，底部一个输入条 —— 拍照、相册、文字、发送 —— 顶上一排入口：**产物**、**小本本**、
+  **情景**、**朋友**（带数量）、**✓**（自检）、**⚙**（设置）。形象、装备、保险箱从 ⚙ 进。它一开始操作
+  别的 App，就自己缩成角落里的一颗球让开位置。
+- **球的手势两边一样：** 点一下 = 停下手上的事并开始听；双击 = 停下并开始打字；左右滑 = 换性格；长按 =
+  展开卡片或打开窗口。
+- **Mac 上**，一颗浮在所有应用之上的球，加一个对话窗口：侧栏是同样的入口 —— 对话、产物、小本本、情景、
+  朋友，下面是自检和设置 —— 对话上方也有那颗球。
 - **桌面图标有两扇门。** 助手在运行时，点图标就是展开卡片 —— 和长按球是同一个动作。无障碍没开时，
   它显示自检卡片：那是手机唯一没有别的办法告诉你"它为什么什么都不做"的时刻。
 - **活儿全在 `ScreenBodyService`（`AccessibilityService`）里。** 它构建整个对象图，并同时启动
@@ -772,6 +816,10 @@ adb usb                            # 想切回来时执行
 ## 目录结构
 
 ```
+core/                   两个身体共用：LocalBrain、LocalPrompt、ToolSchemas、TurnGuards、GuestHost，
+                        以及 peer/（配对、加密连接、二维码邀请、找朋友帮忙）
+desktop/                Mac 应用（Compose Desktop）：窗口、浮动球、mac/（无障碍、输入、截屏、通知）、
+                        shell/（沙箱终端）、voice/、native/（Swift 桥）
 app/                    Android 应用（Kotlin，无 Compose）
   src/main/java/net/kuafuai/andee/
     BodyCoreService.kt     身体：球、卡片、语音、大脑连接、回溯 —— 第一个该读的文件

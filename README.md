@@ -21,6 +21,7 @@
   <a href="https://www.codeflying.app/andee"><img alt="Build online" src="https://img.shields.io/badge/build%20online-no%20token%20setup-12b76a"></a>  
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0%20%2B%20conditions-155eef"></a>  
   <a href="app/build.gradle"><img alt="Platform" src="https://img.shields.io/badge/platform-Android%2011%2B%20(API%2030)-3ddc84"></a>  
+  <a href="desktop/build.gradle"><img alt="macOS" src="https://img.shields.io/badge/platform-macOS%2014%2B%20(Apple%20silicon)-555555"></a>  
   <a href="app/build.gradle"><img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-1.9.22-7f52ff"></a>  
   <a href="docs/permissions.md"><img alt="No content telemetry" src="https://img.shields.io/badge/telemetry-no%20content-0f6e56"></a>  
   <a href="CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-fdb062"></a>  
@@ -44,9 +45,9 @@
   
   What moves in is not an app on the phone.</b>  
   
-  The phone is only what it wears today; a tablet, or anything with a body, is the same individual.  
+  A phone, a Mac, a tablet — each is a body it lives in. And the Andees on different devices can be **friends**.  
   
-  No root. No custom ROM. <b>One APK.</b>  
+  No root. No custom ROM. <b>One APK on Android, one app on the Mac.</b>  
 </p>
 
 <https://github.com/user-attachments/assets/bf560279-d86c-4301-9bcb-01d60fa33d06>
@@ -79,6 +80,10 @@ here; what it can *do* comes after.
   thumb, it can do it.**
 - **Holds lines a prompt cannot talk it out of.** A stranger's notification cannot unlock the vault or grant  
   it new permissions — that refusal is in the dispatcher, not in the prompt.
+- **It has friends.** Pair two devices by scanning a QR code and the Andee on each can ask the other for
+  help — your phone hands a coding job to your Mac, your Mac asks the phone to order lunch. A friend can be
+  another device of yours, trusted like you, or **somebody else's Andee**: then its owner is asked before
+  anything happens, and the work runs where it cannot see your memory, your conversations or your vault.
 - **You can check all of it instead of trusting it.** No analytics SDK, no content telemetry, and the whole  
   agent loop is in this repository down to the guard rails — see  
   [Why you can check this instead of trusting it](#why-you-can-check-this-instead-of-trusting-it).
@@ -116,12 +121,15 @@ software runs on a tablet, and is written for **any device with a body worth hav
 treats as a leg. Everything below is that sentence taken seriously in code: the body it uses, the character  
 it has, the notebook it keeps, and the rules it holds to when nobody is watching.
 
-It is one Android app, and it has no conventional UI. An `AccessibilityService` sees and touches the  
-screen; a `WindowManager` overlay draws the result; **its face is a floating ball** that changes  
-expression while it works.
+It comes in **two bodies today, Android and macOS**, sharing one brain. On Android an
+`AccessibilityService` sees and touches the screen and a `WindowManager` overlay draws the result; on the
+Mac the same agent loop drives the accessibility API, the keyboard and mouse, and a sandboxed terminal.
+On both, **its face is a floating ball** that changes expression while it works, and the doors around it
+are the same, in the same order.
 
-**Today it is Android, and only Android — other bodies are planned, not shipped.** The tool contract  
-is what would make a new one a port rather than a rewrite, but nothing outside Android exists yet.
+**Not shipped yet:** a tablet build of its own (the phone APK runs there), iOS, and reaching a friend who is
+not on the same Wi-Fi — that last one needs a relay, and the link was built so one can be added without
+changing what travels over it.
 
 > **Before you install this.** Andee taps, types and acts on your behalf. It can complete a payment,  
 > send messages under your name, read your messages, contacts and location, and — with a robot dog  
@@ -257,16 +265,42 @@ or lives somewhere else and reaches the device over a WebSocket hub. The wire be
 plain tool-schema contract, so either half can be replaced without rewriting the other. That is what  
 makes "any smart hardware as a body" a fact here rather than an aspiration.
 
+### Two bodies, and friends
+
+**16. The same individual on the Mac.**  
+The agent loop, the prompt, the notebook format, the scenes and the guard rails live in `core/` and are the
+same code on both. What the Mac adds is its own hands: the accessibility tree of any app, real mouse and
+keyboard events, screenshots through ScreenCaptureKit, and **a terminal** — every command classified by risk,
+run in a sandbox that cannot read Andee's own data, deletions sent to a trash it can undo, and anything
+destructive asked about first. The window looks and behaves like the phone's card: the ball on top, the
+conversation underneath, the same gestures.
+
+**17. Friends: Andees that ask each other for help.** *(new)*  
+Pairing is a QR code: one device shows it, the other scans it. The code dies in two minutes or three wrong
+tries, and the QR names the shower's key, so the scanner pins that key and no other; after that every link
+is a signed, encrypted channel with forward secrecy. To the model a friend is like a tool on a shelf — each
+says what its body is and can do (`list_friends`) — and `ask_friend` hands it a job. The answer comes back
+later as its own turn; nothing waits.  
+Two kinds, decided by whoever shows the code: **my device** (trusted like you, same conversation) and
+**friend** (somebody else's). A friend's request puts a card in front of its owner — allow, always allow,
+decline — and runs in a throwaway brain that has the screen and nothing of the owner's life: no memory, no
+history, no vault, no contacts, no terminal, on an allow-list. A notification's turn cannot ask a friend,
+and a request handed over cannot be handed on. Same Wi-Fi only, for now.
+
 ### Engineering
 
-**16. No Compose, no DI framework, no coroutines.**  
-Deliberately. Overlays cannot host Compose, so all UI is hand-written `View` code; there is one  
-service, so dependencies are constructor-injected by hand; concurrency is `Handler` plus dedicated  
-executors. 43k+ lines of Kotlin, all first-party — no code copied in from anywhere.
+**18. No DI framework, no coroutines on the phone, and nothing copied in.**  
+On Android, deliberately no Compose either: overlays cannot host it, so all UI there is hand-written `View`
+code; there is one service, so dependencies are constructor-injected by hand; concurrency is `Handler` plus
+dedicated executors. The Mac is Compose Desktop, because it has real windows. All first-party code.
 
 ## Architecture
 
-One `AccessibilityService` is the entry point and there is no main UI. A turn can begin five ways —  
+Three Gradle modules: **`core/`** (the brain, the prompt, the tool schemas, the friend link — plain JVM,
+shared), **`app/`** (the Android body) and **`desktop/`** (the Mac body). Each body implements one interface,
+`BrainHost`, and the brain never sees an Android or a desktop type.
+
+On Android, one foreground service is the body and there is no main UI. A turn can begin five ways —  
 the offline wake word, voice or typing, a notification, a timer, or a request over WebSocket — is  
 logged to `ChatHistory`, and is handed to whichever backend is in effect (`brain = local` is the  
 out-of-box default).
@@ -316,7 +350,20 @@ you put your own model and voice keys in under ⚙ → **Backend → On-device**
 It is a stopgap for trying the thing rather than a distribution build; the release notes say why and
 what it costs.
 
-To build it yourself instead:
+**On a Mac**, build the desktop app from the same checkout (Apple silicon, macOS 14+, the Command Line Tools
+for `swiftc`, and the same JDK 17–20):
+
+```bash
+./gradlew :desktop:createDistributable   # → desktop/build/compose/binaries/main/app/Andee.app
+cp -R desktop/build/compose/binaries/main/app/Andee.app /Applications/
+# then: grant Accessibility and Screen Recording when it asks (System Settings → Privacy & Security),
+# and put your model key in Settings → Backend, as on the phone.
+```
+
+macOS remembers those two grants against the app's signature, so an unsigned rebuild loses them every
+time — [desktop/README-signing.md](desktop/README-signing.md) sets up one fixed local identity.
+
+To build the Android app yourself:
 
 > **Requirements**
 >
@@ -400,11 +447,17 @@ network you do not control.
 
 There is no home screen. What exists:
 
-- **A floating ball.** The entire UI is `TYPE_APPLICATION_OVERLAY` layers added through  
-  `WindowManager` (`ui/FloatingWindowUi`). Unfolded, it is a full-screen card: the ball's face on  
-  top, the conversation underneath, and a small control bar — **Made for you** (the pages it has  
-  made), **Scenes**, **✓** (self-check), **⚙** (settings). When it starts working another app it  
-  folds itself into a ball in the corner and gets out of the way; tap to talk, long-press to unfold.
+- **A floating ball.** On the phone the entire UI is `TYPE_APPLICATION_OVERLAY` layers added through  
+  `WindowManager` (`ui/FloatingWindowUi`). Unfolded, it is a full-screen card: the ball's face on top
+  with a speaker key beside it (answers read aloud, or not), the conversation underneath, an input pill at
+  the foot — camera, album, words, send — and a control bar: **Made for you**, **Notebook**, **Scenes**,
+  **Friends** (with a count), **✓** (self-check), **⚙** (settings). Looks, gear and the vault open from ⚙.
+  When it starts working another app it folds into a ball in the corner and gets out of the way.
+- **The ball's gestures are the same everywhere:** tap stops whatever it is doing and listens; double-tap
+  stops and opens typing; swipe sideways to change character; long-press opens the card or window.
+- **On the Mac,** a floating ball above every app and a chat window with the same doors down the side —
+  Chat, Made for you, Notebook, Scenes, Friends, then Self-check and Settings — and the ball above the
+  conversation.
 - **The launcher icon opens two doors.** With the assistant running, it unfolds the card — exactly  
   what a long-press on the ball does. With accessibility off, it shows the self-check card instead,  
   because that is the one moment the phone has nothing else to tell you why it is doing nothing.
@@ -883,6 +936,10 @@ that is matched against system text **can never be translated**.
 ## Repository layout
 
 ```
+core/                   shared by both bodies: LocalBrain, LocalPrompt, ToolSchemas, TurnGuards, GuestHost,
+                        and peer/ (pairing, the encrypted link, QR invites, asking friends)
+desktop/                the Mac app (Compose Desktop): window, floating ball, mac/ (accessibility, input,
+                        screen, notifications), shell/ (the sandboxed terminal), voice/, native/ (Swift bridge)
 app/                    the Android app (Kotlin, no Compose)
   src/main/java/net/kuafuai/andee/
     BodyCoreService.kt     the body: ball, card, voice, brain socket, scrollback — read this first
