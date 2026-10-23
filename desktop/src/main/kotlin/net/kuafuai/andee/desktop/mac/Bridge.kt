@@ -32,6 +32,7 @@ object Bridge {
         fun andee_drag(x1: Double, y1: Double, x2: Double, y2: Double, ms: Int)
         fun andee_scroll(x: Double, y: Double, dx: Int, dy: Int)
         fun andee_type_text(text: String)
+        fun andee_set_pasteboard(text: String): Int
         fun andee_key(keyCode: Int, flags: Int)
         fun andee_screenshot(path: String, maxSide: Int): Int
         fun andee_open(target: String): Int
@@ -89,6 +90,8 @@ object Bridge {
     fun drag(x1: Double, y1: Double, x2: Double, y2: Double, ms: Int) = need().andee_drag(x1, y1, x2, y2, ms)
     fun scroll(x: Double, y: Double, dx: Int, dy: Int) = need().andee_scroll(x, y, dx, dy)
     fun typeText(text: String) = need().andee_type_text(text)
+    /** Text onto the general pasteboard, for a Cmd+V that the page sees as a real paste. */
+    fun setPasteboard(text: String) = need().andee_set_pasteboard(text) == 1
     fun key(code: Int, flags: Int = 0) = need().andee_key(code, flags)
     fun screenshot(path: String, maxSide: Int) = need().andee_screenshot(path, maxSide) == 1
     fun open(target: String) = need().andee_open(target) == 1

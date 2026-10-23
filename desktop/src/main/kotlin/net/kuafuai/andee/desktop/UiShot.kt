@@ -42,6 +42,15 @@ fun main(args: Array<String>) {
         val doc = File(System.getProperty("andee.home"), "季度复盘-final.pdf").also { it.writeText("%PDF") }
         ChatPreview.attachments = listOfNotNull(Attachments.fromBytes("a.png", png), Attachments.fromBytes("b.png", png), Attachments.fromFile(doc))
     }
+    if (screen == "gear") {
+        DesktopNotebook.storeOverride = object : net.kuafuai.andee.config.NotebookStore {
+            var s: String? = null
+            override fun read() = s
+            override fun write(plain: String): Boolean { s = plain; return true }
+            override fun wipe() { s = null }
+        }
+        seedGear()
+    }
     val nav = Nav().also { if (screen != "chat") it.go(screen) }
     val density = Density(2f)
     val scene = ImageComposeScene(width = w * 2, height = h * 2, density = density) { AppRoot(nav) }
@@ -68,4 +77,23 @@ private fun seed() {
     Scrollback.fold("周会提醒", "明天 10:00 开周会", b, "User: 明天上午十点提醒我开周会\n\nAndee: 好……")
     Scrollback.add(Scrollback.Role.USER, "看看今天有什么新闻")
     Scrollback.add(Scrollback.Role.ASSISTANT, "我先打开浏览器搜一下，稍等。")
+}
+
+/** A few invented apps, in the throwaway home, so the gear card has something to show. Nothing real. */
+private fun seedGear() {
+    val g = Assistant.gear.gear
+    val now = System.currentTimeMillis(); val day = 86_400_000L
+    g.applyScan(listOf(
+        net.kuafuai.andee.config.Gear.Item("com.google.Chrome", "Google Chrome", "155.0", now - 600_000, 7742),
+        net.kuafuai.andee.config.Gear.Item("com.tencent.workbuddy.mac", "WorkBuddy", "2.1", now - 3 * 3_600_000, 336),
+        net.kuafuai.andee.config.Gear.Item("com.anthropic.claude-code", "Claude Code", "1.0", now - day, 120),
+        net.kuafuai.andee.config.Gear.Item("com.tencent.xinWeChat", "微信", "4.0", now - 2 * day, 1932),
+        net.kuafuai.andee.config.Gear.Item("com.eg.android.Stocks", "股市", "9.1", now - 9 * day, 14),
+        net.kuafuai.andee.config.Gear.Item("com.example.adultvideo", "Adult Video Player", "1.0", now - 5 * day, 40),
+        net.kuafuai.andee.config.Gear.Item("com.apple.Notes", "备忘录", "4.12"),
+    ))
+    g.note("WorkBuddy", "深度调研 / 写作 agent", "做深度调研并写成带来源的报告", "yes", "一次最多约 20 分钟", null)
+    g.note("Claude Code", "命令行写代码", "改代码、跑测试、看 diff", "yes", null, null)
+    g.note("Google Chrome", "浏览器", "打开网页、登录的网站", "yes", null, null)
+    g.edit("微信", "聊天", "读消息、代你回复（需要我同意）")
 }

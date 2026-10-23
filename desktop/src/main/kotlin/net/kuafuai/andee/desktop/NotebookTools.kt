@@ -15,8 +15,11 @@ import java.util.concurrent.TimeUnit
 
 /** The desktop's notebook: the shared logic over an encrypted file keyed in the Keychain. */
 object DesktopNotebook {
+    /** For the screenshot harness only: it runs without the Keychain, so it brings a store that does not need it. */
+    @Volatile var storeOverride: net.kuafuai.andee.config.NotebookStore? = null
+
     val book: NotebookBook by lazy {
-        NotebookBook(EncryptedFileStore(AppDirs.file("notebook.enc"), "notebook-key"))
+        NotebookBook(storeOverride ?: EncryptedFileStore(AppDirs.file("notebook.enc"), "notebook-key"))
     }
 }
 

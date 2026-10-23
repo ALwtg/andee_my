@@ -75,6 +75,8 @@ class AndroidBrainHost(
 
     override fun pagesIndex(): String = ChatHistory.indexForPrompt()
 
+    override fun gearIndex(): String = dispatcher.gearShelf.indexForPrompt()
+
     override fun topicsIndex(): String = ChatHistory.topicsForPrompt()
 
     override fun foldTopic(title: String, summary: String, rows: List<ScrollRow>, text: String): FoldedTopic? {

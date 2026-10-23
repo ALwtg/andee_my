@@ -40,6 +40,7 @@ private fun st(key: String, vararg a: Any): String = Strings.get("s_$key").let {
 @Composable
 fun SettingsScreen(
     onDone: () -> Unit,
+    onOpenGear: () -> Unit = {},
 ) {
     val zh = Strings.lang() == "zh"
     fun t(a: String, b: String) = if (zh) a else b
@@ -171,6 +172,17 @@ fun SettingsScreen(
         SectionTitle(st("settings_section_vault"))
         val vaultN = remember { runCatching { net.kuafuai.andee.desktop.mac.MacVault.entries().size }.getOrDefault(0) }
         Note(if (vaultN == 0) st("settings_vault_empty_note") else st("settings_vault_count_note", vaultN))
+
+        // ---- 装备: a summary here, the card is where it is read and edited ----
+        SectionTitle(st("settings_section_gear"))
+        val gearShelf = remember { Assistant.gear.gear }
+        val installed = remember { gearShelf.forCard() }
+        val learned = installed.count { (i, _) -> i.does.isNotBlank() }
+        Note(
+            if (installed.isEmpty()) st("settings_gear_empty_note")
+            else st("settings_gear_count_note", installed.size, learned),
+        )
+        Row(Modifier.padding(top = 8.dp)) { Pill(st("settings_gear_manage")) { onOpenGear() } }
 
         // ---- 单次任务最多步数 ----
         SectionTitle(st("settings_max_steps"))

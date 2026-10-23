@@ -90,6 +90,7 @@ fun Sidebar(nav: Nav, width: androidx.compose.ui.unit.Dp = 228.dp) {
         NavItem(AndeeIcon.SPARKLE, t("情景", "Scenes"), here == "scenes") { nav.go("scenes") }
         NavItem(AndeeIcon.LOCK, t("保险箱", "Vault"), here == "vault") { nav.go("vault") }
         NavItem(AndeeIcon.FACE, t("形象与表情", "Look"), here == "expressions") { nav.go("expressions") }
+        NavItem(AndeeIcon.GRID, t("装备", "Gear"), here == "gear") { nav.go("gear") }
 
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -200,6 +200,9 @@ class LocalBrain(
     /** Loop thread only. Tokens spent by the turn currently running. */
     private var turnTokens = 0
 
+    /** Seconds this turn has already spent in `wait_for_screen`. Loop thread only; reset per turn. See [WaitBudget]. */
+    private var turnWaitSeconds = 0.0
+
     /**
      * Loop thread only. Where the current silent turn's own messages begin, or
      * -1. A harvest sets it before sending its prompt and throws everything
@@ -297,6 +300,13 @@ class LocalBrain(
         val kind = if (untrusted) TurnKind.NOTIFY else TurnKind.WAKE
         loop.execute {
             if (busy.get()) {
+                // The same alarm twice (a check that came due while its predecessor was still waiting its
+                // turn) is one check. Two copies would each do the full look, and the second would find
+                // nothing new to say.
+                if (pendingWakes.any { it.first == t && it.second == kind }) {
+                    host.logInfo(TAG, "wake already queued, not queueing it twice: ${t.take(60)}")
+                    return@execute
+                }
                 host.logInfo(TAG, "wake queued behind a running turn: ${t.take(60)}")
                 pendingWakes.addLast(t to kind)
                 return@execute
@@ -427,6 +437,7 @@ class LocalBrain(
             currentKind = kind
             host.turnStarted(kind.name)
             turnTokens = 0
+            turnWaitSeconds = 0.0
             try {
                 BrainTrace.turn(gen, kind.name, text)
                 runTurn(text, gen, kind, images)
@@ -501,7 +512,14 @@ class LocalBrain(
         }
     }
 
-    /** Run one queued turn, if any. Loop thread only. */
+    /**
+     * Run one queued turn, if any. Loop thread only.
+     *
+     * One at a time, and only from the end of a turn that is still current (see the caller): each queued
+     * turn's own end drains the next. A user request that arrives while the queue is waiting has already
+     * bumped the generation, so the turn that was cut off never drains it — the queue waits for the new
+     * turn instead, which is the right order: the person who just spoke goes first.
+     */
     private fun drainWakes() {
         val (next, kind) = pendingWakes.removeFirstOrNull() ?: return
         host.logInfo(TAG, "running a queued $kind turn: ${next.take(60)}")
@@ -617,6 +635,10 @@ class LocalBrain(
             // reasoning as the three above; the fourth is that this one is about
             // an ABSENCE — see the note where it is appended.
             val topics = host.topicsIndex()
+            // What is installed and what it is for (`Gear`). Same position and same reasoning as the four
+            // above: the shelf changes whenever an app is used or learned, and the system prompt is the one
+            // place that must never move. Empty until there is something worth a line.
+            val gear = host.gearIndex()
             // Photos with no words: there is no sentence of the user's to take
             // the language from, so the bracketed fallback comes back for it.
             val wordless = userText.isEmpty()
@@ -688,6 +710,14 @@ class LocalBrain(
                                 "summary you may have of one is not the whole story — read it back with " +
                                 "get_topic before answering about a detail, and never say it did not " +
                                 "happen)\n$topics"
+                        } +
+                        // Last, and shortest: where to look before doing a job by hand. See §3 (handing a
+                        // long job over) and the `list_gear` tool.
+                        if (gear.isEmpty()) {
+                            ""
+                        } else {
+                            "\n\n(installed here and worth reaching for first, most used first — if one of these is built " +
+                                "for the job, prefer handing it over to doing every step yourself; list_gear has the rest)\n$gear"
                         },
                 )
         }
@@ -854,6 +884,17 @@ class LocalBrain(
             // that name goes straight through to the dispatcher.
             val method = host.methodOf(tc.name)
                 ?: return toolMessage(tc.id, "No such tool: ${tc.name}")
+
+            // The wait budget. Watching somebody else's twenty-minute job by waiting and looking is the
+            // most expensive thing this loop can do — every look carries a screenshot and the whole tool
+            // list — and it fills the history until the conversation itself is what breaks. So the device
+            // refuses, with the way out in the refusal, once the turn has waited long enough. In the
+            // loop and not the prompt, for the same reason as the fold gate: a prompt is a request.
+            if (method == "screen.wait") {
+                val ask = args.optDouble("seconds", 2.0).coerceIn(0.0, WaitBudget.PER_CALL_MAX_S)
+                WaitBudget.check(turnWaitSeconds, ask)?.let { return toolMessage(tc.id, it) }
+                turnWaitSeconds += ask
+            }
 
             val result = dispatchWithTimeout(method, args, silent, untrusted)
             when (result) {
@@ -1622,6 +1663,7 @@ class LocalBrain(
 5. Step back and look at this person: what state he is in, what you want to do next, whether your read on him has changed.
    When it has, remember under the same name to overwrite that entry. This one is a judgement left for future you, not a log.
 6. A kind of session that has now come up more than once and will come again (practising a language, minding his messages, comparing prices) and is not a scene yet → remember(type=feedback) "propose saving <kind> as a scene next time we do it". Do NOT call save_scene here: scenes are saved only after he says yes (§11), and he is not here.
+7. You used an installed app this time and learned what it is for, what it can do on his behalf, or a limit you hit → note_gear (only what you actually saw; a login only if you saw it signed in). If a note on the shelf turned out wrong this time, correct it. Never touch gear_visibility here: what is kept out of view is his call, made when he is present.
 
 If this conversation genuinely produced nothing new, record nothing — ending empty-handed is allowed. Forcing one in just dirties the notebook."""
 

@@ -374,7 +374,12 @@ object MacVault {
         require(pw.isNotEmpty()) { "That entry has no password saved." }
         require(Bridge.focusedValue().optBoolean("focused")) { "Click into the password field first." }
         Scrollback.add(Scrollback.Role.ASSISTANT, "正在填入「$label」的密码… / filling the password for “$label”…")
-        val ok = Bridge.setFocusedValue(pw) || run { Bridge.typeText(pw); true }
+        // Keystrokes, not AXValue: a web login form only believes what arrives as input events, and writing
+        // the control's value directly fills the box on screen while the page still holds an empty password.
+        // And not the pasteboard either — a password left there would sit in the user's clipboard history.
+        Bridge.key(Bridge.Keys.A, Bridge.Keys.CMD)
+        Bridge.typeText(pw)
+        val ok = true
         val len = Bridge.focusedValue().optString("value").length
         Log.i("Vault", "filled $label (${pw.length} chars)")
         return JSONObject().put("performed", ok).put("len", pw.length).put("field_len", len)

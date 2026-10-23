@@ -303,6 +303,9 @@ class CommandDispatcher(
      *   wrote: a notification the triage decided to act on. The device may be
      *   driven, but `device.vault.*` is refused — see the second guard.
      */
+    /** What is installed and what it is for. Built on first use from [appContext]; one per dispatcher. */
+    val gearShelf: net.kuafuai.andee.device.AndroidGear by lazy { net.kuafuai.andee.device.AndroidGear(appContext) }
+
     fun dispatch(
         method: String,
         params: JSONObject?,
@@ -380,7 +383,42 @@ class CommandDispatcher(
             "device.launch" -> deviceActions.launchApp(
                 pkg = params?.optString("pkg")?.ifEmpty { null },
                 label = params?.optString("label")?.ifEmpty { null },
-            )
+            ).also {
+                // The one usage signal that needs no permission: what *we* opened. Used to rank the shelf
+                // when the system has not been allowed to say what the user opens.
+                params?.optString("pkg")?.ifEmpty { null }?.let { gearShelf.noteLaunched(it) }
+            }
+            // The gear shelf: what is installed and what each thing is for. Not `screen.`, so none of these
+            // fold the card — reading a shelf is not driving the screen.
+            "gear.list" -> {
+                gearShelf.ensureScanned()
+                gearShelf.gear.list(params?.optString("query").orEmpty(), params?.optInt("limit", 25) ?: 25)
+            }
+            "gear.note" -> {
+                val id = params?.optString("id")?.trim().orEmpty()
+                require(id.isNotEmpty()) { "note_gear needs an id from list_gear" }
+                val item = gearShelf.gear.note(
+                    id, params?.optString("does"), params?.optString("can_do"), params?.optString("signed_in"),
+                    params?.optString("limit"), params?.optString("category"),
+                ) ?: throw IllegalArgumentException(
+                    "\"$id\" is not on the shelf. Take the id from list_gear; do not write about something you have not seen listed.",
+                )
+                JSONObject().put("saved", true).put("id", item.id).put("label", item.label)
+            }
+            "gear.visibility" -> {
+                val cat = params?.optString("category")?.trim().orEmpty()
+                if (cat.isEmpty() || params?.has("show") != true) {
+                    JSONObject().put("visible", gearShelf.gear.visibility())
+                } else {
+                    require(cat in net.kuafuai.andee.config.Categories.ALL) {
+                        "category must be one of ${net.kuafuai.andee.config.Categories.ALL.joinToString(" / ")}"
+                    }
+                    val on = params.optBoolean("show")
+                    gearShelf.gear.setShown(cat, on)
+                    android.util.Log.i("Body", "gear: $cat ${if (on) "shown" else "hidden"} by the user's request")
+                    JSONObject().put("category", cat).put("show", on).put("visible", gearShelf.gear.visibility())
+                }
+            }
             "device.volume" -> deviceActions.volume(
                 level = params?.optInt("level", -1).let { if (it == null || it < 0) null else it },
                 mute = if (params?.has("mute") == true) params.optBoolean("mute") else null,

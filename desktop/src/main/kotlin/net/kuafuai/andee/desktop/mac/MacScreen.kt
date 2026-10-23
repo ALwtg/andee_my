@@ -232,17 +232,50 @@ class MacScreen(
             .put("note", "A swipe scrolls whatever is under the start point by that distance. To drag something, use the app's own controls.")
     }
 
+    /**
+     * Put [text] in the focused field **the way a person would: select all, paste. Once.**
+     *
+     * It used to set the control's AXValue directly. That changes what the field *shows* and tells the page
+     * nothing: web and Electron editors (X's composer, WorkBuddy) keep their own state and update it from
+     * `input` events, so a field filled that way reads as empty to the app and its send button stays dead.
+     * A paste arrives as the event the editor is listening for.
+     *
+     * 🔴 **One attempt, never a retry on "I cannot read it back".** Those same editors do not expose their
+     * text to the accessibility tree, so a successful paste reads back as empty. The first version took
+     * that for failure and went on to select-all-delete-retype and then to write AXValue — three edits to
+     * one rich-text editor in a second. Draft.js / Lexical own a node tree, and an outside hand rewriting
+     * it under them breaks it: `Failed to execute 'removeChild' on 'Node'`. An empty read-back is
+     * "unverified", not "failed", and the screenshot is what settles it.
+     *
+     * Only a read-back that shows *different, non-empty* text counts as a miss worth a second route, and
+     * even then it is keystrokes into a cleared field, never AXValue on top of a web editor.
+     */
     private fun type(text: String): JSONObject {
         val before = Bridge.focusedValue()
         if (!before.optBoolean("focused")) throw IllegalStateException("no field has focus — click into the field first")
-        val viaAx = Bridge.setFocusedValue(text)
         // Keys go to the focused app, not to a point on screen: fading our windows changes nothing for them.
-        if (!viaAx) { Bridge.key(Bridge.Keys.A, Bridge.Keys.CMD); Bridge.key(Bridge.Keys.DELETE); Bridge.typeText(text) }
-        Thread.sleep(150)
+        var via = "paste"
+        if (Bridge.setPasteboard(text)) {
+            Bridge.key(Bridge.Keys.A, Bridge.Keys.CMD)
+            Bridge.key(Bridge.Keys.V, Bridge.Keys.CMD)
+        } else {
+            via = "keystrokes"
+            Bridge.key(Bridge.Keys.A, Bridge.Keys.CMD); Bridge.key(Bridge.Keys.DELETE); Bridge.typeText(text)
+        }
+        Thread.sleep(350)
         val now = Bridge.focusedValue().optString("value")
         val ok = now == text || now.contains(text)
-        return JSONObject().put("performed", ok).put("via", if (viaAx) "ax_value" else "keystrokes").put("len", text.length)
-            .apply { if (ok) put("text", now.take(200)) else put("error", "the field reads '${now.take(30)}' — check with a screenshot") }
+        return when {
+            ok -> JSONObject().put("performed", true).put("via", via).put("len", text.length).put("text", now.take(200))
+            // Nothing readable back: a web or Electron editor hiding its text. Not a failure — and above all
+            // not a reason to touch the field again.
+            now.isEmpty() -> JSONObject().put("performed", true).put("unverified", true).put("via", via).put("len", text.length)
+                .put("note", "Typed by $via, once. This field does not expose its text to the accessibility layer, so I cannot read it back. " +
+                    "Do NOT type it again — repeating it into a web editor can corrupt it. Look at the screenshot to confirm the text is there, then press send.")
+            // Different text is there: the field transformed it or something else wrote into it. Report, do not fight it.
+            else -> JSONObject().put("performed", false).put("via", via).put("len", text.length)
+                .put("error", "the field reads '${now.take(30)}' instead — look at the screenshot before deciding; do not just type it again")
+        }
     }
 
     private fun submit(): JSONObject {

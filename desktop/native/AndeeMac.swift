@@ -303,6 +303,28 @@ public func andee_type_text(_ text: UnsafePointer<CChar>) {
     }
 }
 
+/**
+ * Put [text] on the general pasteboard. The caller then sends Cmd+V, which is a real paste event.
+ *
+ * Why this exists: setting a field's AXValue changes what the control *shows* and tells the page nothing.
+ * Web and Electron editors (X, WorkBuddy) keep their own state and update it from `input` events, so a field
+ * filled through AXValue reads as empty to the app and its send button stays dead, while the screen plainly
+ * shows the text. A paste arrives as the event the editor listens for. The pasteboard is overwritten, not
+ * restored: that was the choice made, and restoring races a user who copies something in the same moment.
+ */
+@_cdecl("andee_set_pasteboard")
+public func andee_set_pasteboard(_ text: UnsafePointer<CChar>) -> Int32 {
+    let s = String(cString: text)
+    var ok: Int32 = 0
+    let run = {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        ok = pb.setString(s, forType: .string) ? 1 : 0
+    }
+    if Thread.isMainThread { run() } else { DispatchQueue.main.sync(execute: run) }
+    return ok
+}
+
 /** A key with modifiers: flags bit 0 cmd, 1 shift, 2 option, 3 control. */
 @_cdecl("andee_key")
 public func andee_key(_ keyCode: Int32, _ flags: Int32) {

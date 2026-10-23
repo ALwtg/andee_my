@@ -100,6 +100,9 @@ object Notebook {
         }
     }
 
+    /** The gear shelf (what is installed, what it is for), kept inside the notebook's own file. */
+    fun gear(context: Context): net.kuafuai.andee.config.Gear = net.kuafuai.andee.config.Gear(book(context))
+
     fun importanceFor(type: String): Double = NotebookBook.importanceFor(type)
     fun memories(context: Context): List<Memory> = book(context).memories()
     fun remember(

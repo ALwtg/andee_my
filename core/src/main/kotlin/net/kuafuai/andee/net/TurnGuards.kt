@@ -18,6 +18,15 @@ object TurnGuards {
     private val SCENE_WRITES = setOf("scene.save", "scene.enter", "scene.delete")
 
     /**
+     * What the quiet-hour review may do to the gear shelf besides reading the notebook: write down what an
+     * app is *for*. It must not change what the user keeps out of view ([GEAR_VISIBILITY]) — that is theirs.
+     */
+    private val GEAR_SILENT_OK = setOf("gear.note", "gear.list")
+
+    /** The user's own choice of which kinds of app the model is told about. Only a live, trusted turn may move it. */
+    private const val GEAR_VISIBILITY = "gear.visibility"
+
+    /**
      * @param silent the turn is the quiet-hour sweep (or a harvest): the brain
      *   is reviewing a finished conversation by itself, with nobody watching.
      * @param untrusted the turn's subject matter was written by somebody outside
@@ -26,9 +35,17 @@ object TurnGuards {
     fun check(method: String, silent: Boolean, untrusted: Boolean) {
         // The quiet-hour sweep may think and write to the notebook, but must not
         // touch the device.
-        if (silent && !method.startsWith("note.")) {
+        if (silent && !method.startsWith("note.") && method !in GEAR_SILENT_OK) {
             throw IllegalStateException(
                 "A silent turn may only use the notebook (note.*); it must not touch the device: $method",
+            )
+        }
+        // Whether adult (or finance, or health) apps are named to the model is the user's decision. A stranger's
+        // message must not be able to flip it by asking, and the review must not decide it on their behalf.
+        if (method == GEAR_VISIBILITY && (silent || untrusted)) {
+            throw IllegalStateException(
+                "What the user keeps out of view is theirs to change, and only when they ask you in this " +
+                    "conversation: $method. Do not change it from here.",
             )
         }
         // The user's own accounts, on a turn whose subject matter a stranger

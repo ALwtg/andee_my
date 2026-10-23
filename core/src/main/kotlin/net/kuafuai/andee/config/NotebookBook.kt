@@ -126,6 +126,24 @@ class NotebookBook(private val store: NotebookStore) {
     }
 
     /**
+     * A named section of the notebook that something else owns ([Gear] is the first). Read and written
+     * **through this book**, so there is one cache and one writer: a second reader of the same file would
+     * hold its own copy and overwrite the memories and todos the next time it saved.
+     */
+    fun section(name: String): JSONObject = JSONObject(book().optJSONObject(name)?.toString() ?: "{}")
+
+    fun putSection(name: String, value: JSONObject) {
+        val b = JSONObject(book().toString())
+        b.put(name, value)
+        write(b)
+    }
+
+    fun removeSection(name: String) {
+        val b = JSONObject(book().toString())
+        if (b.has(name)) { b.remove(name); write(b) }
+    }
+
+    /**
      * Drop what has aged out. Called on every write, so it costs nothing extra
      * — this is the *only* housekeeping the notebook does; nothing is evicted
      * for being unimportant or unused.

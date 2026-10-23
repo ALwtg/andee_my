@@ -366,6 +366,7 @@ class SettingsUi(
         themeSection(form)
         wakeSection(form)
         notebookSection(form)
+        gearSection(form)
         notifySection(form)
         vaultSection(form)
         maxStepsSection(form)
@@ -1172,6 +1173,38 @@ class SettingsUi(
      * needs over a device that claims to remember them is **to be able to see
      * what it wrote down**.
      */
+    /**
+     * 装备: a summary here, the card is where it is read and edited. A door like [vaultSection]'s, not a
+     * setting: what is installed and what Andee has learned about it is a list, not a switch.
+     */
+    private fun gearSection(form: LinearLayout) {
+        val panel = group(form, lctx.getString(R.string.settings_section_gear))
+        val shelf = net.kuafuai.andee.device.AndroidGear(context)
+        fun summary(): String {
+            val all = shelf.gear.forCard()
+            return if (all.isEmpty()) {
+                lctx.getString(R.string.settings_gear_empty_note)
+            } else {
+                lctx.getString(R.string.settings_gear_count_note, all.size, all.count { it.first.does.isNotBlank() })
+            }
+        }
+        val state = TextView(context).apply {
+            text = summary()
+            textSize = Glass.Type.CAPTION
+            setTextColor(Color.parseColor(Glass.LABEL))
+            setLineSpacing(dp(3).toFloat(), 1f)
+        }
+        panel.addView(state, rowParams(0))
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+        row.addView(button(lctx.getString(R.string.settings_gear_manage), filled = false) {
+            // Scan first if the shelf has never been read, so the card is not an empty promise.
+            Thread { shelf.ensureScanned(); android.os.Handler(android.os.Looper.getMainLooper()).post {
+                net.kuafuai.andee.ui.GearUi(context, shelf) { state.text = summary() }.show()
+            } }.apply { isDaemon = true }.start()
+        })
+        panel.addView(row, rowParams(dp(12)))
+    }
+
     private fun notebookSection(form: LinearLayout) {
         val panel = group(form, lctx.getString(R.string.settings_section_notebook))
         // On first, matching VoiceConfig.sweepConfig's fail-open reading: this

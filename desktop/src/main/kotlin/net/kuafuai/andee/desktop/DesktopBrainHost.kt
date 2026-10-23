@@ -76,6 +76,8 @@ class DesktopBrainHost(
     }
 
     override fun pagesIndex(): String = Pages.indexForPrompt()
+
+    override fun gearIndex(): String = providers.filterIsInstance<net.kuafuai.andee.desktop.mac.MacGear>().firstOrNull()?.indexForPrompt().orEmpty()
     override fun topicsIndex(): String = Scrollback.topicsIndex()
 
     override fun foldTopic(title: String, summary: String, rows: List<ScrollRow>, text: String): FoldedTopic? {

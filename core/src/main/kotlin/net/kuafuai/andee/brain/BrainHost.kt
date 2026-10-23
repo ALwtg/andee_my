@@ -77,6 +77,12 @@ interface BrainHost {
     fun topicsIndex(): String
 
     /**
+     * One line naming what is installed and worth reaching for first (see `Gear`), empty when there is
+     * nothing to say. A default, so a host without a gear shelf changes by not a byte.
+     */
+    fun gearIndex(): String = ""
+
+    /**
      * Archive [rows] as one finished topic. Returns null when nothing was
      * written — the caller then keeps the conversation as it was.
      */

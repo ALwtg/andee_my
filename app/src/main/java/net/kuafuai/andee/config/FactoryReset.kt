@@ -76,6 +76,16 @@ object FactoryReset {
     )
 
     /**
+     * Cleared with the rest but **not listed** in the confirmation: it is part of what the notebook line
+     * already promises. Which apps Andee has opened and how often is the gear shelf's one usage signal that
+     * needs no permission; the shelf itself lives in the notebook and goes with it, and this is its only
+     * separate copy. A second line reading "the notebook" would be the same promise made twice.
+     */
+    private val ALSO_CLEARED: List<(Context) -> Unit> = listOf(
+        { prefs(it, "gear_launches") },
+    )
+
+    /**
      * The order lines, for the confirmation screen.
      *
      * Takes a Context rather than a `english: Boolean` flag: the flag existed
@@ -109,6 +119,8 @@ object FactoryReset {
                     Log.w(TAG, "factory reset: could not clear '${AppLocale.str(context, t.label)}'", it)
                 }
         }
+        for (extra in ALSO_CLEARED) runCatching { extra(context) }
+            .onFailure { Log.w(TAG, "factory reset: could not clear an unlisted target", it) }
         Log.i(TAG, "factory reset: $cleared/${TARGETS.size} targets cleared")
         return cleared
     }

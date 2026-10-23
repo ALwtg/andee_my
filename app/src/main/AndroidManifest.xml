@@ -10,6 +10,10 @@
     <!-- App list: query-all is required on API 30+ to see other packages. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- How much each app is used, for the gear shelf. A special access the user grants in Settings (the app can
+         only point at the page); without it the shelf ranks by what Andee itself opened. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <!-- Location & steps are runtime permissions; DeviceInfoController asks
          nicely and degrades gracefully when denied. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
