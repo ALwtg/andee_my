@@ -109,6 +109,14 @@ object Palette {
     val card get() = cardSolid
 }
 
+/** The project's public home, opened from the gesture line under the composer. */
+private const val GITHUB_URL = "https://github.com/kuafuai/andee"
+private const val DISCORD_URL = "https://discord.gg/PYujCQyqu"
+
+private fun openLink(url: String) {
+    runCatching { net.kuafuai.andee.desktop.mac.Bridge.open(url) }
+}
+
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, onContinueTopic: (Scrollback.Topic) -> Unit = {}) {
@@ -294,12 +302,20 @@ fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, on
             onSend = { send() },
         )
         // The ball's whole vocabulary, pinned where the eye ends up — the phone's line under its card.
-        Text(
-            if (Strings.lang() == "zh") "点小球说话 · 双击打字 · 左右拖动切换形象"
-            else "Tap the ball to talk · double-tap to type · drag sideways to switch character",
-            color = Palette.photoInk, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 8.dp),
-        )
+        // GitHub and Discord sit after it, the same place the phone puts them: the project's home.
+        Row(
+            Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (Strings.lang() == "zh") "点小球说话 · 双击打字 · 左右拖动切换形象"
+                else "Tap the ball to talk · double-tap to type · drag sideways to switch character",
+                color = Palette.photoInk, fontSize = 11.sp,
+            )
+            Box(Modifier.clickable { openLink(GITHUB_URL) }.padding(horizontal = 5.dp, vertical = 2.dp)) { Icon(AndeeIcon.GITHUB, Palette.photoInk, 13.dp) }
+            Box(Modifier.clickable { openLink(DISCORD_URL) }.padding(horizontal = 5.dp, vertical = 2.dp)) { Icon(AndeeIcon.DISCORD, Palette.photoInk, 13.dp) }
+        }
     }
     if (dropping) {
         Box(

@@ -165,6 +165,14 @@ class FloatingWindowUi(
         /** The speaker key beside the input pill: answers read aloud or not. */
         fun onMuteToggle() {}
 
+        /**
+         * A community link at the foot of the card (GitHub, Discord). Handed out
+         * rather than opened here for the same reason every outbound trip is:
+         * the card is an overlay and cannot start a browser Activity itself —
+         * the host folds the card and sends it through SelfCheckActivity.
+         */
+        fun onOpenCommunityLink(url: String) {}
+
         /** The 小本本 key — what it remembers. See [NotebookUi]. */
         fun onNotebookClick() {}
 
@@ -320,6 +328,29 @@ class FloatingWindowUi(
         muteIcon?.setImageResource(if (mutedNow) R.drawable.ic_volume_off else R.drawable.ic_volume)
         muteIcon?.setColorFilter(Color.parseColor(Glass.PHOTO_INK))
         muteLabel?.text = AppLocale.str(context, if (mutedNow) R.string.window_muted else R.string.window_voice_on)
+    }
+
+    /**
+     * One small community glyph (GitHub, Discord) at the foot of the card. A
+     * padded hit target around a 16 dp vector, tinted like the gesture line it
+     * sits after; the tap hands the URL out through
+     * [Listeners.onOpenCommunityLink], which is the host's trip to make.
+     */
+    private fun communityLink(res: Int, url: String, label: String): View {
+        val icon = ImageView(context).apply {
+            setImageResource(res)
+            setColorFilter(Color.parseColor(Glass.PHOTO_INK))
+            contentDescription = label
+        }
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(7), dp(4), dp(7), dp(4))
+            isClickable = true
+            Glass.pressable(this)
+            setOnClickListener { listeners.onOpenCommunityLink(url) }
+            addView(icon, LinearLayout.LayoutParams(dp(16), dp(16)))
+        }
     }
 
     /**
@@ -2476,12 +2507,21 @@ class FloatingWindowUi(
             // 1:1, which is why it disappeared. See [Glass.PHOTO_INK].
             setTextColor(Color.parseColor(Glass.PHOTO_INK))
             gravity = Gravity.CENTER
-            // The bottom padding clears the gesture bar, the same 30 dp the
-            // scrollback's last row used to reserve for itself — this bar
-            // inherits that edge of the card.
-            setPadding(dp(14), dp(6), dp(14), dp(30))
         }
         tipsText = tipsLine
+        // GitHub and Discord, small glyphs after the gesture line — the project's
+        // home, where a person looking for "about this thing" expects it, not a
+        // knob buried in 设置. The bottom padding (clearing the gesture bar, the
+        // same 30 dp the scrollback's last row used to reserve) moves onto this
+        // row so the glyphs share the line's edge.
+        val communityRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(6), dp(14), dp(30))
+        }
+        communityRow.addView(tipsLine)
+        communityRow.addView(communityLink(R.drawable.ic_github, GITHUB_URL, "GitHub"))
+        communityRow.addView(communityLink(R.drawable.ic_discord, DISCORD_URL, "Discord"))
         // The input pill, always there on the full card like the Mac's composer. It is not a field: an overlay
         // cannot raise the keyboard on this ROM, so a tap opens the real one ([TextInputActivity]) in its place.
         val inputRow = LinearLayout(context).apply {
@@ -2512,7 +2552,7 @@ class FloatingWindowUi(
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
             addView(inputRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-            addView(tipsLine, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            addView(communityRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         }
         tipsView = tips
         root.addView(
@@ -3013,6 +3053,10 @@ class FloatingWindowUi(
     }
 
     companion object {
+        /** The project's public home, opened from the foot of the card. */
+        private const val GITHUB_URL = "https://github.com/kuafuai/andee"
+        private const val DISCORD_URL = "https://discord.gg/PYujCQyqu"
+
         /**
          * Taps in a row that mean "stop". The ball's whole vocabulary, in one
          * place: one tap asks, two type, three stop. Long-press is not part of

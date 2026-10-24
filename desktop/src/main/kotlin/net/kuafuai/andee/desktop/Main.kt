@@ -21,6 +21,13 @@ import java.util.Date
 import java.util.Locale
 
 fun main() {
+    // Intel Mac: skiko's Metal renderer crashes (SIGILL in
+    // MetalRedrawer.createMetalDevice) on these machines, so fall back to
+    // software rendering. Apple Silicon keeps the hardware Metal path. Must run
+    // before any SkiaLayer is created, so before `application { }` below.
+    if (System.getProperty("os.arch") in setOf("x86_64", "amd64")) {
+        System.setProperty("skiko.renderApi", "SOFTWARE")
+    }
     installFileLog()
     net.kuafuai.andee.util.Log.i("Andee", "starting, data in ${AppDirs.root}")
     Assistant.askApproval = { ApprovalGate.request(it) }

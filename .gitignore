@@ -29,3 +29,6 @@ __pycache__/
 # 而它和源页面几乎一样、很容易被误提交。两种后缀都要挡：
 andee-website/*.probe.html
 andee-website/*.degraded.html
+
+# JVM 崩溃日志（本地跑 Mac 版崩溃时落在仓库根目录的 hs_err_pid*.log），是临时产物不是源码。
+hs_err_pid*.log

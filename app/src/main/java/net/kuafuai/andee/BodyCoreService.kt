@@ -327,6 +327,21 @@ class BodyCoreService : Service() {
                 window.setMuted(on)
             }
 
+            override fun onOpenCommunityLink(url: String) {
+                // A link out of the card (GitHub, Discord). The overlay cannot
+                // open a browser itself — the background-launch restriction, and
+                // it would cover the browser anyway — so fold the card, park the
+                // ball, and hand the trip to SelfCheckActivity, which launches it
+                // from an Activity that can come back. Same shape as the
+                // self-check card's onErrand.
+                val there = android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url),
+                )
+                window.setPagePerched(true)
+                net.kuafuai.andee.ui.SelfCheckActivity.showForErrand(this@BodyCoreService, there)
+                dispatcher.compactForUser()
+            }
+
             override fun onNotebookClick() {
                 net.kuafuai.andee.ui.NotebookUi(this@BodyCoreService) {}.show()
             }
