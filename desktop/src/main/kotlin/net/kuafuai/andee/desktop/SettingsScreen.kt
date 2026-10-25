@@ -89,9 +89,20 @@ fun SettingsScreen(
                 GlassField(st("settings_device_name"), v["device_name"].orEmpty(), { v["device_name"] = it }, hint = st("settings_device_name_hint"))
                 Note(st("settings_brain_cloud_note"))
             }
-            "codeflying" -> Note(st("settings_brain_codeflying_unconfigured"))
+            // macOS has no CodeFlying endpoint in the build — Assistant.config
+            // keeps the mode but still talks to the key from 本机 — so this tab
+            // is never wired up here, and says so before it explains how to.
+            "codeflying" -> {
+                Text(
+                    st("settings_codeflying_not_connected"),
+                    color = Palette.warn, fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Note(st("settings_brain_codeflying_unconfigured"))
+            }
             else -> {
                 GlassField(st("settings_llm_api_key"), v["llm_api_key"].orEmpty(), { v["llm_api_key"] = it }, secret = true, hint = "sk-…")
+                NoKeyHint { v["brain"] = "codeflying" }
                 GlassField(st("settings_llm_model"), v["llm_model"].orEmpty(), { v["llm_model"] = it }, hint = llmModelHint)
                 GlassField(st("settings_llm_base_url"), v["llm_base_url"].orEmpty(), { v["llm_base_url"] = it }, hint = llmUrlHint)
                 RowLabel(st("settings_llm_thinking"))
@@ -105,16 +116,6 @@ fun SettingsScreen(
                     ) { v["llm_reasoning_effort"] = it }
                 }
                 Note(st("settings_brain_local_note"))
-                // The rows above ask for two keys a person may simply not have.
-                // Switching the tab for them is the whole answer, so it is one tap
-                // here rather than a trip back to the picker at the top — and it is
-                // written into the form's own map, so 保存 is what commits it, like
-                // every other row on this card.
-                Text(
-                    st("settings_no_key_use_codeflying"),
-                    color = Palette.accent, fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 8.dp).clickable { v["brain"] = "codeflying" },
-                )
             }
         }
 
@@ -127,6 +128,7 @@ fun SettingsScreen(
             ) { v["voice_provider"] = it }
             if (provider == "google") {
                 GlassField(st("settings_google_api_key"), v["google_api_key"].orEmpty(), { v["google_api_key"] = it }, secret = true, hint = st("settings_google_api_key_hint"))
+                NoKeyHint { v["brain"] = "codeflying" }
                 GlassField(st("settings_google_project"), v["google_project"].orEmpty(), { v["google_project"] = it }, hint = st("settings_google_project_hint"))
                 GlassField(st("settings_google_location"), v["google_location"].orEmpty(), { v["google_location"] = it }, hint = "asia-northeast1")
                 GlassField(st("settings_google_asr_model"), v["google_asr_model"].orEmpty(), { v["google_asr_model"] = it }, hint = "gemini-live-2.5-flash-preview-native-audio")
@@ -136,6 +138,7 @@ fun SettingsScreen(
                 Note(st("settings_voice_google_note"))
             } else {
                 GlassField(st("settings_voice_api_key"), v["api_key"].orEmpty(), { v["api_key"] = it }, secret = true, hint = st("settings_voice_api_key_hint"))
+                NoKeyHint { v["brain"] = "codeflying" }
                 GlassField(st("settings_voice_asr_endpoint"), v["asr_endpoint"].orEmpty(), { v["asr_endpoint"] = it }, hint = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async")
                 GlassField(st("settings_voice_asr_resource_id"), v["asr_resource_id"].orEmpty(), { v["asr_resource_id"] = it }, hint = "volc.bigasr.sauc.duration")
                 GlassField(st("settings_voice_tts_endpoint"), v["tts_endpoint"].orEmpty(), { v["tts_endpoint"] = it }, hint = "wss://openspeech.bytedance.com/api/v3/tts/bidirection")
@@ -295,6 +298,20 @@ private fun Note(text: String) {
 @Composable
 private fun RowLabel(text: String) {
     Text(text, color = Palette.secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+}
+
+/**
+ * The way out of a key row, sitting under that row: whoever has no key is
+ * reading the row, not the picker at the top of the card. One tap, written into
+ * the form's own map — so 保存 is still what commits it, like every row here.
+ */
+@Composable
+private fun NoKeyHint(onPick: () -> Unit) {
+    Text(
+        st("settings_no_key_use_codeflying"),
+        color = Palette.accent, fontSize = 12.sp,
+        modifier = Modifier.padding(top = 6.dp).clickable { onPick() },
+    )
 }
 
 @Composable

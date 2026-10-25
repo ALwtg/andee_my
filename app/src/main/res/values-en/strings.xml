@@ -94,6 +94,7 @@
     <string name="common_medium">Medium</string>
     <string name="common_low">Low</string>
     <string name="settings_brain_local_note">The device runs the agent loop itself, with no hub. Without a key it will not take over.</string>
+    <string name="settings_codeflying_not_connected">CodeFlying is not connected yet</string>
     <string name="settings_no_key_use_codeflying">No key? Tap here to switch to CodeFlying</string>
     <string name="settings_section_wake">Wake word</string>
     <string name="settings_wake_enrolled">Enrolled — say your wake word and it wakes up</string>

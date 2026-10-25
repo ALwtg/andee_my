@@ -23,10 +23,13 @@ fun main(args: Array<String>) {
     val h = args.getOrElse(2) { "820" }.toInt()
     val out = File(args.getOrElse(3) { "/tmp/ui.png" })
     System.setProperty("andee.home", File.createTempFile("andee-shot", "").also { it.delete(); it.mkdirs() }.path)
-    // Optional: `lang=en` and `theme=day`, set in the throwaway home before anything draws.
+    // Optional: `lang=en`, `theme=day` and `brain=codeflying`, set in the throwaway
+    // home before anything draws — the last one because which backend tab is open
+    // decides what half of the settings card looks like.
     for (a in args.drop(5)) a.split('=', limit = 2).takeIf { it.size == 2 }?.let { (k, v) ->
         if (k == "lang") Settings.save(mapOf("lang" to v))
         if (k == "theme") Palette.setNight(v == "night")
+        if (k == "brain") Settings.save(mapOf("brain" to v))
     }
     if (args.getOrElse(4) { "" } == "empty") Scrollback.wipe() else seed()
     @Suppress("UNUSED_VARIABLE") val unused = 0

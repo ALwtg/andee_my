@@ -644,7 +644,18 @@ class SettingsUi(
         // CodeFlying: configured says "what this is, you may be billed",
         // unconfigured says "it's not set up on this APK, go to the website".
         val cfBlock = block(panel)
-        val cfNoteKey = if (VoiceConfig.isCodeFlyingAvailable()) {
+        val cfReady = VoiceConfig.isCodeFlyingAvailable()
+        // A person who lands on this tab has already said "I don't have keys".
+        // If this build carries no CodeFlying either, that has to be the first
+        // thing said, not a paragraph they have to infer it from — the note
+        // below explains how to get one, but only this line says the tab in
+        // front of them is currently doing nothing.
+        if (!cfReady) {
+            cfBlock.addView(noteView(lctx.getString(R.string.settings_codeflying_not_connected)).apply {
+                setTextColor(Color.parseColor(Glass.WARN))
+            }, rowParams(dp(4)))
+        }
+        val cfNoteKey = if (cfReady) {
             R.string.settings_brain_codeflying_note
         } else {
             R.string.settings_brain_codeflying_unconfigured
@@ -665,6 +676,14 @@ class SettingsUi(
             hint = "sk-…",
             secret = true,
         )
+        // Directly under the row that asks for it: whoever has no key is
+        // reading this row, not the picker at the top of the card. Tapping
+        // moves the tab under their finger rather than sending them up to
+        // find which cell that was — and it only moves the pick; 保存 still
+        // commits it, like every other row.
+        linkNote(localBlock, lctx.getString(R.string.settings_no_key_use_codeflying)) {
+            pickBrain(VoiceConfig.BRAIN_CODEFLYING)
+        }
         field(
             localBlock,
             "llm_model",
@@ -698,15 +717,6 @@ class SettingsUi(
             ),
         )
         note(localBlock, lctx.getString(R.string.settings_brain_local_note))
-        // The rows above ask for two keys a person may simply not have, and for
-        // them the answer is a different tab — not a third thing to fill in. So
-        // it is one tap here, and the tab moves under their finger rather than
-        // sending them back up to the picker to find which cell that was.
-        //
-        // It only moves the pick; 保存 still commits it, like every other row.
-        linkNote(localBlock, lctx.getString(R.string.settings_no_key_use_codeflying)) {
-            pickBrain(VoiceConfig.BRAIN_CODEFLYING)
-        }
 
         // ---- Which service hears and speaks ----
         //
@@ -747,6 +757,11 @@ class SettingsUi(
             hint = lctx.getString(R.string.settings_voice_api_key_hint),
             secret = true,
         )
+        // Same line, same reason, under the voice key: this is the other half
+        // of what CodeFlying would hand over for free.
+        linkNote(huoshanBlock, lctx.getString(R.string.settings_no_key_use_codeflying)) {
+            pickBrain(VoiceConfig.BRAIN_CODEFLYING)
+        }
         field(huoshanBlock, "asr_endpoint", lctx.getString(R.string.settings_voice_asr_endpoint))
         field(huoshanBlock, "asr_resource_id", lctx.getString(R.string.settings_voice_asr_resource_id))
         field(huoshanBlock, "tts_endpoint", lctx.getString(R.string.settings_voice_tts_endpoint))
@@ -786,6 +801,9 @@ class SettingsUi(
             },
             secret = true,
         )
+        linkNote(googleBlock, lctx.getString(R.string.settings_no_key_use_codeflying)) {
+            pickBrain(VoiceConfig.BRAIN_CODEFLYING)
+        }
         field(
             googleBlock,
             "google_project",
