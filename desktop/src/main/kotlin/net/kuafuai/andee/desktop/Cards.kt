@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,7 +41,14 @@ import androidx.compose.ui.unit.sp
 fun SelfCheckCard(onDone: () -> Unit, onOpenSettings: () -> Unit) {
     val zh = Strings.lang() == "zh"
     data class CheckRow(val id: String, val name: String, val ok: Boolean, val why: String, val fix: (() -> Unit)?)
-    val rows = buildList {
+    // Re-read on demand. Every row here is changed in *another* app — System
+    // Settings for the three permissions, the settings card for the two keys —
+    // and a card that computed its rows once would go on saying "cannot see the
+    // screen" after the person had just allowed it. This is the same reason the
+    // phone's card carries 重新检查: checking whether a fix took should not mean
+    // closing this card and finding it again.
+    var refresh by remember { mutableStateOf(0) }
+    val rows = remember(refresh) { buildList {
         val ax = net.kuafuai.andee.desktop.mac.Bridge.axTrusted()
         add(CheckRow("ax", if (zh) "辅助功能" else "Accessibility", ax,
             if (ax) if (zh) "能读、能操作别的 app" else "Can read and drive other apps" else if (zh) "读不到屏幕，也无法操作" else "Cannot read or drive the screen",
@@ -61,6 +69,16 @@ fun SelfCheckCard(onDone: () -> Unit, onOpenSettings: () -> Unit) {
         add(CheckRow("voice", if (zh) "语音 Key" else "Voice key", voice,
             if (voice) if (zh) "能听能说" else "Can hear and speak" else if (zh) "还没配，说不了话" else "Missing — Andee cannot speak",
             { onOpenSettings() }))
+        }
+    }
+    // Re-reading is instant and, more often than not, changes nothing — so a tap
+    // that only recomputed would look like a tap that did nothing.
+    var justChecked by remember { mutableStateOf(false) }
+    LaunchedEffect(refresh) {
+        if (refresh == 0) return@LaunchedEffect
+        justChecked = true
+        kotlinx.coroutines.delay(1_500)
+        justChecked = false
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         GlassHeader(if (zh) "自检" else "Self-check", if (zh) "每一项都可能悄悄坏掉" else "Each of these can fail silently", onClose = onDone)
@@ -81,6 +99,18 @@ fun SelfCheckCard(onDone: () -> Unit, onOpenSettings: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
+        }
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (zh) "重新检测" else "Check again", color = Palette.accent, fontSize = 13.sp,
+                modifier = Modifier.clickable {
+                    // The one row whose answer is decided at launch, not on read.
+                    net.kuafuai.andee.desktop.mac.MacNotifications.recheck()
+                    refresh++
+                }.padding(6.dp))
+            if (justChecked) {
+                Spacer(Modifier.width(8.dp))
+                Text(if (zh) "已重新检测" else "Just checked", color = Palette.secondary, fontSize = 11.sp)
+            }
         }
     }
 }

@@ -83,6 +83,27 @@ object MacNotifications {
     }
 
     /**
+     * Decides [state] again, for the self-check card's 重新检测.
+     *
+     * [start] decides it once, at launch. Full Disk Access is granted later, in
+     * System Settings, on a Mac where Andee has already concluded it cannot read
+     * the store — and the row would keep saying so until the next restart. Both
+     * calls here are reads of the store, and the watch is only re-armed when it
+     * never took, so calling this more than once is harmless.
+     */
+    fun recheck() {
+        val id = Bridge.notifLatestId()
+        if (id > lastId) lastId = id
+        if (state == State.WATCHING) return
+        state = when {
+            id < 0 -> State.NO_ACCESS
+            Bridge.notifWatch(onChange) -> State.WATCHING
+            else -> State.NO_ACCESS
+        }
+        Log.i(TAG, "notification store re-checked: $state (from record $lastId)")
+    }
+
+    /**
      * Several file events arrive per notification (the WAL grows, the directory
      * changes), and the row may lag the first of them by seconds. So one read is
      * scheduled per burst, and each read that finds nothing new tries once more.
