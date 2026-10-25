@@ -105,6 +105,16 @@ fun SettingsScreen(
                     ) { v["llm_reasoning_effort"] = it }
                 }
                 Note(st("settings_brain_local_note"))
+                // The rows above ask for two keys a person may simply not have.
+                // Switching the tab for them is the whole answer, so it is one tap
+                // here rather than a trip back to the picker at the top — and it is
+                // written into the form's own map, so 保存 is what commits it, like
+                // every other row on this card.
+                Text(
+                    st("settings_no_key_use_codeflying"),
+                    color = Palette.accent, fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp).clickable { v["brain"] = "codeflying" },
+                )
             }
         }
 

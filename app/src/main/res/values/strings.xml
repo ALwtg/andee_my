@@ -71,6 +71,7 @@
     <string name="common_medium">中</string>
     <string name="common_low">低</string>
     <string name="settings_brain_local_note">设备自己跑 agent loop，不连 Hub。没有 Key 就不会接管。</string>
+    <string name="settings_no_key_use_codeflying">没有密钥？点这里切换到 CodeFlying 配置</string>
     <string name="settings_section_wake">语音唤醒</string>
     <string name="settings_wake_enrolled">已录入 —— 说出你录的唤醒词就行</string>
     <string name="settings_wake_not_enrolled">未录入 —— 自己选个词录 3 遍就能语音唤醒，例如「嘿 Andee」</string>

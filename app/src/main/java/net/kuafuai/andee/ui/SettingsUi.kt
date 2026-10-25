@@ -617,7 +617,11 @@ class SettingsUi(
             }
         }
         var applyMode: ((String, Boolean) -> Unit)? = null
-        val mode = segmented(panel, "brain", options) { applyMode?.invoke(it, true) }
+        // Filled in by the picker itself: the "no key?" line below has to move the
+        // tab the same way a tap on the cell would, or the card would keep showing
+        // 本机 while saving CodeFlying.
+        var pickBrain: (String) -> Unit = {}
+        val mode = segmented(panel, "brain", options, setterRef = { pickBrain = it }) { applyMode?.invoke(it, true) }
 
         // ---- 云端 tab ----
         val hubBlock = block(panel)
@@ -694,6 +698,15 @@ class SettingsUi(
             ),
         )
         note(localBlock, lctx.getString(R.string.settings_brain_local_note))
+        // The rows above ask for two keys a person may simply not have, and for
+        // them the answer is a different tab — not a third thing to fill in. So
+        // it is one tap here, and the tab moves under their finger rather than
+        // sending them back up to the picker to find which cell that was.
+        //
+        // It only moves the pick; 保存 still commits it, like every other row.
+        linkNote(localBlock, lctx.getString(R.string.settings_no_key_use_codeflying)) {
+            pickBrain(VoiceConfig.BRAIN_CODEFLYING)
+        }
 
         // ---- Which service hears and speaks ----
         //
@@ -1437,6 +1450,17 @@ class SettingsUi(
         parent.addView(noteView(text), rowParams(dp(10)))
     }
 
+    /** [note], tinted and tappable: an explanation that is also the way out of it. */
+    private fun linkNote(parent: LinearLayout, text: String, onClick: () -> Unit) {
+        parent.addView(noteView(text).apply {
+            setTextColor(Color.parseColor(Glass.ACCENT))
+            isClickable = true
+            isFocusable = true
+            Glass.pressable(this)
+            setOnClickListener { onClick() }
+        }, rowParams(dp(10)))
+    }
+
     private fun noteView(text: String): TextView = TextView(context).apply {
         this.text = text
         // Same reason as [rowLabel]. Notes are the longest strings in the card
@@ -1544,12 +1568,14 @@ class SettingsUi(
         parent: LinearLayout,
         key: String,
         options: List<Pair<String, String>>,
+        /** Handed the picker's own select, so a link can pick a value for the user. */
+        setterRef: (((String) -> Unit) -> Unit)? = null,
         onPick: (String) -> Unit = {},
     ): String {
         val current = saved[key].orEmpty().trim().lowercase()
         val start = options.firstOrNull { it.first == current }?.first ?: options.first().first
         var picked = start
-        val track = segments(options, start, dp(13)) { picked = it; onPick(it) }
+        val track = segments(options, start, dp(13), setterRef = setterRef) { picked = it; onPick(it) }
         picks[key] = { picked }
         parent.addView(track, rowParams(dp(7)))
         return start
@@ -1576,6 +1602,18 @@ class SettingsUi(
         picked: String,
         radius: Int,
         compact: Boolean = false,
+        /**
+         * Handed [select], for a value to be picked from code rather than by
+         * tapping a cell — a link under a row that offers another tab has to
+         * move the thumb too, or the card shows one thing and saves another.
+         *
+         * It is handed the picker's own *select*, so its argument is that
+         * function, not a value: the caller stores it and calls it later.
+         *
+         * Named before [onPick] so that every caller's trailing lambda still
+         * lands on [onPick], where it always has.
+         */
+        setterRef: (((String) -> Unit) -> Unit)? = null,
         onPick: (String) -> Unit,
     ): View {
         val inset = dp(3)
@@ -1656,6 +1694,18 @@ class SettingsUi(
             }
         }
 
+        // The one path a pick takes, whether it came from a tap or from code.
+        // The thumb, the two label colours and [onPick] are a single change, and
+        // a caller that moved only some of them would leave the card saving a
+        // value it is not showing.
+        fun select(value: String) {
+            val i = options.indexOfFirst { it.first == value }.coerceAtLeast(0)
+            if (index == i) return
+            index = i
+            place(i, animate = true)
+            onPick(value)
+        }
+
         for ((i, option) in options.withIndex()) {
             val (value, label) = option
             val cell = TextView(context).apply {
@@ -1666,12 +1716,7 @@ class SettingsUi(
                 if (compact) setPadding(dp(12), dp(6), dp(12), dp(6))
                 else setPadding(dp(6), dp(10), dp(6), dp(10))
                 isClickable = true
-                setOnClickListener {
-                    if (index == i) return@setOnClickListener
-                    index = i
-                    place(i, animate = true)
-                    onPick(value)
-                }
+                setOnClickListener { select(value) }
             }
             cells += cell
             if (compact) cellRow.addView(cell)
@@ -1682,6 +1727,7 @@ class SettingsUi(
             if (!sliding) place(index, animate = false)
         }
         place(index, animate = false)
+        setterRef?.invoke { select(it) }
         return track
     }
 
