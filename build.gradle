@@ -1,9 +1,13 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
 alias(libs.plugins.androidApplication) apply false
-id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
-id 'org.jetbrains.kotlin.jvm' version '1.9.22' apply false
-// 1.6.0 is the Compose release built against Kotlin 1.9.22; moving either
-// one means moving all three modules together.
-id 'org.jetbrains.compose' version '1.6.0' apply false
+id 'org.jetbrains.kotlin.android' version '2.1.21' apply false
+id 'org.jetbrains.kotlin.jvm' version '2.1.21' apply false
+// Compose 1.9 is the release built against Kotlin 2.1; moving either one means
+// moving all three modules together. The version matters beyond API changes:
+// skiko 0.7.93 (Compose 1.6) crashes in its Metal backend on Intel Macs under
+// macOS 26, which forced this app to render the whole window on the CPU.
+id 'org.jetbrains.compose' version '1.9.3' apply false
+// Kotlin 2.0 moved the Compose compiler out of the Kotlin plugin into its own.
+id 'org.jetbrains.kotlin.plugin.compose' version '2.1.21' apply false
 }

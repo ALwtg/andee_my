@@ -7,6 +7,9 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 plugins {
     id 'org.jetbrains.kotlin.jvm'
     id 'org.jetbrains.compose'
+    // Required since Kotlin 2.0: the Compose compiler is no longer part of the
+    // Kotlin plugin.
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
 
 kotlin {
@@ -161,6 +164,36 @@ tasks.register('signApp') {
         logger.lifecycle("Andee.app signed as '${signIdentity.get()}'")
     }
 }
+// Render at 1x instead of 2x, for a machine that has to draw the window on the CPU
+// (-Dandee.software=true): at 2x a 1280x909-point window is 2560x1818 pixels of Skia
+// work per frame, at 1x a quarter of that.
+//
+// Opt in with -PoneX, and not by default: measured on this Mac, 1x bought no reliable
+// saving (670/694 ms vs 681/372 ms of UI-thread raster per 5 s — the upscale moves to
+// the WindowServer, which is outside this process), and it costs sharpness, since the
+// display then stretches a half-resolution image over the same area. A smaller window
+// buys the same pixels back without that trade (see defaultChatSize).
+tasks.register('patchInfoPlist') {
+    def app = layout.buildDirectory.dir('compose/binaries/main/app/Andee.app')
+    def oneX = project.hasProperty('oneX')
+    onlyIf { oneX && osArch != 'aarch64' && app.get().asFile.exists() }
+    doLast {
+        def plist = "${app.get().asFile.path}/Contents/Info.plist"
+        exec {
+            // plutil, not PlistBuddy: PlistBuddy writes the value as the *string*
+            // "false", and AppKit reads any non-nil value as true, so the key looks
+            // right in the plist and does nothing. It has to be a real bool.
+            // '-replace' throws if the key is missing; then insert it instead.
+            commandLine 'sh', '-c',
+                "/usr/bin/plutil -replace NSHighResolutionCapable -bool false '$plist' || " +
+                "/usr/bin/plutil -insert NSHighResolutionCapable -bool false '$plist'"
+        }
+        logger.lifecycle('Andee.app renders at 1x (NSHighResolutionCapable=false)')
+    }
+}
+tasks.matching { it.name == 'createDistributable' }.configureEach { finalizedBy('patchInfoPlist') }
+// Signing seals the bundle, so it has to come after the plist is changed.
+tasks.named('signApp') { dependsOn('patchInfoPlist') }
 tasks.matching { it.name == 'createDistributable' }.configureEach { finalizedBy('signApp') }
 
 // The real window body, drawn offscreen against seeded throwaway data:

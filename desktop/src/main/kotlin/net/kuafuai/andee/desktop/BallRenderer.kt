@@ -30,11 +30,23 @@ import kotlin.concurrent.thread
  * paints. GL calls stay on this thread; the knobs are queued to it, so the
  * renderer's own `@Volatile` contract is kept exactly as on the phone.
  */
-class BallRenderer(val width: Int, val height: Int) {
+class BallRenderer(val width: Int, val height: Int, calmFrameNs: Long = CALM_FRAME_NS) {
+
+    /**
+     * `-Dandee.ballCalmMs=<ms>` overrides every ball's resting rate, whatever the
+     * caller asked for. Only for measuring: a ball that is forced to 30 fps is a
+     * constant stream of whole-window repaints, which is the only way to price one
+     * repaint without being able to drive the UI by hand.
+     */
+    private val calmFrameNs: Long = System.getProperty("andee.ballCalmMs")
+        ?.toLongOrNull()?.let { it * 1_000_000 } ?: calmFrameNs
 
     private val renderer = EmotionBallRenderer()
     private val commands = ConcurrentLinkedQueue<() -> Unit>()
     @Volatile private var stopRequested = false
+
+    /** Until this moment the ball is doing something, so it runs at full rate. */
+    @Volatile private var activeUntilNs = 0L
 
     /** The latest finished frame: premultiplied BGRA bytes, top row first. Null until the first one. */
     @Volatile var frame: ByteArray? = null
@@ -83,12 +95,22 @@ class BallRenderer(val width: Int, val height: Int) {
             while (!stopRequested) {
                 val t0 = System.nanoTime()
                 while (true) commands.poll()?.invoke() ?: break
+                val delay = frameDelayNs()
+                // `frame == null` is the very first pass: there is nothing to hold yet,
+                // so a ball that idles by holding must still draw once or it is never
+                // there at all.
+                if (delay == HOLD && frame != null) {
+                    // Holding the last frame: draw nothing, but wake often enough that
+                    // a change of face is picked up in POLL_MS, not a calm period later.
+                    Thread.sleep(POLL_NS)
+                    continue
+                }
                 renderer.onDrawFrame()
                 buf.clear()
                 GL11.glReadPixels(0, 0, width, height, org.lwjgl.opengl.GL12.GL_BGRA, GL11.GL_UNSIGNED_BYTE, buf)
                 frame = flipped(buf)
                 onFrame()
-                val sleep = (FRAME_NS - (System.nanoTime() - t0)) / 1_000_000
+                val sleep = (delay - (System.nanoTime() - t0)) / 1_000_000
                 if (sleep > 0) Thread.sleep(sleep)
             }
             FBO.glDeleteRenderbuffers(depth)
@@ -141,22 +163,45 @@ class BallRenderer(val width: Int, val height: Int) {
         renderer.mood = mood
         renderer.listening = listening
         renderer.emotion = emotion
+        markActive()
     }
 
-    fun setEmotion(m: Mood?) = post { renderer.emotion = m }
-    fun setWorking(w: Boolean) = post { renderer.working = w }
-    fun pulseTool() = post { renderer.pulseTool() }
-    fun signalOutcome(ok: Boolean) = post { renderer.signalOutcome(ok) }
-    fun trigger(action: Action) = post { renderer.request(action) }
+    // Also a reason to draw: the face can change while the mood stays calm, and a
+    // ball that holds its last frame would keep the old face.
+    fun setEmotion(m: Mood?) = post { renderer.emotion = m; markActive() }
+    fun setWorking(w: Boolean) = post { renderer.working = w; if (w) markActive() }
+    fun pulseTool() = post { renderer.pulseTool(); markActive() }
+    fun signalOutcome(ok: Boolean) = post { renderer.signalOutcome(ok); markActive() }
+    fun trigger(action: Action) = post { renderer.request(action); markActive() }
 
     private fun post(f: () -> Unit) { commands.offer(f) }
+
+    /**
+     * Full rate while there is something to watch — listening, speaking, thinking,
+     * or an animation just started — and a slow breath when there is not.
+     *
+     * This is the single biggest lever on a Mac that renders in software: there,
+     * every frame the ball publishes costs a fresh raster and blit of the whole
+     * window it lives in, whether or not anything else changed. Measured idle,
+     * a 30 fps ball kept the UI thread busy ~15% of the time doing nothing but
+     * redrawing an unchanged window, and every click queued behind it. The
+     * breathing reads the same at 4 fps as at 30.
+     */
+    private fun frameDelayNs(): Long = when {
+        System.nanoTime() < activeUntilNs -> FRAME_NS
+        renderer.mood == Mood.CALM && !renderer.working && !renderer.listening -> calmFrameNs
+        else -> FRAME_NS
+    }
+
+    /** Hold full rate for a beat, so a pop or a nod finishes before it slows. */
+    private fun markActive() { activeUntilNs = System.nanoTime() + ACTIVE_NS }
 
     fun stop() {
         stopRequested = true
         thread.join(2000)
     }
 
-    private companion object {
+    companion object {
         const val TAG = "Ball"
         /**
          * 30 fps. The ball's motion is slow springs and breathing, which read the
@@ -164,5 +209,17 @@ class BallRenderer(val width: Int, val height: Int) {
          * window, so every frame costs twice, and halving them is most of the CPU.
          */
         const val FRAME_NS = 33_333_333L
+
+        /** 4 fps: the rate of a ball that is only breathing. */
+        const val CALM_FRAME_NS = 250_000_000L
+
+        /** How long a triggered animation keeps the full rate. */
+        const val ACTIVE_NS = 1_200_000_000L
+
+        /** Passed as [calmFrameNs] to stop drawing entirely at rest; see [frameDelayNs]. */
+        const val HOLD = 0L
+
+        /** While holding, how often to wake and check whether the face changed. */
+        const val POLL_NS = 100_000_000L
     }
 }

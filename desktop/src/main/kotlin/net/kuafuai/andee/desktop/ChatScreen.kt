@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.onExternalDrag
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -202,15 +204,28 @@ fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, on
         Thread { Assistant.say(t, attachments = sending) }.start()
     }
 
+    // Compose moved drag-and-drop into androidx.compose.ui.draganddrop (1.7+). The
+    // files themselves come from the AWT transferable, whose javaFileListFlavor is
+    // the one source of truth on the desktop — no need for Compose's own drag data.
     Box(
-        Modifier.fillMaxSize().onExternalDrag(
-            onDragStart = { dropping = true },
-            onDragExit = { dropping = false },
-            onDrop = { v ->
-                dropping = false
-                val data = v.dragData
-                if (data is androidx.compose.ui.DragData.FilesList) {
-                    attachFiles(data.readFiles().mapNotNull { runCatching { java.io.File(java.net.URI(it)) }.getOrNull() })
+        Modifier.fillMaxSize().dragAndDropTarget(
+            shouldStartDragAndDrop = { true },
+            target = remember {
+                object : DragAndDropTarget {
+                    override fun onStarted(event: DragAndDropEvent) { dropping = true }
+                    override fun onExited(event: DragAndDropEvent) { dropping = false }
+                    override fun onEnded(event: DragAndDropEvent) { dropping = false }
+                    override fun onDrop(event: DragAndDropEvent): Boolean {
+                        dropping = false
+                        val drop = event.nativeEvent as? java.awt.dnd.DropTargetDropEvent ?: return false
+                        val flavor = java.awt.datatransfer.DataFlavor.javaFileListFlavor
+                        if (!drop.transferable.isDataFlavorSupported(flavor)) return false
+                        @Suppress("UNCHECKED_CAST")
+                        val files = runCatching { drop.transferable.getTransferData(flavor) as List<java.io.File> }
+                            .getOrNull() ?: return false
+                        attachFiles(files)
+                        return true
+                    }
                 }
             },
         ),
@@ -234,7 +249,12 @@ fun ChatScreen(onOpenArtifacts: () -> Unit, onOpenTopic: (Long) -> Unit = {}, on
             // Same taps as the floating ball; sideways swipe switches character, like the full card's ball on the phone.
             val chatBall = remember { ballActions(onType = { ComposerFocus.pending = true }, onNoVoice = { progress = noVoiceKey() }) }
             Box(Modifier.fillMaxWidth().padding(bottom = 6.dp), contentAlignment = Alignment.Center) {
-                BallView(150.dp, onClick = null, modifier = Modifier.ballTaps(chatBall).lookSwipe())
+                // Holds its last frame at rest, unlike the floating ball, which keeps
+                // breathing: this one shares a window with the conversation, so each of
+                // its frames redraws all of it. It animates from the moment something
+                // happens — listening, speaking, thinking, a tap — and settles after.
+                BallView(150.dp, onClick = null, modifier = Modifier.ballTaps(chatBall).lookSwipe(),
+                    calmFrameNs = BallRenderer.HOLD)
             }
             LazyColumn(
                 state = list, modifier = Modifier.weight(1f).fillMaxWidth().fadeTop(36.dp),

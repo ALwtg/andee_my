@@ -55,6 +55,15 @@ object Backdrop {
 
     fun build(): Built? {
         built?.let { return it }
+        // Only when the CPU is doing the drawing: nothing is retained between
+        // frames, so scaling this 512px photograph up to the whole window is redone
+        // every frame — measured at ~60% of all raster work (bilerp_clamp_8888 plus
+        // the full-window veil blend). On the GPU the same scaling is free, and the
+        // photo is what makes the cards read as glass, so keep it there.
+        if (System.getProperty("skiko.renderApi") == "SOFTWARE") {
+            Log.i("Backdrop", "software renderer: plain wash instead of the photograph")
+            return null
+        }
         val src = runCatching {
             Backdrop::class.java.getResourceAsStream("/backdrop.jpg")?.use { ImageIO.read(it) }
         }.getOrNull() ?: run { Log.w("Backdrop", "backdrop.jpg missing; surfaces keep their plain fill"); return null }

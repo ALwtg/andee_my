@@ -135,9 +135,20 @@ object MacBall {
  * A Mac where OpenGL cannot be had simply shows no ball.
  */
 @Composable
-fun BallView(size: Dp, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
+fun BallView(
+    size: Dp,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    /**
+     * The rate it breathes at when nothing is happening. Passed in because what a
+     * frame costs depends on the window the ball sits in, not on the ball: inside
+     * the chat window a frame redraws the whole conversation, so that one idles
+     * slower than the floating ball, which is 112 points of its own window.
+     */
+    calmFrameNs: Long = BallRenderer.CALM_FRAME_NS,
+) {
     val px = with(LocalDensity.current) { size.roundToPx() }
-    val renderer = remember(px) { BallRenderer(px, px) }
+    val renderer = remember(px, calmFrameNs) { BallRenderer(px, px, calmFrameNs) }
     DisposableEffect(renderer) {
         MacBall.attach(renderer)
         onDispose { MacBall.detach(renderer); renderer.stop() }
@@ -153,12 +164,19 @@ fun BallView(size: Dp, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
     DisposableEffect(renderer) {
         // At most one repaint queued: a busy UI thread (a drag) skips frames instead of piling them up.
         val queued = java.util.concurrent.atomic.AtomicBoolean(false)
-        renderer.onFrame = {
+        fun paint(f: ByteArray) {
             if (queued.compareAndSet(false, true)) javax.swing.SwingUtilities.invokeLater {
                 queued.set(false)
-                renderer.frame?.let { f -> bitmap.installPixels(f); bitmap.notifyPixelsChanged(); tick++ }
+                bitmap.installPixels(f)
+                bitmap.notifyPixelsChanged()
+                tick++
             }
         }
+        renderer.onFrame = { renderer.frame?.let(::paint) }
+        // The renderer starts in its constructor, so it may have already drawn its
+        // one and only frame before this callback existed — a ball that idles by
+        // holding draws exactly once. Adopt whatever is there now, or it stays blank.
+        renderer.frame?.let(::paint)
         onDispose { renderer.onFrame = {} }
     }
     val click = if (onClick == null) Modifier else Modifier.clickable(
