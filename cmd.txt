@@ -14,3 +14,40 @@ $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 & $adb -s 10CF580GJB002LL install -r -g --no-incremental `
     .\app\build\outputs\apk\release\app-arm64-v8a-release.apk
+
+
+# ==================== Windows 桌面版（Win11）====================
+
+# WiX 3.x 由 desktop/build.gradle 自动探测，不需要每次设环境变量。
+#   查找顺序：$env:WIX → C:\wix314 → 常见安装目录 → PATH
+#   找不到时会直接打印下载地址并停下，不会抛 jpackage 的堆栈。
+#   ⚠ WiX v4/v5（dotnet tool install --global wix）不行：
+#     jpackage 要的是 WiX 3.x 的 candle.exe / light.exe。
+
+# 重建 MSI 安装包
+cd e:/vscode_workspace/aaaaa_andee_my/andee_my
+$env:JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-17.0.20.1+1'
+$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
+.\gradlew.bat :desktop:packageMsi --console=plain
+#   产物：desktop\build\compose\binaries\main\msi\Andee-1.0.0.msi（约 58 MB）
+
+# 只出可分发目录（解压即用，不需要 WiX）
+.\gradlew.bat :desktop:createDistributable --console=plain
+#   产物：desktop\build\compose\binaries\main\app\Andee\Andee.exe
+
+# 静默安装 / 卸载（per-user 安装，不需要管理员）
+$msi = 'E:\vscode_workspace\aaaaa_andee_my\andee_my\desktop\build\compose\binaries\main\msi\Andee-1.0.0.msi'
+Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn' -Wait
+Start-Process msiexec.exe -ArgumentList '/x', "`"$msi`"", '/qn' -Wait
+#   装到 %LOCALAPPDATA%\Andee\Andee.exe，开始菜单出现 Andee
+
+# WiX 没装时（一次即可，约 39 MB）
+$zip = "$env:TEMP\wix314-binaries.zip"
+Invoke-WebRequest -Uri 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip' -OutFile $zip -UseBasicParsing
+Expand-Archive -Path $zip -DestinationPath 'C:\wix314' -Force
+
+# 桌面版冒烟测试（无窗口，打印 Win32/UIA/副屏/自检的全部指标）
+.\gradlew.bat :desktop:winsmoke --console=plain
+
+# 直接跑桌面版（开发时用）
+.\gradlew.bat :desktop:run --console=plain

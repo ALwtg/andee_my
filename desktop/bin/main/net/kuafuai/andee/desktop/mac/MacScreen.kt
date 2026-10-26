@@ -34,7 +34,7 @@ class MacScreen(
      * card. Otherwise it covers the app being driven and, when it is frontmost, takes the keystrokes.
      */
     private val yieldScreen: () -> Unit = {},
-) : DesktopBrainHost.ToolProvider {
+) : net.kuafuai.andee.desktop.ScreenHand {
 
     private data class El(val eid: String, val cx: Double, val cy: Double, val press: Boolean, val editable: Boolean, val label: String)
 

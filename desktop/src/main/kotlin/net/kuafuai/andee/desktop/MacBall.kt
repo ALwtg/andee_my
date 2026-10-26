@@ -113,6 +113,22 @@ object MacBall {
         renderers -= r
     }
 
+    /**
+     * The face to draw right now, for a renderer that has no callbacks.
+     *
+     * The OrbRenderer is pushed a mood whenever something changes; a plain
+     * Compose ball on Windows has nothing pushing it, so it asks. Same `when` as
+     * [apply] on purpose — two expressions of "what face is this" would drift, and
+     * the drift would show up as the ball smiling while it is thinking.
+     */
+    fun currentMood(): Mood = when {
+        recording -> Mood.LISTENING
+        voice == MacVoice.State.LISTENING -> Mood.LISTENING
+        voice == MacVoice.State.SPEAKING -> Mood.SPEAKING
+        busy -> Mood.THINKING
+        else -> Mood.CALM
+    }
+
     private fun apply() {
         if (renderers.isEmpty()) return
         val mood = when {
@@ -147,6 +163,15 @@ fun BallView(
      */
     calmFrameNs: Long = BallRenderer.CALM_FRAME_NS,
 ) {
+    // The frames come from an offscreen OpenGL context created through CGL — a
+    // macOS API. Windows measured: `A required function is missing:
+    // CGLGetCurrentContext` on the render thread, and a zero-sized window behind
+    // it. The guard is here rather than at the two call sites so a third caller
+    // cannot forget it.
+    if (!Body.isMac) {
+        net.kuafuai.andee.desktop.win.SoftBall(size, modifier)
+        return
+    }
     val px = with(LocalDensity.current) { size.roundToPx() }
     val renderer = remember(px, calmFrameNs) { BallRenderer(px, px, calmFrameNs) }
     DisposableEffect(renderer) {

@@ -15,6 +15,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import net.kuafuai.andee.desktop.win.BackgroundSurface
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -35,7 +36,16 @@ fun main() {
     installUiLagLog()
     net.kuafuai.andee.util.Log.i("Andee", "starting, data in ${AppDirs.root}")
     Assistant.askApproval = { ApprovalGate.request(it) }
-    MacBall.restoreLook()
+    // The orb is drawn by an **offscreen OpenGL context**, and that context is
+    // created through CGL — a macOS API. Measured on Windows 11: `MacBall.restoreLook`
+    // throws `A required function is missing: CGLGetCurrentContext` from the
+    // `BallGL` thread, and the follow-up error inside AWT takes the whole window
+    // down. So the orb stays a Mac thing until the renderer has a WGL path; on
+    // Windows the doors are the tray and the background ball, both of which are
+    // Compose and need no GL at all.
+    if (Body.isMac) {
+        MacBall.restoreLook()
+    }
     Assistant.start()
     Peers.startIfEnabled()
     application {
@@ -54,7 +64,10 @@ fun main() {
         // that app, and while it is frontmost the brain's keystrokes would land in Andee's own input.
         // The ball stays; a long-press or a Dock click brings the chat back.
         Assistant.yieldScreen = { if (chat) { chat = false; Thread.sleep(220) } }
-        Assistant.hideWindows = { hide -> net.kuafuai.andee.desktop.mac.Bridge.setOwnAlpha(if (hide) 0.0 else 1.0) }
+        // The body does it, not this file: on the Mac that is a CoreGraphics alpha
+        // change, on Windows a Z-order move, and a `Bridge.` call written here
+        // would simply load a macOS dylib on a machine that has none.
+        Assistant.hideWindows = { hide -> net.kuafuai.andee.desktop.Body.hideOwnWindows(hide) }
 
         // Bringing the window up is two things: make it visible, then pull the app forward (an
         // accessory-style ball never owns the foreground, so a visible window can still sit behind).
@@ -89,6 +102,8 @@ fun main() {
         // 设置 → 桌面 → 显示桌面悬浮球. Saved like any other key and re-read by [BallWindow] on save, so the
         // ball comes and goes without a restart. The caption and the approval/question cards are windows
         // anchored to it, so they go with it — and a prompt then arrives as a system notification instead.
+        // The ball is back on both platforms: `FloatingBall` now draws it with
+        // Compose where the CGL/OpenGL orb renderer cannot run (see SoftBall).
         val showBall = BallWindow.shown
         if (showBall) {
             FloatingBall(
@@ -138,6 +153,32 @@ fun main() {
                 }
             }
             AppRoot(nav)
+        }
+
+        // The background window's two windows — the ball and the supervision
+        // window it opens. Composed here because both are Compose windows, and
+        // `application {}` is what owns that lifecycle; the platform work they
+        // drive lives in `win/WinBackground`.
+        if (net.kuafuai.andee.desktop.Body.isWindows) {
+            BackgroundSurface()
+        }
+
+        // The tray: on Windows a program with no window and no tray icon is a
+        // program the user has to go find in Task Manager. Installed from an
+        // effect, because `exitApplication` and the window state it needs only
+        // exist inside this scope.
+        LaunchedEffect(Unit) {
+            if (net.kuafuai.andee.desktop.Body.isWindows) {
+                net.kuafuai.andee.desktop.win.WinTray.install(
+                    onShow = { openChat() },
+                    onSettings = { openChat("settings") },
+                    onCloseBackground = { net.kuafuai.andee.desktop.win.WinBackground.close() },
+                    onQuit = { exitApplication() },
+                )
+            }
+        }
+        DisposableEffect(Unit) {
+            onDispose { net.kuafuai.andee.desktop.win.WinTray.remove() }
         }
     }
 }

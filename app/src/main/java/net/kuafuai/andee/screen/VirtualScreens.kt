@@ -300,7 +300,49 @@ object VirtualScreens {
         require(x in 0..1000 && y in 0..1000) {
             "background tap coordinates are 0-1000 relative, got $x,$y"
         }
+        guardSpot(x, y)
         return tap(displayId, x * WIDTH / 1000, y * HEIGHT / 1000)
+    }
+
+    // ---- stuck-loop guard -------------------------------------------------
+
+    /**
+     * The foreground's guard, brought to the screen that needs it most.
+     *
+     * On the display in front of the user there is an element list, so a blind
+     * repeat is rare. Here there is **none** (this platform does not publish a
+     * second display's windows to accessibility), which makes "tap the same spot
+     * again" the most likely wrong move a model can make — and the least visible,
+     * because nobody is looking at that screen.
+     *
+     * Same numbers as the foreground: four gestures within 120 px of each other
+     * inside five minutes is refused, and the refusal tells the model to look again
+     * rather than to try harder.
+     */
+    private val spots = HashMap<String, MutableList<Long>>()
+
+    private fun guardSpot(normX: Int, normY: Int) {
+        val x = normX * WIDTH / 1000
+        val y = normY * HEIGHT / 1000
+        val now = System.currentTimeMillis()
+        synchronized(spots) {
+            spots.values.forEach { it.removeAll { t -> now - t > 300_000 } }
+            val key = spots.keys.firstOrNull { k ->
+                k.split(',').let {
+                    Math.hypot(it[0].toDouble() - x, it[1].toDouble() - y) < 120
+                }
+            } ?: "$x,$y"
+            val list = spots.getOrPut(key) { mutableListOf() }
+            if (list.size >= 3) {
+                throw IllegalStateException(
+                    "Refused: this is the fourth gesture on the same spot in five minutes. Nothing is " +
+                        "changing there — take a fresh background_screenshot, check whether the screen is " +
+                        "still on the app you think it is, and if it still will not move, tell the user " +
+                        "where you are stuck instead of tapping again.",
+                )
+            }
+            list += now
+        }
     }
 
     /**
@@ -330,8 +372,15 @@ object VirtualScreens {
         return x to y
     }
 
-    fun swipe(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, ms: Long): Boolean =
-        command("swipe $x1 $y1 $x2 $y2 ${ms.coerceIn(50, 3_000)}", "OK swipe")
+    fun swipe(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, ms: Long): Boolean {
+        require(x1 in 0..1000 && y1 in 0..1000 && x2 in 0..1000 && y2 in 0..1000) {
+            "background swipe coordinates are 0-1000 relative, got ($x1,$y1) → ($x2,$y2)"
+        }
+        // Guarded at the start point: a swipe that begins where the last three
+        // gestures began is the same stuck loop wearing a different name.
+        guardSpot(x1, y1)
+        return command("swipe $x1 $y1 $x2 $y2 ${ms.coerceIn(50, 3_000)}", "OK swipe")
+    }
 
     /** System keys: 4 is back, 3 is home. */
     fun key(displayId: Int, code: Int): Boolean = command("key $code", "OK key")

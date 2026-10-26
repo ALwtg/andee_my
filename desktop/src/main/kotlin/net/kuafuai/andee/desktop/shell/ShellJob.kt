@@ -74,18 +74,10 @@ class ShellJob(
     fun stop(by: String) {
         if (!process.isAlive) return
         stoppedBy = by
-        val pid = process.pid()
-        signal("-TERM", pid)
-        if (!process.waitFor(3, TimeUnit.SECONDS)) {
-            signal("-KILL", pid)
-            process.destroyForcibly()
-        }
-    }
-
-    private fun signal(sig: String, pid: Long) {
-        // Negative pid = the process group `script` created with setsid.
-        runCatching { ProcessBuilder("/bin/kill", sig, "-$pid").start().waitFor(2, TimeUnit.SECONDS) }
-        process.descendants().forEach { runCatching { ProcessBuilder("/bin/kill", sig, it.pid().toString()).start() } }
+        // Per platform, and not for tidiness: `script` put this in its own process
+        // group so a negative pid reaches everything, and Windows has no such
+        // thing — `taskkill /T` walks the tree instead. See [ShellRunner.stop].
+        ShellRunner.stop(process)
     }
 }
 
@@ -106,20 +98,25 @@ class JobTable(private val logDir: File) {
         sandboxProfile: String?,
     ): ShellJob {
         val id = "j${seq.incrementAndGet()}"
-        val inner = mutableListOf<String>()
-        if (sandboxProfile != null) {
-            val prof = File(logDir, "$id.sb").apply { parentFile.mkdirs(); writeText(sandboxProfile) }
-            inner += listOf("/usr/bin/sandbox-exec", "-f", prof.absolutePath)
+        // The SBPL profile only exists on macOS; on Windows the caller passes null
+        // and isolation comes from the environment instead (see CondaSandboxes).
+        val prof = sandboxProfile?.let { text ->
+            File(logDir, "$id.sb").apply { parentFile.mkdirs(); writeText(text) }
         }
-        // -f: no .zshrc, so aliases and functions cannot change what the user approved.
-        inner += listOf("/bin/zsh", "-f", "-c", command)
-        val argv = listOf("/usr/bin/script", "-q", "/dev/null") + inner
-        val pb = ProcessBuilder(argv).directory(cwd).redirectErrorStream(true)
+        val pb = ProcessBuilder(ShellRunner.argv(command, prof)).directory(cwd).redirectErrorStream(true)
         pb.environment().apply {
-            clear()
-            putAll(env)
+            if (ShellRunner.isWindows) {
+                // **Merged, not cleared.** PowerShell needs SystemRoot, TEMP and
+                // PATHEXT from the real environment; a cleared environment cannot
+                // even load the runtime, and the failure reads as "the command
+                // produced no output".
+                putAll(env)
+            } else {
+                clear()
+                putAll(env)
+            }
         }
-        pb.redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
+        pb.redirectInput(ProcessBuilder.Redirect.from(File(if (ShellRunner.isWindows) "NUL" else "/dev/null")))
         val p = pb.start()
         val job = ShellJob(id, command, cwd, p, File(logDir, "$id.log"))
         jobs[id] = job

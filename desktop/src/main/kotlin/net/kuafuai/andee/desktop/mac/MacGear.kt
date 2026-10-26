@@ -17,9 +17,9 @@ import java.util.concurrent.TimeUnit
  * ranking by real use free here. Doing it per app, as `device.apps` does, would be 275 processes.
  * Meaning is the brain's (`gear.note`); the scan never touches it.
  */
-class MacGear : DesktopBrainHost.ToolProvider {
+class MacGear : net.kuafuai.andee.desktop.GearHand {
 
-    val gear: Gear by lazy { Gear(DesktopNotebook.book) }
+    override val gear: Gear by lazy { Gear(DesktopNotebook.book) }
 
     override fun handles(method: String) = method.startsWith("gear.")
 
@@ -55,7 +55,7 @@ class MacGear : DesktopBrainHost.ToolProvider {
     @Volatile private var lastScanAt = 0L
 
     /** The shelf's line for the user message. Scans first if it has never been, or is a day stale. */
-    fun indexForPrompt(): String {
+    override fun indexForPrompt(): String {
         ensureScanned(block = false)
         return gear.indexForPrompt()
     }
@@ -67,7 +67,7 @@ class MacGear : DesktopBrainHost.ToolProvider {
         if (block) scanNow() else Thread { scanNow() }.apply { isDaemon = true; name = "gear-scan" }.start()
     }
 
-    fun scanNow() {
+    override fun scanNow() {
         runCatching {
             val diff = gear.applyScan(scan())
             if (diff.added.isNotEmpty() || diff.gone.isNotEmpty()) {

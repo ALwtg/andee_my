@@ -54,7 +54,9 @@ class DesktopBrainHost(
 
     override fun persona(): String = net.kuafuai.andee.ui.ball.BallLooks.byName(Settings.get("ball").ifEmpty { null }).persona
 
-    override fun platformPrompt(): String = MacPrompt.text(caps)
+    // Per platform, and the model's first paragraph depends on it: a Windows build
+    // that says "you are a Mac app" sends the model looking for a Dock.
+    override fun platformPrompt(): String = DesktopPrompt.text(caps)
 
     override fun touchActivity() {
         AppDirs.file("last_activity").writeText(System.currentTimeMillis().toString())

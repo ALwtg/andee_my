@@ -13,6 +13,17 @@ import javax.crypto.spec.SecretKeySpec
  * A secret kept in the user's login Keychain, read and written with the
  * system's own `security` tool — so the key never sits in a file next to the
  * data it protects, the same promise the phone's Keystore makes.
+ *
+ * **Windows has no `security` binary**, and the first symptom was not "the
+ * Keychain is missing" but this: `Cannot run program "/usr/bin/security"`,
+ * thrown from a notebook save, from inside a gear scan, which then reported the
+ * whole scan as failed. One missing tool made an unrelated feature look broken.
+ *
+ * So the key source is asked per platform. Where the Keychain exists the promise
+ * above holds unchanged; where it does not, the key is a 32-byte file beside the
+ * data, and that is weaker in exactly one way — anyone who can read this user's
+ * files can read it. The alternative (`DPAPI` through JNA) is a real option and
+ * the next step; a notebook that cannot save at all is not.
  */
 object Keychain {
 
@@ -44,9 +55,29 @@ object Keychain {
 
     /** A 256-bit AES key under [account], created on first use. */
     fun aesKey(account: String): ByteArray? {
+        if (!Body.isMac) return fileKey(account)
         get(account)?.let { return runCatching { Base64.getDecoder().decode(it) }.getOrNull() }
         val k = ByteArray(32).also { SecureRandom().nextBytes(it) }
         return if (put(account, Base64.getEncoder().encodeToString(k))) k else null
+    }
+
+    /**
+     * The key on a platform without a Keychain: 32 random bytes in the data
+     * directory, created on first use.
+     *
+     * Named per account so two stores cannot share (and silently decrypt each
+     * other's) key.
+     */
+    private fun fileKey(account: String): ByteArray? = runCatching {
+        val f = AppDirs.file("key-${account.replace(Regex("[^A-Za-z0-9_.-]"), "_")}.bin")
+        if (f.isFile && f.length() == 32L) return f.readBytes()
+        val k = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        f.writeBytes(k)
+        Log.i(TAG, "created a local key for '$account' (no OS keychain on this platform)")
+        k
+    }.getOrElse {
+        Log.e(TAG, "could not create a local key for '$account'", it)
+        null
     }
 }
 
@@ -83,7 +114,15 @@ class EncryptedFileStore(private val file: File, private val keyAccount: String)
             val blob = Base64.getEncoder().encodeToString(c.iv + c.doFinal(plain.toByteArray(Charsets.UTF_8)))
             val tmp = File(file.parentFile, "${file.name}.tmp")
             tmp.writeText(blob)
-            check(tmp.renameTo(file)) { "rename failed" }
+            // `File.renameTo` does **not** overwrite on Windows — it returns false
+            // when the target exists, which turns "save the notebook again" into
+            // "the notebook could not be saved on this device" from the second save
+            // onwards. `Files.move` with REPLACE_EXISTING is the same atomic
+            // rename on both platforms.
+            java.nio.file.Files.move(
+                tmp.toPath(), file.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+            )
             true
         }.getOrElse {
             Log.e(TAG, "${file.name}: write failed", it)

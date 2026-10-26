@@ -16,6 +16,15 @@ kotlin {
     jvmToolchain(17)
 }
 
+// Which operating system this build is for.
+//
+// The module carries both bodies now: the Mac half needs `swiftc` and a dylib,
+// the Windows half needs nothing but the JDK. So the native tasks are **gated,
+// not deleted** — a Mac build stays byte-for-byte what it was, and a Windows
+// checkout does not try to run a compiler it does not have.
+def isMacOs = System.getProperty('os.name').toLowerCase().contains('mac')
+def isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+
 // Native helpers, compiled with the Command Line Tools' swiftc.
 //
 // The Mac this is built for: x86_64 (Intel) or arm64 (Apple Silicon). The Swift
@@ -25,14 +34,17 @@ kotlin {
 def osArch = System.getProperty('os.arch')
 def swiftTarget = (osArch == 'aarch64') ? 'arm64-apple-macos14' : 'x86_64-apple-macos14'
 // LWJGL's Intel macOS classifier is plain 'natives-macos' (no x64 suffix); only
-// arm64 gets the '-arm64' suffix.
-def lwjglNatives = (osArch == 'aarch64') ? 'natives-macos-arm64' : 'natives-macos'
+// arm64 gets the '-arm64' suffix. Windows ships one artifact for both.
+def lwjglNatives = isWindows
+    ? 'natives-windows'
+    : ((osArch == 'aarch64') ? 'natives-macos-arm64' : 'natives-macos')
 def nativeOut = layout.buildDirectory.dir('native')
 tasks.register('buildTrashTool', Exec) {
     def src = file('native/trash.swift')
     def out = nativeOut.get().file('andee-trash').asFile
     inputs.file(src)
     outputs.file(out)
+    onlyIf { isMacOs }
     doFirst { out.parentFile.mkdirs() }
     commandLine 'swiftc', '-O', '-target', swiftTarget, src.path, '-o', out.path
 }
@@ -42,6 +54,7 @@ tasks.register('buildBridge', Exec) {
     def out = nativeOut.get().file('libandeemac.dylib').asFile
     inputs.file(src)
     outputs.file(out)
+    onlyIf { isMacOs }
     doFirst { out.parentFile.mkdirs() }
     commandLine 'swiftc', '-O', '-target', swiftTarget, '-emit-library', '-framework', 'CoreDisplay', '-framework', 'CoreLocation', src.path, '-o', out.path
 }
@@ -75,7 +88,9 @@ compose.desktop {
     application {
         mainClass = 'net.kuafuai.andee.desktop.MainKt'
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg)
+            // One installer per host: jpackage cannot cross-build, so asking for
+            // both here would only mean one of them always fails.
+            targetFormats(isMacOs ? TargetFormat.Dmg : TargetFormat.Msi)
             packageName = 'Andee'
             // The packaged runtime is trimmed to what jlink sees used; LWJGL (the
             // ball's OpenGL) reaches sun.misc.Unsafe reflectively, so name it, or the
@@ -83,7 +98,7 @@ compose.desktop {
             modules('jdk.unsupported')
             // macOS rejects a 0.x bundle version for a .dmg; 1.0.0 is the bundle's
             // version, not the product's.
-            packageVersion = '1.0.0'
+            packageVersion = '1.0.1'
             macOS {
                 // The phone's launcher character on a white tile, as an .icns (icon/Andee.icns).
                 iconFile.set(project.file('icon/Andee.icns'))
@@ -110,7 +125,82 @@ compose.desktop {
                     '''
                 }
             }
+            // Windows 11. `upgradeUuid` is the identity MSI uses to upgrade an
+            // install in place instead of stacking a second copy beside it, so it
+            // must be fixed forever — changing it means every user ends up with
+            // two Andees in "Apps & features".
+            windows {
+                iconFile.set(project.file('icon/Andee.ico'))
+                menuGroup = 'Andee'
+                menu = true
+                shortcut = true
+                // Per-user, no UAC prompt: the body needs no machine-wide rights,
+                // and an installer that asks for Administrator to place a chat app
+                // teaches people to click through the one prompt that matters.
+                perUserInstall = true
+                console = false
+                dirChooser = true
+                upgradeUuid = 'a1f4f2c9-6d1b-4c2e-9f0a-3b7d5e8c1642'
+            }
         }
+    }
+}
+
+// ---- WiX, for the MSI -------------------------------------------------------
+//
+// `jpackage` cannot write an MSI without **WiX 3.x** (`candle.exe` / `light.exe`).
+// WiX v4's `wix.exe` is a different tool and does not satisfy it, which is the
+// mistake this comment exists to prevent — installing v4 looks like installing
+// WiX and then the build fails with a puzzle.
+//
+// Rather than require every machine to export `WIX` by hand, the directory is
+// found here, in the order that is least surprising: the environment, the place
+// this repo already uses, the usual install locations, then PATH. When it is
+// nowhere, `packageMsi` stops with one sentence instead of a jpackage stack trace.
+def wixCandidates = [
+    System.getenv('WIX'),
+    'C:/wix314',
+    'C:/wix',
+    'C:/Program Files (x86)/WiX Toolset v3.14',
+    'C:/Program Files (x86)/WiX Toolset v3.11',
+    'C:/Program Files/WiX Toolset v3.14',
+    'C:/ProgramData/chocolatey/lib/wixtoolset/tools',
+]
+def hasWixTools = { String dir ->
+    // `isFile()` with parentheses: Groovy's property access maps `x.isFile` to
+    // `getIsFile()`, which File does not have — the first version of this line
+    // failed with "No such property: isFile", which is a confusing way to learn
+    // that lesson.
+    dir != null && file("$dir/candle.exe").isFile() && file("$dir/light.exe").isFile()
+}
+def wixDir = wixCandidates.find { hasWixTools(it as String) }
+if (wixDir == null) {
+    // A tool already on PATH is the other legitimate way to have WiX.
+    wixDir = (System.getenv('PATH') ?: '').split(File.pathSeparator)
+        .find { hasWixTools(it) }
+}
+ext.wixDir = wixDir
+
+tasks.matching { it.name == 'packageMsi' || it.name == 'packageReleaseMsi' }.configureEach { t ->
+    // The task is a JavaExec subclass in some Compose versions and wraps `exec`
+    // directly in others; `environment` is only honoured in the first case, which
+    // is why the check below exists as well. Either way the failure is a sentence.
+    if (wixDir != null && t.hasProperty('environment')) {
+        t.environment 'WIX', wixDir
+        t.environment 'PATH', "$wixDir${File.pathSeparator}${System.getenv('PATH') ?: ''}"
+    }
+    t.doFirst {
+        if (wixDir == null) {
+            throw new GradleException(
+                "MSI packaging needs WiX 3.x (candle.exe + light.exe), and none was found.\n" +
+                    "  Put it at C:/wix314, or set WIX to its folder, or install it system-wide.\n" +
+                    "  Download (about 39 MB): https://github.com/wixtoolset/wix3/releases " +
+                    "-> wix314-binaries.zip\n" +
+                    "  Then: Expand-Archive that zip to C:\\wix314\n" +
+                    "  WiX v4/v5 (the `wix` dotnet tool) will NOT work: jpackage looks for candle.exe.",
+            )
+        }
+        logger.lifecycle(":desktop: MSI will be packaged with WiX at $wixDir")
     }
 }
 
@@ -123,8 +213,23 @@ tasks.register('probe', JavaExec) {
 }
 
 tasks.named('test') {
-    dependsOn('buildNative')
-    systemProperty 'andee.trashTool', layout.buildDirectory.file('native/andee-trash').get().asFile.path
+    // The trash tool is a Mac binary, and only the Mac tests use it. On Windows
+    // the property is left unset rather than pointed at a file that cannot exist.
+    if (isMacOs) {
+        dependsOn('buildNative')
+        systemProperty 'andee.trashTool', layout.buildDirectory.file('native/andee-trash').get().asFile.path
+    }
+}
+
+// The Windows body against the machine it is running on. Prints the facts every
+// other piece is built on — display bounds, enumerable windows, one capture, one
+// icon — so a broken binding names itself instead of showing up as "the tools do
+// not work":
+//   ./gradlew :desktop:winsmoke
+tasks.register('winsmoke', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'net.kuafuai.andee.desktop.WinSmokeKt'
+    onlyIf { isWindows }
 }
 
 // One frame of the ball to a PNG, to check the desktop renderer without the window:

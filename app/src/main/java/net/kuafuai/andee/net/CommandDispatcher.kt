@@ -1407,6 +1407,40 @@ class CommandDispatcher(
                     .put("display_id", s.displayId)
             }
 
+            "screen.background_swipe" -> {
+                val s = backgroundScreen()
+                // Cells or points, never both — the same rule as background_tap,
+                // and for the same reason: two answers to "where" is a gesture
+                // somewhere nobody intended.
+                fun end(cellKey: String, xKey: String, yKey: String): Pair<Int, Int> {
+                    val cell = params?.optString(cellKey)?.trim()?.ifEmpty { null }
+                    if (cell != null) {
+                        return requireNotNull(
+                            net.kuafuai.andee.screen.VirtualScreens
+                                .aimCell(cell, params.optString("part")?.ifBlank { null }),
+                        ) { "cell '$cell' is not on the grid — columns A-H, rows 1-12" }
+                    }
+                    val x = params?.optInt(xKey, Int.MIN_VALUE) ?: Int.MIN_VALUE
+                    val y = params?.optInt(yKey, Int.MIN_VALUE) ?: Int.MIN_VALUE
+                    require(x != Int.MIN_VALUE && y != Int.MIN_VALUE) {
+                        "screen.background_swipe needs from_cell/to_cell, or $xKey and $yKey"
+                    }
+                    require(x in 0..1000 && y in 0..1000) {
+                        "$xKey/$yKey must be 0-1000 of that display, not pixels"
+                    }
+                    return x to y
+                }
+                val (x1, y1) = end("from_cell", "x1", "y1")
+                val (x2, y2) = end("to_cell", "x2", "y2")
+                val ms = (params?.optLong("ms", 400L) ?: 400L).coerceIn(80, 2_000)
+                JSONObject()
+                    .put("swiped", net.kuafuai.andee.screen.VirtualScreens.swipe(s.displayId, x1, y1, x2, y2, ms))
+                    .put("from", "$x1,$y1")
+                    .put("to", "$x2,$y2")
+                    .put("ms", ms)
+                    .put("display_id", s.displayId)
+            }
+
             "screen.background_type" -> {
                 val s = backgroundScreen()
                 val text = requireNotNull(params?.optString("text")?.ifEmpty { null }) {

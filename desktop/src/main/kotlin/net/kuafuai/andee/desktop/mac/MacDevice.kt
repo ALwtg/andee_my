@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * AppleScript; the first use asks the user for Automation permission, which
  * is the honest place for that question.
  */
-class MacDevice : DesktopBrainHost.ToolProvider {
+class MacDevice : net.kuafuai.andee.desktop.DeviceHand {
 
     override fun handles(method: String) = method in METHODS
 

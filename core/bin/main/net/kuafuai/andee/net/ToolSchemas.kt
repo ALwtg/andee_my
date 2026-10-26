@@ -1917,14 +1917,23 @@ object ToolSchemas {
             name = "background_tap",
             method = "screen.background_tap",
             description = """
-        Tap the second screen. Two ways to say where, and **prefer the cell**:
+        Tap the second screen. Three ways to say where, in this order of preference:
 
-        1. `cell` — the grid cell the target sits in. Every background_screenshot is drawn with
+        1. `text` — the control's own label, when the app names it ("发送", "File", "OK"). On
+           Windows a control has an accessible name and this is exact and fast: nothing to
+           aim, nothing to measure. Give exactly one of text / cell / x,y.
+        2. `cell` — the grid cell the target sits in. Every background_screenshot is drawn with
            the same 8x12 aim grid the foreground uses: letters A-H along the TOP edge, numbers
            1-12 down the LEFT edge, nothing printed inside a cell. So "D7" is a place, and
            `part` narrows it inside the cell (top-left … bottom-right, in fifths vertically).
-        2. `x` / `y` — 0-1000 relative to that display, x=0 left, y=0 top. The fallback for
+        3. `x` / `y` — 0-1000 relative to that display, x=0 left, y=0 top. The fallback for
            something the grid cannot hold (a slider, a map, an exact spot you measured).
+
+        With `text`, read the reply: `matched.source = uia_name` means the app itself named the
+        control. `tapped: false, reason: "ambiguous"` means two controls share that label — it
+        lists them with their grid cells and does **not** guess, because two buttons called
+        "确定" is normal in a dialog. `reason: "no_match"` means nothing carries that name (an
+        icon, or an app that names nothing) — then aim with a cell instead of retrying the word.
 
         Never pixels, and never the size of the image you were handed: it is downscaled, the
         grid is not. Values outside 0-1000 are refused rather than clamped.
@@ -1935,10 +1944,42 @@ object ToolSchemas {
     """.trimIndent(),
             required = emptyList(),
             props = mapOf(
+                "text" to prop("string", "The control's label, e.g. \"发送\". Use instead of cell/x/y."),
+                "exact" to prop("boolean", "With text: match the whole label, not a part of it. Default false (contains)."),
                 "cell" to prop("string", "Grid cell of the current background screenshot, e.g. \"D7\". Replaces x/y."),
                 "part" to propEnum("Which part of that cell — the same words the foreground tap uses. Omit for the middle.", AimParts.PARTS),
                 "x" to prop("integer", "0 (left) to 1000 (right) of the second screen. Use instead of cell."),
                 "y" to prop("integer", "0 (top) to 1000 (bottom) of the second screen. Use instead of cell."),
+            ),
+        ),
+        tool(
+            name = "background_swipe",
+            method = "screen.background_swipe",
+            description = """
+        Swipe the second screen: scroll a list, drag something, page through content. Without this the
+        screen could only be tapped in place, and anything longer than one screen was unreachable.
+
+        Two ways to say where, the same two the tap uses:
+        1. `from_cell` / `to_cell` — grid cells from the latest background_screenshot, e.g. "D10" to "D3".
+        2. `x1,y1,x2,y2` — 0-1000 of that display when you need an exact distance.
+
+        **To scroll DOWN (see content further down), swipe from a LOW point UP to a HIGH one.** The finger
+        moves opposite to the content, exactly as on a phone.
+
+        The reply says which path acted. `post_wheel` means the window was scrolled with a wheel message and
+        the user's pointer never moved; `drag` means it was a real held drag and the pointer did move. Either
+        way, look at the next screenshot before swiping again — and note that a fourth gesture on the same
+        spot within five minutes is refused, because that pattern is how a stuck loop looks.
+    """.trimIndent(),
+            required = emptyList(),
+            props = mapOf(
+                "from_cell" to prop("string", "Grid cell to start in, e.g. \"D10\". Pair with to_cell."),
+                "to_cell" to prop("string", "Grid cell to end in, e.g. \"D3\"."),
+                "x1" to prop("integer", "Start X, 0-1000 of the second screen. Use instead of cells."),
+                "y1" to prop("integer", "Start Y, 0-1000 of the second screen."),
+                "x2" to prop("integer", "End X, 0-1000 of the second screen."),
+                "y2" to prop("integer", "End Y, 0-1000 of the second screen."),
+                "ms" to prop("integer", "How long the gesture takes, 80-2000. Default 400. Longer is a slower drag, not a fling.", default = 400),
             ),
         ),
         tool(

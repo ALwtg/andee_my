@@ -1,0 +1,19 @@
+10-26 23:33:57.676 E/Bridge: libandeemac.dylib not found; screen tools are unavailable
+10-26 23:33:59.216 W/UiLag: UI thread stalled 1240ms [heap 68MB, 1563KB]
+  at java.base@17.0.20.1/jdk.internal.org.objectweb.asm.ClassWriter.toByteArray(ClassWriter.java:654)
+  at java.base@17.0.20.1/java.lang.invoke.InvokerBytecodeGenerator.toByteArray(InvokerBytecodeGenerator.java:921)
+  at java.base@17.0.20.1/java.lang.invoke.InvokerBytecodeGenerator.generateCustomizedCodeBytes(InvokerBytecodeGenerator.java:798)
+  at java.base@17.0.20.1/java.lang.invoke.InvokerBytecodeGenerator.generateCustomizedCode(InvokerBytecodeGenerator.java:752)
+  at java.base@17.0.20.1/java.lang.invoke.LambdaForm.compileToBytecode(LambdaForm.java:854)
+  at java.base@17.0.20.1/java.lang.invoke.DirectMethodHandle.makePreparedLambdaForm(DirectMethodHandle.java:305)
+  at java.base@17.0.20.1/java.lang.invoke.DirectMethodHandle.preparedLambdaForm(DirectMethodHandle.java:233)
+  at java.base@17.0.20.1/java.lang.invoke.DirectMethodHandle.preparedLambdaForm(DirectMethodHandle.java:218)
+  at java.base@17.0.20.1/java.lang.invoke.DirectMethodHandle.preparedLambdaForm(DirectMethodHandle.java:227)
+  at java.base@17.0.20.1/java.lang.invoke.DirectMethodHandle.make(DirectMethodHandle.java:108)
+  at java.base@17.0.20.1/java.lang.invoke.MethodHandles$Lookup.getDirectMethodCommon(MethodHandles.java:4004)
+  at java.base@17.0.20.1/java.lang.invoke.MethodHandles$Lookup.getDirectMethodNoSecurityManager(MethodHandles.java:3960)
+  at java.base@17.0.20.1/java.lang.invoke.MethodHandles$Lookup.getDirectMethodForConstant(MethodHandles.java:4204)
+  at java.base@17.0.20.1/java.lang.invoke.MethodHandles$Lookup.linkMethodHandleConstant(MethodHandles.java:4152)
+  at java.base@17.0.20.1/java.lang.invoke.MethodHandleNatives.linkMethodHandleConstant(MethodHandleNatives.java:615)
+  at app//androidx.compose.runtime.Recomposer$runRecomposeAndApplyChanges$2.invokeSuspend(Recomposer.kt:598)
+

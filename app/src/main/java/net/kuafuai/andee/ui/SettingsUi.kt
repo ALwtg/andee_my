@@ -26,11 +26,6 @@ import net.kuafuai.andee.device.ShizukuStatus
 import net.kuafuai.andee.i18n.AppLocale
 import net.kuafuai.andee.wake.WakeTemplates
 import net.kuafuai.andee.wake.WakeWord
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONObject
-import java.io.IOException
-import java.util.concurrent.TimeUnit
 
 /**
  * Settings overlay for editing [VoiceConfig].
@@ -1933,34 +1928,13 @@ class SettingsUi(
         }.apply { isDaemon = true }.start()
     }
 
-    /** OpenAI 形状的 `{"data":[{"id":…}]}`，去掉空名字和重复项后按名字排序。 */
-    private fun listModels(baseUrl: String, apiKey: String): List<String> {
-        val http = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .build()
-        val req = Request.Builder()
-            .url("$baseUrl/models")
-            .addHeader("Authorization", "Bearer $apiKey")
-            .get()
-            .build()
-        http.newCall(req).execute().use { resp ->
-            val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                // 网关自己的话比一个裸状态码有用：错误的 key、余额不足、地址写错
-                // 都会在 `error.message` 里说清楚。
-                val detail = runCatching {
-                    JSONObject(body).optJSONObject("error")?.optString("message").orEmpty()
-                }.getOrDefault("")
-                throw IOException("HTTP ${resp.code}" + if (detail.isBlank()) "" else ": $detail")
-            }
-            val data = runCatching { JSONObject(body).optJSONArray("data") }.getOrNull()
-            return (0 until (data?.length() ?: 0))
-                .mapNotNull { i -> data?.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() } }
-                .distinct()
-                .sorted()
-        }
-    }
+    /**
+     * OpenAI 形状的 `{"data":[{"id":…}]}`，去掉空名字和重复项后按名字排序。
+     *
+     * 实现在 core 里：桌面端的设置卡问的是同一个问题，只该有一份请求和一份解析。
+     */
+    private fun listModels(baseUrl: String, apiKey: String): List<String> =
+        net.kuafuai.andee.brain.listModels(baseUrl, apiKey)
 
     private fun warnNote(text: String): TextView = noteView(text).apply {
         setTextColor(Color.parseColor(Glass.WARN))

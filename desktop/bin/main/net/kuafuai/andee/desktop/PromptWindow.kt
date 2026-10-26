@@ -69,7 +69,11 @@ fun ApplicationScope.PromptWindow(ball: java.awt.Window?, pending: ApprovalGate.
         }
         Box(
             Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true)
-                .onSizeChanged { height = with(density) { it.height.toDp() } },
+                // A hidden window lays its content out at zero, and the measured
+                // card then became `DpSize(460, 0)` — which AWT refuses with
+                // "Width (460) and height (0) cannot be <= 0", once per launch, on
+                // the event thread. A measurement of nothing is not a measurement.
+                .onSizeChanged { if (it.height > 0) height = with(density) { it.height.toDp() } },
         ) {
             when {
                 pending != null -> ApprovalCard(pending)

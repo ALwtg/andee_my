@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
@@ -18,11 +20,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.kuafuai.andee.brain.listModels
 import net.kuafuai.andee.config.BrainConfig
 
 /** A string from the phone's own resources (generated into strings_*.properties), so the wording is the phone's. */
@@ -66,6 +73,29 @@ fun SettingsScreen(
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         GlassHeader(st("settings_title"), subtitle = t("所有设置都存在本机", "Everything stays on this Mac"), onClose = onDone)
 
+        // ---- what this PC can do -------------------------------------------
+        //
+        // The Mac's checklist asks about two grants. Windows has none — it has
+        // ceilings that raise no dialog, so they have to be stated here or the
+        // first elevated window looks like a bug in the assistant.
+        if (net.kuafuai.andee.desktop.Body.isWindows) {
+            SectionTitle(t("这台电脑上的能力", "What this PC can do"))
+            net.kuafuai.andee.desktop.win.WinCapabilities.facts().forEach { f ->
+                Text(
+                    (if (f.ok) "✓ " else "✗ ") + f.label + " — " + f.detail,
+                    color = if (f.ok) Palette.accent else Palette.warn,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            Note(
+                t(
+                    "有两条 Windows 的限制不会弹任何窗：以管理员身份运行的窗口，本进程操作不了；GPU 合成的窗口（浏览器、视频）可能截出一张全黑图。工具遇到这两种会直接说明，不会假装成功。",
+                    "Two Windows limits raise no dialog: a window running as Administrator cannot be controlled by this process, and a GPU-composited window (browser, video) may capture as a black picture. The tools report both instead of pretending.",
+                ),
+            )
+        }
+
         // ---- language: written the instant it is tapped, like the phone ----
         SectionTitle(t("界面语言", "Language"))
         SegmentedPicker(listOf("zh" to "中", "en" to "EN"), Strings.lang()) {
@@ -106,6 +136,12 @@ fun SettingsScreen(
                 NoKeyHint { v["brain"] = "codeflying" }
                 GlassField(st("settings_llm_model"), v["llm_model"].orEmpty(), { v["llm_model"] = it }, hint = llmModelHint)
                 GlassField(st("settings_llm_base_url"), v["llm_base_url"].orEmpty(), { v["llm_base_url"] = it }, hint = llmUrlHint)
+                ModelPicker(
+                    apiKey = { v["llm_api_key"].orEmpty().trim() },
+                    baseUrl = { v["llm_base_url"].orEmpty().trim().trimEnd('/').ifEmpty { llmUrlHint } },
+                    model = { v["llm_model"].orEmpty().trim() },
+                    onPick = { v["llm_model"] = it },
+                )
                 RowLabel(st("settings_llm_thinking"))
                 val thinking = v["llm_thinking"].orEmpty().ifEmpty { "enabled" }
                 SegmentedPicker(listOf("enabled" to st("common_on"), "disabled" to st("common_off")), thinking) { v["llm_thinking"] = it }
@@ -341,6 +377,85 @@ private fun NoKeyHint(onPick: () -> Unit) {
         color = Palette.accent, fontSize = 12.sp,
         modifier = Modifier.padding(top = 6.dp).clickable { onPick() },
     )
+}
+
+/**
+ * 获取模型列表: ask `<baseUrl>/models` what this key can talk to, and lay the
+ * ids out as rows that fill the 模型 field when tapped.
+ *
+ * Three things it does not do, all for the same reason — the settings card is a
+ * form, and 保存 is what commits a form:
+ *  * the reader is handed the fields' **current** text, not what was saved: the
+ *    usual order is "paste a key, tap 获取模型列表", and nothing is committed yet;
+ *  * a pick writes the field through [onPick] only, so 取消 still cancels it;
+ *  * it is not the phone's list-under-the-card either: the catalogue can run to
+ *    a hundred ids, so the list gets its own scroller with a ceiling instead of
+ *    pushing the rest of the card off the screen.
+ *
+ * The request runs on the IO dispatcher and lands back on the composition
+ * thread, because the state writes below are what the UI reads.
+ */
+@Composable
+private fun ModelPicker(
+    apiKey: () -> String,
+    baseUrl: () -> String,
+    model: () -> String,
+    onPick: (String) -> Unit,
+) {
+    var models by remember { mutableStateOf<List<String>?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    Row(Modifier.padding(top = 8.dp)) {
+        Pill(if (busy) st("settings_llm_models_loading") else st("settings_llm_fetch_models")) {
+            if (busy) return@Pill
+            val key = apiKey()
+            if (key.isEmpty()) {
+                models = null
+                problem = st("settings_llm_models_no_key")
+                return@Pill
+            }
+            val url = baseUrl()
+            problem = ""
+            busy = true
+            scope.launch {
+                val result = withContext(Dispatchers.IO) { runCatching { listModels(url, key) } }
+                busy = false
+                result.fold(
+                    onSuccess = { list ->
+                        models = list
+                        if (list.isEmpty()) problem = st("settings_llm_models_empty")
+                    },
+                    onFailure = { problem = st("settings_llm_models_failed", it.message.orEmpty().ifEmpty { "—" }) },
+                )
+            }
+        }
+    }
+
+    if (problem.isNotEmpty()) {
+        Text(problem, color = Palette.warn, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+    }
+    val list = models.orEmpty()
+    if (list.isNotEmpty()) {
+        Note(st("settings_llm_models_count", list.size))
+        val chosen = model()
+        Column(Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
+            for (id in list) {
+                val on = id == chosen
+                Text(
+                    id,
+                    color = if (on) Palette.accent else Palette.label,
+                    fontSize = 13.sp,
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(top = 4.dp)
+                        .background(if (on) Palette.thumb else Palette.panel, RoundedCornerShape(10.dp))
+                        .clickable { onPick(id) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
 }
 
 @Composable

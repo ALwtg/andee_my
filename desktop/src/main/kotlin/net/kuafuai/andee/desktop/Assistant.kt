@@ -60,19 +60,21 @@ object Assistant {
     /** Gets the chat window out of the way before a screen tool runs; set by the window. */
     @Volatile var yieldScreen: () -> Unit = {}
 
-    /** The screen hand: accessibility tree, clicks, keys and screenshots. */
-    val screen: net.kuafuai.andee.desktop.mac.MacScreen by lazy {
-        net.kuafuai.andee.desktop.mac.MacScreen({ hide -> hideWindows(hide) }, { yieldScreen() })
-    }
+    /**
+     * The screen hand: accessibility tree, clicks, keys and screenshots.
+     *
+     * Typed as the [net.kuafuai.andee.desktop.ScreenHand] interface, not as the
+     * Mac class: what the brain needs is the protocol, and which platform answers
+     * it is [net.kuafuai.andee.desktop.Body]'s business. Everything above this
+     * line is identical on both platforms; only the body differs.
+     */
+    val screen: net.kuafuai.andee.desktop.ScreenHand get() = net.kuafuai.andee.desktop.Body.screen
 
     /** What is installed and what each thing is for: the shelf the brain checks before doing a job by hand. */
-    val gear: net.kuafuai.andee.desktop.mac.MacGear by lazy { net.kuafuai.andee.desktop.mac.MacGear() }
+    val gear: net.kuafuai.andee.desktop.GearHand get() = net.kuafuai.andee.desktop.Body.gear
 
     /** Apps, calendar, reminders, contacts, volume, battery and the vault. */
-    val device: net.kuafuai.andee.desktop.mac.MacDevice by lazy {
-        net.kuafuai.andee.desktop.mac.MacVault.entries()
-        net.kuafuai.andee.desktop.mac.MacDevice()
-    }
+    val device: net.kuafuai.andee.desktop.DeviceHand get() = net.kuafuai.andee.desktop.Body.device
 
     /** Values that must never reach the model or a log: Andee's own keys, then the vault. */
     private fun secrets(): List<Pair<String, String>> = buildList {
@@ -99,6 +101,26 @@ object Assistant {
             reasoningEffort = Settings.get("llm_reasoning_effort").ifEmpty { "high" },
         )
     }
+
+    /**
+     * What this build can actually do — **the single source**.
+     *
+     * Used twice, and it must be the same answer both times: [providers] decides
+     * which tool families are registered, and the prompt tells the model what it
+     * has. Measured before this existed: the prompt claimed voice on Windows
+     * (`voice = true` hardcoded) while no voice was wired, claimed `show_html` was
+     * missing while `UiTools` was registered, and — on Windows — stayed silent
+     * about three terminal tools that could not run at all.
+     *
+     * `pages` is true because `UiTools` implements `ui.show_html`; `voice` follows
+     * the body, which is the Mac only until a Windows capture path exists.
+     */
+    private fun caps() = MacPrompt.Capabilities(
+        screen = true,
+        voice = net.kuafuai.andee.desktop.Body.isMac,
+        shell = true,
+        pages = true,
+    )
 
     private fun providers(): List<DesktopBrainHost.ToolProvider> {
         val notes = NotebookTools { onSceneChanged(it) }
@@ -213,7 +235,12 @@ object Assistant {
         val zh = Strings.lang() == "zh"
         val g = LocalBrain(
             cfg = config(),
-            host = net.kuafuai.andee.brain.GuestHost(DesktopBrainHost(providers(), MacPrompt.Capabilities(shell = false, screen = true, voice = false))),
+            // A friend's request is never allowed to run commands, whatever the
+            // owner's build can do — same rule as `TurnGuards`, said again here
+            // because this brain is built outside that path.
+            host = net.kuafuai.andee.brain.GuestHost(
+                DesktopBrainHost(providers(), caps().copy(shell = false, voice = false)),
+            ),
             onProgress = { BallCaption.push(it); onProgress(it) },
             onFinal = { answer ->
                 val clean = net.kuafuai.andee.brain.SpeechMood.parse(answer).text.replace("[END]", "").trim()
@@ -250,7 +277,7 @@ object Assistant {
         Log.i(TAG, "building the brain (${cfg.mode}, ${cfg.model})")
         val b = LocalBrain(
             cfg = cfg,
-            host = DesktopBrainHost(providers(), MacPrompt.Capabilities(shell = true, screen = true, voice = true)),
+            host = DesktopBrainHost(providers(), caps()),
             onProgress = { BallCaption.push(it); onProgress(it) },
             onFinal = { text ->
                 val clean = net.kuafuai.andee.brain.SpeechMood.parse(text).text.replace("[END]", "").trim()
