@@ -4,7 +4,7 @@ Notable changes to Andee. The format follows [Keep a Changelog](https://keepacha
 
 ## Versioning policy
 
-- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`12` / `"0.5.3"`**.
+- `versionCode` / `versionName` live in `app/build.gradle` and are currently **`14` / `"0.6.1"`**.
 - Releases are tagged `vMAJOR.MINOR.PATCH`, `versionName` mirrors the tag without the leading `v`,
   and `versionCode` increases by one per release. `versionCode` must increase **monotonically** or
   Android refuses the upgrade; the same number must never be reused for two different builds.
@@ -27,6 +27,24 @@ anything not built at a tag, identify it by the short commit hash it was built f
 hash into `versionName` at build time would close this hole; it is not implemented yet.)
 
 ## [Unreleased]
+
+## [0.6.1] - 2026-10-26
+
+**Two switches, both of them about not being interrupted.** The ball can now be turned off from
+设置, and what that hides is only the *looking*: the service, the voice, reminders and notification
+triage all keep running, and the launcher icon still brings the card up. Notification analysis has
+its own switch too, so a device that does not want the callback's token cost pays none and still
+keeps the history.
+
+### Added
+
+- **桌面 → 显示悬浮球** (`ball_show`). Off makes the window transparent and untouchable instead of
+  removing it (`FloatingWindowUi.setHidden`), so every path in the service keeps working. The card
+  still comes up when the user asks for it — the launcher icon or the self-check page's exit — and
+  hides again the moment it folds (`BodyCoreService.applyBallVisibility`).
+- **消息提醒 → 通知分析** (`notify_triage`). Orthogonal to the three-tier scope: off still listens
+  and still records into the ring buffer that `device.notifications` reads, but offers nothing to
+  `NotificationTriage`, so there is no triage call and no `act` turn — zero tokens.
 
 ## [0.5.3] - 2026-10-22
 

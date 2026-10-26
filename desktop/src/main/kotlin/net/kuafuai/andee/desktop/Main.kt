@@ -86,13 +86,34 @@ fun main() {
             onDispose { runCatching { d?.removeAppEventListener(l) } }
         }
 
-        FloatingBall(
-            actions = ballActions(onType = { openChat(typing = true) }, onNoVoice = { openChat("settings") })
-                .let { a -> BallActions(a.onTap, a.onDoubleTap, a.onTripleTap) { openChat() } },
-            onWindow = { ballWindow = it },
-        )
-        BallCaptionWindow(ballWindow, suppressed = pending != null || ask != null)
-        PromptWindow(ballWindow, pending, ask)
+        // 设置 → 桌面 → 显示桌面悬浮球. Saved like any other key and re-read by [BallWindow] on save, so the
+        // ball comes and goes without a restart. The caption and the approval/question cards are windows
+        // anchored to it, so they go with it — and a prompt then arrives as a system notification instead.
+        val showBall = BallWindow.shown
+        if (showBall) {
+            FloatingBall(
+                actions = ballActions(onType = { openChat(typing = true) }, onNoVoice = { openChat("settings") })
+                    .let { a -> BallActions(a.onTap, a.onDoubleTap, a.onTripleTap) { openChat() } },
+                onWindow = { ballWindow = it },
+            )
+            BallCaptionWindow(ballWindow, suppressed = pending != null || ask != null)
+            PromptWindow(ballWindow, pending, ask)
+        } else {
+            // Nothing anchors them any more: drop the closed window so a later ball starts clean.
+            LaunchedEffect(Unit) { ballWindow = null }
+            // With no ball there is nowhere for a card to appear, so the Notification Center carries the
+            // "someone needs you" half of it; the tool still waits its two minutes, as it always does.
+            LaunchedEffect(pending, ask) {
+                val need = pending?.a?.domain?.let { if (Strings.lang() == "zh") "允许访问 $it？" else "Allow access to $it?" }
+                    ?: pending?.a?.command
+                    ?: ask?.question
+                    ?: return@LaunchedEffect
+                postNotice(
+                    if (Strings.lang() == "zh") "Andee 需要你确认" else "Andee needs you",
+                    need.lineSequence().firstOrNull { it.isNotBlank() }?.take(140).orEmpty(),
+                )
+            }
+        }
 
         Window(
             onCloseRequest = { chat = false },
@@ -181,6 +202,18 @@ private fun installFileLog() {
             if (level == 'W' || level == 'E') System.err.println(line)
         }
     }
+}
+
+/**
+ * One line in the Notification Center, for the case where the ball is switched off and a card has no window
+ * to appear in. `osascript -e 'display notification'` is the only posting API a plain JVM has — no helper app,
+ * no framework bridge. Failures are silent: a missing banner must never keep a turn from running.
+ */
+private fun postNotice(title: String, body: String) {
+    if (body.isBlank()) return
+    fun quote(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+    val script = "display notification \"${quote(body)}\" with title \"${quote(title)}\""
+    runCatching { ProcessBuilder("/usr/bin/osascript", "-e", script).start() }
 }
 
 /** The chat window's first size: 1280×960 points, shrunk to 90% of the main screen when that is smaller. */

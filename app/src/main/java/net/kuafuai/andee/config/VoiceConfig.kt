@@ -177,6 +177,14 @@ object VoiceConfig {
         const val DEFAULT_REASONING_EFFORT = "high"
 
         /**
+         * Moyuu 的 OpenAI 兼容入口。设置卡片 本机 页的「使用 Moyuu」按钮把
+         * 这个地址填进 `llm_base_url`，之后同一页的「获取模型列表」就能用它请求
+         * `GET /models`。只作为一键预设，不替换 [DEFAULT_LLM_BASE_URL]：用户仍可
+         * 直连 DeepSeek / OpenAI 或填自己的网关。
+         */
+        const val MOYUU_LLM_BASE_URL = "https://moyuu.cc/v1"
+
+        /**
          * The same two defaults for an **English** card, pointing at OpenAI.
          *
          * The 本机 tab's hint *is* the value a blank row resolves to, so the two
@@ -501,6 +509,32 @@ object VoiceConfig {
         }
 
         /**
+         * 通知要不要交给模型分析（`notify_triage`）。
+         *
+         * 与 [notifyScope] **正交**：范围决定"看哪些"，这个开关决定"要不要想"。
+         * 关掉之后 [net.kuafuai.andee.device.NotificationRelayService] 仍然监听、仍然写进
+         * 环形缓冲（`device.notifications` 查得到），但不再发起 triage，也就不会有 act
+         * 回合 —— 零 token。
+         *
+         * **默认开，只有显式写入 "off" 才关**：这是这台设备一直以来的行为，一个不认识
+         * 的值不该替用户静音。
+         */
+        fun notifyAnalysisEnabled(context: Context): Boolean =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("notify_triage", "on")?.trim()?.lowercase() != "off"
+
+        /**
+         * 屏幕上要不要有那颗悬浮球（`ball_show`）。
+         *
+         * Fail-open，和 [sweepConfig] 同一个方向：没有这个键的设备一直有球，藏起来是
+         * 用户主动做的一次决定。关掉只影响"看不看得见" —— 服务、唤醒词、通知分诊全部
+         * 照常，点桌面图标仍然能把卡片叫出来。
+         */
+        fun ballShown(context: Context): Boolean =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("ball_show", "on")?.trim()?.lowercase() != "off"
+
+        /**
          * Which service hears and speaks: [VOICE_HUOSHAN] or [VOICE_GOOGLE].
          *
          * **Anything that is not exactly `google` reads as 火山**, which is the
@@ -698,6 +732,10 @@ object VoiceConfig {
                 "llm_reasoning_effort" to bc.reasoningEffort,
                 "grounding" to p.getString("grounding", "off")!!,
                 "notify" to notifyScope(context),
+                // Two on/off keys shown by SettingsUi's pickers; round-tripped as the
+                // wire words because [save] only speaks String.
+                "notify_triage" to if (notifyAnalysisEnabled(context)) "on" else "off",
+                "ball_show" to if (ballShown(context)) "on" else "off",
                 "lang" to uiLanguage(context),
                 "sweep" to p.getString("sweep", "on")!!,
                 "sweep_quiet_minutes" to p.getString(
@@ -839,6 +877,35 @@ object VoiceConfig {
         }
 
         /**
+         * 优先虚拟屏操作 — whether the hand should try a background display
+         * before it takes the screen the user is looking at.
+         *
+         * Stored as `"on"` / `"off"` like [groundingEnabled], and read the same
+         * fail-closed way: anything but an explicit `on` is off. The direction
+         * matters more here than anywhere else in this file. Every other
+         * setting changes *what* the assistant does; this one takes the person's
+         * screen out of the loop, so a typo, a downgrade, or a value written by
+         * a build that knew a mode this one does not must leave the device doing
+         * the thing it has always done — driving the screen in front of them.
+         *
+         * **It is a preference, not a capability.** Whether a background display
+         * can be opened at all is [net.kuafuai.andee.device.ShizukuStatus]'s
+         * answer, read at call time; a device that prefers this and cannot have
+         * it falls back to the foreground path and says why. Keeping the two
+         * apart is what allows the switch to be flipped before the shell channel
+         * exists — and what stops the row from quietly lying about it.
+         */
+        fun preferVirtualScreen(context: Context): Boolean =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("virtual_screen", "off")
+                ?.trim()?.lowercase() == "on"
+
+        fun setPreferVirtualScreen(context: Context, on: Boolean) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString("virtual_screen", if (on) "on" else "off").apply()
+        }
+
+        /**
          * The scene the assistant is in, by [net.kuafuai.andee.config.Scene.name], or null.
          *
          * Persisted for the same reason as [ballLook]: a service restart is not
@@ -926,9 +993,15 @@ object VoiceConfig {
             "llm_thinking", "llm_reasoning_effort",
             "grounding",
             "notify",
+            // 通知要不要交给模型分析（与 notify 的三档正交）：关掉 = 只记录，零 token。
+            "notify_triage",
             "lang",
             "ball",
+            // 屏幕上要不要那颗悬浮球：关掉只影响可见性，服务照常跑。
+            "ball_show",
             "sweep", "sweep_quiet_minutes", "sweep_daily_cap",
             "max_steps",
+            // 优先虚拟屏操作：手先试副屏，再抢你正在看的这块屏。
+            "virtual_screen",
         )
 }

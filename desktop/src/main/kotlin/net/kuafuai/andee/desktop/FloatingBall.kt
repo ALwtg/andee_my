@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -23,6 +26,20 @@ import java.awt.GraphicsEnvironment
 const val BALL_TITLE = "Andee Ball"
 
 private val BALL_WINDOW = 112.dp
+
+/**
+ * Whether the desktop shows the floating ball at all (`ball_show`).
+ *
+ * Read at launch and re-read when the settings card saves, so turning it off takes the window away at once
+ * instead of at the next start. The ball above the conversation lives inside the chat window and is not
+ * this: the chat is the one place that always has Andee's face.
+ */
+object BallWindow {
+    var shown by mutableStateOf(Settings.get("ball_show") != "off")
+        private set
+
+    fun reload() { shown = Settings.get("ball_show") != "off" }
+}
 
 /**
  * The ball, floating above every app the way the phone's overlay floats above

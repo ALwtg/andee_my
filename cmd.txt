@@ -1,0 +1,11 @@
+# 清理构建（全量重编 + R8，约 8 分钟）
+cd e:/vscode_workspace/aaaaa_andee_my/andee_my
+$env:JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-17.0.20.1+1'
+$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
+.\gradlew.bat clean :app:assembleRelease --console=plain 2>&1 | Tee-Object -FilePath "$env:TEMP\build-release-clean.log"
+
+# 增量构建（约 45 秒）
+cd e:/vscode_workspace/aaaaa_andee_my/andee_my
+$env:JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-17.0.20.1+1'
+$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
+.\gradlew.bat :app:assembleRelease --console=plain 2>&1 | Tee-Object -FilePath "$env:TEMP\build-release.log"

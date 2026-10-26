@@ -159,6 +159,12 @@ class FloatingWindowUi(
         fun onSelfCheckClick()
         fun onLongPress()
 
+        /**
+         * 折叠成角落小球之后。窗口读不到设置，也不该读 —— "折叠之后还该不该有球"
+         * 是服务的事：设置里关掉了悬浮球，那就在这一刻把窗口藏起来（见 [setHidden]）。
+         */
+        fun onFolded() {}
+
         /** The 产物 key — the pages the assistant has made. See [ArtifactsUi]. */
         fun onArtifactsClick()
 
@@ -429,6 +435,13 @@ class FloatingWindowUi(
     /** The typing field has sent the user to a camera or a photo picker. See [setAway]. */
     private var away = false
 
+    /**
+     * 设置里关掉了「显示悬浮球」。和 [captureHidden] / [away] 是同一个机制 ——
+     * 只折叠进 alpha、触摸标记和模糊 —— 所以服务的每一条路径（状态、字幕、折叠、
+     * 截图、指令）都照旧工作，只是屏幕上什么都不显示。见 [setHidden]。
+     */
+    private var hiddenBySetting = false
+
     /** The typing field's top edge, in screen px. 0 = no field is up. */
     private var typingTop = 0
 
@@ -538,7 +551,7 @@ class FloatingWindowUi(
      * drives window alpha to 0; both need a window the compositor is willing
      * to blend, whatever the card's own alpha happens to be.
      */
-    fun show(): Boolean {
+    fun show(hidden: Boolean = false): Boolean {
         if (root != null) return true
         // Before the ball exists, so the first frame is already the look the
         // user left it on. A no-op when nothing is saved, and a no-op for a
@@ -610,8 +623,11 @@ class FloatingWindowUi(
             wm.addView(v, p)
             root = v
             params = p
+            // Born with it, so a hidden ball never flashes on screen for a frame.
+            hiddenBySetting = hidden
             syncCover()
             applyCompactAppearance()
+            if (hidden) applyWindow()
             // Only now can [winYOrigin] be measured, and the resting position
             // depends on it — the y above is a first guess that is correct only
             // where the offset is 0.
@@ -625,7 +641,8 @@ class FloatingWindowUi(
                     runCatching { wm.updateViewLayout(v, pp) }
                 }
             }
-            retimeStroll()
+            // 看不见的球不该继续"呼吸"：隐藏时把待机小动作也停掉。
+            if (!hidden) retimeStroll()
             true
         } catch (_: Throwable) {
             false
@@ -1322,6 +1339,33 @@ class FloatingWindowUi(
     }
 
     /**
+     * 设置 → 桌面 → 显示悬浮球 关掉之后的状态。
+     *
+     * 不是 [hide]：窗口留在窗口管理器里，服务照旧往它上面写状态、字幕和历史，只是
+     * **透明、不吃触摸、也不请系统做模糊** —— 后台继续干活，屏幕上什么都不显示。
+     * 与 [setCompact] 正交：折叠是把窗口缩成一颗角落里的球，隐藏是连那颗球都不给。
+     *
+     * 关掉之后唯一还能把它叫回来的方式是用户主动要：点桌面图标（走
+     * `BodyCoreService.ensureOverlays`）或自检页的出口，那两处会把它露出来，
+     * 等窗口重新折叠（[Listeners.onFolded]）再按设置收起来。
+     */
+    fun setHidden(hidden: Boolean) {
+        ui.post {
+            if (hiddenBySetting == hidden) return@post
+            hiddenBySetting = hidden
+            if (hidden) {
+                // 不可见还在原地"呼吸"只是白烧电。
+                ui.removeCallbacks(strollRunnable)
+                slide?.cancel()
+            } else {
+                retimeStroll()
+            }
+            syncCover()
+            applyWindow()
+        }
+    }
+
+    /**
      * Fold to the corner ball so the user sees — and can touch — the real app
      * underneath. The card covers the whole screen and is not meaningfully
      * see-through, so this is the only way anything below it is ever usable.
@@ -1346,6 +1390,9 @@ class FloatingWindowUi(
             syncCover()
             if (compact) enterCompact() else exitCompact()
             applyWindow()
+            // Last, and only on a fold: the host decides whether the ball it
+            // just became should exist at all. See [Listeners.onFolded].
+            if (compact) listeners.onFolded()
         }
     }
 
@@ -1359,7 +1406,7 @@ class FloatingWindowUi(
      * only, like everything that touches these two fields.
      */
     private fun syncCover() {
-        FullscreenCard.covering = root != null && !compact
+        FullscreenCard.covering = root != null && !compact && !hiddenBySetting
     }
 
     /**
@@ -2238,7 +2285,7 @@ class FloatingWindowUi(
     private fun applyWindow() {
         val v = root ?: return
         val p = params ?: return
-        p.alpha = if (captureHidden || away) 0f else 1f
+        p.alpha = if (captureHidden || away || hiddenBySetting) 0f else 1f
         // FLAG_LAYOUT_IN_SCREEN is what makes the unfolded card actually
         // fullscreen. Without it the window's frame is the *content* area —
         // the display minus the status and navigation bars — so a MATCH_PARENT
@@ -2255,7 +2302,8 @@ class FloatingWindowUi(
         // toolbar row comes and goes. Being a few pixels late would put this
         // window over the top row of the field and eat the taps aimed at it —
         // and the card has nothing to offer during a typing session anyway.
-        p.flags = if (gesturePassthrough || typingTop > 0) {
+        // 隐藏时也必须不可触摸：alpha 0 的全屏窗口照样吞掉落在它上面的每一次触摸。
+        p.flags = if (gesturePassthrough || typingTop > 0 || hiddenBySetting) {
             base or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         } else {
             base
@@ -2273,7 +2321,8 @@ class FloatingWindowUi(
         // full screen of pixels nobody can see. Turning it off here is also what
         // makes the card look the same on a device where cross-window blur is
         // unavailable, which is most of them.
-        val wantFrost = !compact && !captureHidden && !away && !backdropUp()
+        // 同理，设置里关掉悬浮球时窗口是 alpha 0，再让合成器去模糊它后面那一屏就是白花钱。
+        val wantFrost = !compact && !captureHidden && !away && !hiddenBySetting && !backdropUp()
         frosted = Glass.frost(context, wm, p, want = wantFrost)
         paintCard()
         // The card now runs under the status bar ([FLAG_LAYOUT_IN_SCREEN]), so

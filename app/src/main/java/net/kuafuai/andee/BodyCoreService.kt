@@ -311,6 +311,17 @@ class BodyCoreService : Service() {
                 dispatcher.expand()
             }
 
+            /**
+             * 窗口折叠回角落小球的那一刻。设置里关掉了「显示悬浮球」时，这一刻就是它
+             * 该消失的时候 —— 否则用户关掉的球会在每次任务结束后自己爬回来。
+             *
+             * 展开不在这里对偶处理：能从隐藏状态展开的只有用户主动的入口
+             * （桌面图标 / 自检页，见 [ensureOverlays]），那两处自己负责把它露出来。
+             */
+            override fun onFolded() {
+                applyBallVisibility()
+            }
+
             /** Same reasoning as [onSelfCheckClick]: our own surface, no task. */
             override fun onArtifactsClick() {
                 openArtifacts()
@@ -515,7 +526,10 @@ class BodyCoreService : Service() {
         // [ensureOverlays], which is what shows this window and unfolds the card.
         // See `SelfCheck.isPageOpen`.
         val pageOwnsScreen = net.kuafuai.andee.device.SelfCheck.isPageOpen(this)
-        if (!pageOwnsScreen && !window.show()) {
+        // 设置里关掉了「显示悬浮球」：窗口照样建（服务里每一条路径都假定它存在），只是
+        // 一出生就透明、不可触摸 —— 见 FloatingWindowUi.setHidden。这样开机不会先闪
+        // 一屏卡片再消失。
+        if (!pageOwnsScreen && !window.show(hidden = !net.kuafuai.andee.config.VoiceConfig.ballShown(this))) {
             android.util.Log.e("Body", "overlay refused: no window (SYSTEM_ALERT_WINDOW?)")
         }
         // Little signboards (ask/alert cards) live in their own overlay
@@ -556,7 +570,8 @@ class BodyCoreService : Service() {
         // Skipped while the checklist page owns the screen; that window is not
         // even shown then, and [ensureOverlays] is what grows it when the page
         // leaves. See the note on `show()` above.
-        if (!pageOwnsScreen) {
+        // 隐藏的球不展开：没有球也没有卡片，这才是用户关掉它时要的样子。
+        if (!pageOwnsScreen && net.kuafuai.andee.config.VoiceConfig.ballShown(this)) {
             window.setCompact(false)
         }
         net.kuafuai.andee.config.VoiceConfig.onSceneChanged = ::onSceneChanged
@@ -849,6 +864,11 @@ class BodyCoreService : Service() {
         if (!::window.isInitialized) return
         val app = applicationContext
         Thread {
+            // Fill ShizukuStatus's cache before the list is built, because the
+            // row reads the cache and has one thread to do it on. This is the
+            // worker; `SelfCheck.local()` — the checklist page's first paint —
+            // is the main thread, so the probe cannot live there.
+            runCatching { net.kuafuai.andee.device.ShizukuStatus.probe(app) }
             val found = runCatching { net.kuafuai.andee.device.SelfCheck.run(app) }
                 .getOrNull() ?: return@Thread
             val problems = found.filter { net.kuafuai.andee.device.SelfCheck.needsAttention(it) }
@@ -1989,6 +2009,9 @@ class BodyCoreService : Service() {
                 // tells us outward; this is the same news arrived from the other
                 // direction, so the card is only repainted, never re-announced.
                 selfCheck?.repaintForLanguage()
+                // 设置 → 桌面 → 显示悬浮球：窗口还是同一个，隐藏只是 alpha/flags 的
+                // 变化，所以这里一条语句就让开关生效，不用重启服务。
+                applyBallVisibility()
             },
             onFactoryReset = {
                 applyFactoryReset()
@@ -3599,12 +3622,31 @@ class BodyCoreService : Service() {
         // uses for its 悬浮窗 row, so the two can never disagree: see
         // [net.kuafuai.andee.device.SelfCheck.overlay].
         if (!Settings.canDrawOverlays(this)) return false
+        // 这里也是"没有球"回到"有卡片"的唯一一扇门：桌面图标和自检页的出口都会走到
+        // 这里，所以被设置藏起来的球在这一刻露出来，等窗口重新折叠（
+        // [FloatingWindowUi.Listeners.onFolded]）再按设置收回去。
+        applyBallVisibility(peek = true)
         if (window.isShown()) return true
         if (!window.show()) return false
         window.setCompact(false)
         if (::ripple.isInitialized) ripple.show()
         if (::marker.isInitialized) marker.show()
         return true
+    }
+
+    /**
+     * 把设置里的「显示悬浮球」落到窗口上。
+     *
+     * 一行映射，但值得一个名字：三个调用点（服务启动、设置卡片关闭、窗口折叠）问的都是
+     * 同一个问题，答案只该有一个来源。折叠时也问，是因为隐藏的球会在每次任务结束、卡片
+     * 折叠回来时自己重新出现 —— 见 [FloatingWindowUi.Listeners.onFolded]。
+     *
+     * [peek] 是"用户自己来要了"：桌面图标 / 自检页的出口把球露出来，哪怕设置说不要；
+     * 下一次折叠仍会把它收回去，所以不会变成"关不掉的球"。
+     */
+    private fun applyBallVisibility(peek: Boolean = false) {
+        if (!::window.isInitialized) return
+        window.setHidden(!peek && !net.kuafuai.andee.config.VoiceConfig.ballShown(this))
     }
 
     /**

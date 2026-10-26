@@ -212,8 +212,14 @@ class NotificationRelayService : NotificationListenerService() {
             .put("count", count)
             .put("latest", headline.take(160))
             .put("when", sbn.postTime)
+        // Recorded first, always: this is the ring buffer `device.notifications`
+        // reads, and the one thing that keeps working when nothing else does.
         Store.add(n)
         if (!inScope(sbn)) return
+        // 设置 → 消息提醒 →「通知分析」关掉时，到这里就结束：通知留在环形缓冲里，
+        // 一个模型调用都不发（triage 和它后面的 act 回合都不存在），所以零 token。
+        // 与上面 [inScope] 的三档正交 —— 范围决定看哪些，这个开关决定要不要想。
+        if (!net.kuafuai.andee.config.VoiceConfig.notifyAnalysisEnabled(this)) return
         offerForTriage(n)
     }
 

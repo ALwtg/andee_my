@@ -26,6 +26,10 @@ import java.util.concurrent.TimeUnit
  *  1. **scope** (`notify`: off / chat / all; unset means off on the Mac, because
  *     nothing here was ever on by default and a new reader of the user's
  *     messages must be something they turned on);
+ *  1b. **analysis** (`notify_triage`: off means the watcher keeps recording into
+ *     the ring buffer for `device.notifications`, but nothing is ever handed to
+ *     the model — so a user who does not want the callback's token cost pays
+ *     none, and still has the history);
  *  2. **settle** per app ([SETTLE_MS]) — a chat posts one notification per
  *     message, the last of a burst carries the most;
  *  3. **held while a turn runs** — never interrupt the user's own task;
@@ -149,6 +153,8 @@ object MacNotifications {
             while (ring.size > RING) ring.removeFirst()
         }
         if (!inScope(bundle)) return
+        // Recorded, never thought about: nothing is scheduled, so no triage call and no tokens.
+        if (!analysisOn()) return
         pending.remove(bundle)?.cancel(false)
         pending[bundle] = exec.schedule({ pending.remove(bundle); deliver(n) }, SETTLE_MS, TimeUnit.MILLISECONDS)
     }
@@ -159,8 +165,19 @@ object MacNotifications {
         else -> false
     }
 
+    /**
+     * Whether a notification may reach the model at all. Read per notification, never cached, so the
+     * settings card's next save is all it takes — the phone's rule for its own switches.
+     */
+    private fun analysisOn(): Boolean = Settings.get("notify_triage") != "off"
+
     private fun deliver(n: JSONObject) {
         val h = host ?: return
+        // A save can land between the schedule and its 3 s settle, so the switch is read once more here.
+        if (!analysisOn()) {
+            Log.i(TAG, "analysis is off; kept in the buffer only (${n.optString("app")})")
+            return
+        }
         if (h.busy()) {
             Log.i(TAG, "held: a turn is running (${n.optString("app")})")
             return
@@ -193,7 +210,9 @@ object MacNotifications {
             .put("scope", Settings.get("notify").ifEmpty { "off" })
             .put("items", arr)
         if (state == State.NO_ACCESS) o.put("how_to_enable", NO_ACCESS_NOTE)
-        else if (Settings.get("notify").let { it != "chat" && it != "all" }) {
+        if (!analysisOn()) {
+            o.put("note", "Notifications are recorded but not analysed: the user has notification analysis off, so no model call is made.")
+        } else if (Settings.get("notify").let { it != "chat" && it != "all" }) {
             o.put("note", "Notifications are recorded but Andee does not act on them: the user has the Notifications setting off.")
         }
         return o

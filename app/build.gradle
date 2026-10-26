@@ -21,6 +21,26 @@ def buildConfigBool = { String key ->
     (raw == 'true' || raw == '1' || raw == 'yes') ? 'true' : 'false'
 }
 
+// Release signing.
+//
+// There is no keystore in this repository and no password in the source — a
+// signature is the only thing standing between a user and an APK that installs
+// over this one and inherits everything it can read, so it never gets
+// committed. The four values come from local.properties (gitignored) first and
+// the environment second, which is what lets CI pass them as secrets.
+//
+// When they are absent the release build type is left alone and produces the
+// same unsigned APK it always did, so `assembleRelease` still works as an
+// R8/lint gate on a fresh clone that has no key at hand.
+def signingProp = { String key ->
+    localProps.getProperty(key) ?: System.getenv(key)
+}
+def releaseStorePath   = signingProp('ANDROID_KEYSTORE_FILE')
+def releaseStorePass   = signingProp('ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias    = signingProp('ANDROID_KEY_ALIAS')
+def releaseKeyPass     = signingProp('ANDROID_KEY_PASSWORD') ?: releaseStorePass
+def releaseSigningReady = releaseStorePath != null && rootProject.file(releaseStorePath).exists() && releaseKeyAlias != null
+
 android {
     namespace 'net.kuafuai.andee'
     compileSdk 34
@@ -34,8 +54,8 @@ android {
         applicationId "net.kuafuai.andee"
         minSdk 30
         targetSdk 34
-        versionCode 12
-        versionName "0.5.3"
+        versionCode 14
+        versionName "0.6.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
@@ -83,11 +103,28 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            if (releaseSigningReady) {
+                storeFile rootProject.file(releaseStorePath)
+                storePassword releaseStorePass
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Only attached when a real keystore was found. Assigning an empty
+            // signingConfig makes AGP fail the build outright, and a clone with
+            // no key must still be able to run assembleRelease as a gate.
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     // One APK per ABI instead of one fat APK carrying all four. ML Kit's
@@ -126,6 +163,17 @@ android {
     }
     kotlinOptions {
         jvmTarget = '1.8'
+        // Stamp 2.0.0 instead of the plugin's 2.1.0 into the class files.
+        //
+        // The Kotlin plugin is 2.1.21, but the R8 bundled with AGP 8.3.1 refuses
+        // any metadata newer than 2.0.0: `minifyReleaseWithR8` dies with
+        // "Provided Metadata instance has version 2.1.0, while maximum supported
+        // version is 2.0.0". Only release is affected — debug never runs R8, so
+        // `assembleDebug` was green while `assembleRelease` could never finish.
+        // Nothing in this module uses a 2.1-only language feature, so the older
+        // stamp loses nothing R8 reads. Drop this line once AGP moves to an R8
+        // that understands 2.1.
+        freeCompilerArgs += ['-Xmetadata-version=2.0.0']
     }
 }
 
@@ -151,6 +199,16 @@ dependencies {
     implementation 'com.google.mlkit:barcode-scanning:17.2.0'
     // Drawing the QR code a friend scans to add this phone. Encoder only, pure Java; ML Kit only reads.
     implementation 'com.google.zxing:core:3.5.3'
+
+    // Shizuku: the only way a non-root app gets the shell's permissions, and the
+    // whole of 「优先虚拟屏操作」 — a background display needs CAPTURE_VIDEO_OUTPUT,
+    // INJECT_EVENTS and the right to launch a third-party activity onto a
+    // non-default display, none of which are grantable by adb `pm grant`.
+    // `api` carries the client, `provider` the relay that hands a normal app
+    // process the binder (see the manifest entry). Both are Java-only, so nothing
+    // here touches the project's Kotlin 1.9.22 ceiling.
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
 
     implementation project(':core')
 

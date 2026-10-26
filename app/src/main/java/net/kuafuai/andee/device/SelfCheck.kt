@@ -260,6 +260,11 @@ object SelfCheck {
             voiceReach(context, probe, online),
             wakePhrase(context),
             background(context),
+            // Right below 后台运行 because it is the same subject seen from the
+            // other side: battery decides whether the body survives the screen
+            // going off, this decides whether the hand can work while the
+            // screen is somebody else's.
+            virtualScreen(context),
             autoStart(context),
             storage(context),
         )
@@ -996,6 +1001,85 @@ object SelfCheck {
             else R.string.check_detail_battery_off,
             fix = if (ignored) Fix.Nothing else batteryFix(context),
         )
+    }
+
+    /**
+     * The shell channel behind 「优先虚拟屏操作」.
+     *
+     * **Only a WARN when the user asked for the feature.** A device that never
+     * turned it on has no problem here, and a red row for a capability nobody
+     * requested is the nagware this list is written to avoid — so with the
+     * preference off this is a NOTE that states the fact and stops.
+     *
+     * With it on, the row is the whole answer to "why does it still take my
+     * screen?": not installed, server not started (the normal state after a
+     * reboot, and the one users will not guess), or installed-but-not-authorised,
+     * which is a dialog inside Shizuku rather than anything Settings can grant.
+     *
+     * Reads [ShizukuStatus.cached] and never probes: this method runs on the
+     * main thread inside [local] *and* inside the full [run], and the probe
+     * crosses a binder into another process. The settings card refreshes the
+     * cache; this row reports whatever it last found, and says so when it has
+     * never looked.
+     */
+    private fun virtualScreen(context: Context): Finding {
+        val preferred = VoiceConfig.preferVirtualScreen(context)
+        val snapshot = ShizukuStatus.cached()
+        if (!preferred) {
+            return Finding(
+                id = "virtual_screen",
+                title = R.string.check_title_shizuku,
+                level = Level.NOTE,
+                detail = R.string.check_detail_shizuku_idle,
+                fix = Fix.Nothing,
+            )
+        }
+        return when (snapshot.state) {
+            ShizukuStatus.State.READY -> Finding(
+                id = "virtual_screen",
+                title = R.string.check_title_shizuku,
+                level = Level.OK,
+                detail = R.string.check_detail_shizuku_ready,
+                fix = Fix.Nothing,
+            )
+
+            ShizukuStatus.State.NOT_INSTALLED -> Finding(
+                id = "virtual_screen",
+                title = R.string.check_title_shizuku,
+                level = Level.WARN,
+                detail = R.string.check_detail_shizuku_missing,
+                fix = Fix.Link(ShizukuStatus.INSTALL_URL),
+            )
+
+            ShizukuStatus.State.NOT_RUNNING -> Finding(
+                id = "virtual_screen",
+                title = R.string.check_title_shizuku,
+                level = Level.WARN,
+                detail = R.string.check_detail_shizuku_stopped,
+                // The command, not a 去开启 button: there is no button. Shizuku's
+                // server is started by the user (wireless debugging) or by root,
+                // and both are outside anything this app can press.
+                fix = Fix.Adb(ShizukuStatus.START_COMMAND),
+            )
+
+            ShizukuStatus.State.NOT_AUTHORIZED -> Finding(
+                id = "virtual_screen",
+                title = R.string.check_title_shizuku,
+                level = Level.WARN,
+                detail = R.string.check_detail_shizuku_denied,
+                // The dialog is raised from ⚙ → 屏幕与后台, because it needs a
+                // card the user is looking at; a checklist row cannot host it.
+                fix = Fix.Nothing,
+            )
+
+            ShizukuStatus.State.UNKNOWN -> Finding(
+                id = "virtual_screen",
+                title = R.string.check_title_shizuku,
+                level = Level.NOTE,
+                detail = R.string.check_detail_shizuku_unknown,
+                fix = Fix.Nothing,
+            )
+        }
     }
 
     /**

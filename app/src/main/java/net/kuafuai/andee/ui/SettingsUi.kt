@@ -22,9 +22,15 @@ import net.kuafuai.andee.config.FactoryReset
 import net.kuafuai.andee.config.Notebook
 import net.kuafuai.andee.config.Vault
 import net.kuafuai.andee.config.VoiceConfig
+import net.kuafuai.andee.device.ShizukuStatus
 import net.kuafuai.andee.i18n.AppLocale
 import net.kuafuai.andee.wake.WakeTemplates
 import net.kuafuai.andee.wake.WakeWord
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * Settings overlay for editing [VoiceConfig].
@@ -372,6 +378,7 @@ class SettingsUi(
         // 小本本 and 朋友 have their own keys on the top bar (and the Mac's sidebar), so this card only holds
         // the notebook's review settings and no door to the friends list.
         themeSection(form)
+        desktopSection(form)
         expressionsSection(form)
         wakeSection(form)
         notebookSection(form)
@@ -443,6 +450,7 @@ class SettingsUi(
         // behind the disclosure rather than in the column everyone scrolls.
         showHubSection(body)
         typingSection(body)
+        virtualScreenSection(body)
         diagnosticsSection(body)
     }
 
@@ -696,6 +704,28 @@ class SettingsUi(
             lctx.getString(R.string.settings_llm_base_url),
             hint = VoiceConfig.llmBaseUrlDefault(context),
         )
+        // 一键把地址填成 Moyuu：只动这一行，已经写好的 key / 模型都留着。
+        linkNote(localBlock, lctx.getString(R.string.settings_llm_use_moyuu)) {
+            fields["llm_base_url"]?.apply {
+                setText(VoiceConfig.MOYUU_LLM_BASE_URL)
+                setSelection(text.length)
+            }
+        }
+        // 取模型列表：用的是上面三行里**当前**的内容，不必先保存。点一个模型名
+        // 就写回「模型」那一行，保存时与其它字段一起提交。
+        val modelChoices = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        localBlock.addView(
+            button(lctx.getString(R.string.settings_llm_fetch_models), filled = false) {
+                fetchModels(
+                    modelChoices,
+                    fields["llm_api_key"],
+                    fields["llm_model"],
+                    fields["llm_base_url"],
+                )
+            },
+            rowParams(dp(8)),
+        )
+        localBlock.addView(modelChoices, matchWrap())
 
         rowLabel(localBlock, lctx.getString(R.string.settings_llm_thinking))
         var applyThinking: ((String, Boolean) -> Unit)? = null
@@ -919,6 +949,31 @@ class SettingsUi(
             rebuild()
         }
         panel.addView(row, rowParams(dp(7)))
+    }
+
+    /**
+     * 桌面：屏幕上要不要那颗悬浮球。
+     *
+     * 关掉的是**看得见**，不是助手：服务、唤醒词、语音、通知分诊全部照常跑，只是那颗球
+     * 和卡片一起透明掉（`FloatingWindowUi.setHidden`）。唯一的例外是用户自己来要 ——
+     * 点桌面图标或自检页的出口，卡片会露出来，等它重新折叠再收回去。
+     *
+     * 随 保存 生效，和 [notebookSection] 的开关一样：它不是"确认给你看"的即时设置，
+     * 而是一个会影响"下一步看见什么"的决定 —— 开关在卡片自己挡住的那一层上。
+     */
+    private fun desktopSection(form: LinearLayout) {
+        val panel = group(
+            form,
+            lctx.getString(R.string.settings_section_desktop),
+            lctx.getString(R.string.settings_ball_show_note),
+        )
+        // On first, matching VoiceConfig.ballShown's fail-open reading: a device
+        // that never touched this has always had the ball.
+        segmented(
+            panel,
+            "ball_show",
+            listOf("on" to lctx.getString(R.string.common_on), "off" to lctx.getString(R.string.common_off)),
+        )
     }
 
     /**
@@ -1326,6 +1381,18 @@ class SettingsUi(
             panel,
             lctx.getString(R.string.settings_notify_note),
         )
+        // 与上面的范围正交：范围决定"看哪些"，这一行决定"要不要交给模型想"。关掉之后
+        // 通知仍然进环形缓冲（device.notifications 查得到），但一个模型调用都不发。
+        rowLabel(panel, lctx.getString(R.string.settings_notify_analysis))
+        segmented(
+            panel,
+            "notify_triage",
+            listOf("on" to lctx.getString(R.string.common_on), "off" to lctx.getString(R.string.common_off)),
+        )
+        note(
+            panel,
+            lctx.getString(R.string.settings_notify_analysis_note),
+        )
     }
 
     // ---- Widgets ----
@@ -1369,6 +1436,160 @@ class SettingsUi(
             panel,
             lctx.getString(R.string.settings_typing_note),
         )
+    }
+
+    /**
+     * 屏幕与后台: whether the hand tries a background display before it takes
+     * the screen the person is looking at.
+     *
+     * **Two things, deliberately kept apart on the card.** The switch is a
+     * *preference* — it is the user's, it is written the instant it is tapped
+     * (like the wake-word rows, and for the same reason: the reader reconsiders
+     * constantly and there is nothing left for a 保存 to confirm). The row
+     * under it is a *fact* — whether the shell channel is actually up right
+     * now, which this app cannot grant itself and which does not survive a
+     * reboot. A single row that merged them would have to lie in one direction
+     * or the other: either claiming the feature is on when it cannot run, or
+     * refusing the switch on a device that will have Shizuku tomorrow.
+     *
+     * The status is read from [net.kuafuai.andee.device.ShizukuStatus.cached]
+     * and refreshed behind the paint, because the probe crosses a binder and
+     * this method builds a card on the main thread. Every write here checks
+     * `parent == null` before touching a view: the card can be closed while the
+     * binder is still answering, which is the same race [fetchModels] documents.
+     */
+    private fun virtualScreenSection(form: LinearLayout) {
+        val status = ShizukuStatus
+        val panel = group(
+            form,
+            lctx.getString(R.string.settings_section_virtual_screen),
+            lctx.getString(R.string.settings_virtual_screen_note),
+        )
+
+        val toggle = button("", filled = false) {}
+        fun paintToggle() {
+            val on = VoiceConfig.preferVirtualScreen(context)
+            toggle.text = lctx.getString(
+                if (on) R.string.settings_virtual_screen_on
+                else R.string.settings_virtual_screen_off,
+            )
+            // The same pair [button] picks with, so the on state reads as the
+            // filled chip it would have been had it been born on.
+            toggle.setTextColor(Color.parseColor(if (on) Glass.ON_TINT else Glass.LABEL))
+            toggle.background =
+                if (on) Glass.tinted(context, dp(24)) else Glass.panel(context, dp(24))
+        }
+        paintToggle()
+        toggle.setOnClickListener {
+            VoiceConfig.setPreferVirtualScreen(context, !VoiceConfig.preferVirtualScreen(context))
+            paintToggle()
+        }
+        panel.addView(toggle, rowParams(0))
+
+        rowLabel(panel, lctx.getString(R.string.settings_shizuku_label))
+        val stateText = TextView(context).apply {
+            textSize = Glass.Type.BODY
+            setTextColor(Color.parseColor(Glass.SECONDARY))
+            setLineSpacing(dp(3).toFloat(), 1f)
+        }
+        panel.addView(stateText, rowParams(dp(4)))
+
+        val action = button("", filled = false) {}
+        panel.addView(action, rowParams(dp(12)))
+
+        // Each door is its own function because each one fails differently, and
+        // a button that does nothing is the failure mode this card is written
+        // against: 去安装 opens a browser, 打开 Shizuku may have no launcher,
+        // 去授权 needs a binder that a reboot took away.
+        fun fail() {
+            android.widget.Toast.makeText(
+                context,
+                lctx.getString(R.string.settings_shizuku_open_failed),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        }
+
+        fun openInstall() {
+            val ok = runCatching {
+                context.startActivity(
+                    android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse(status.INSTALL_URL),
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }.isSuccess
+            if (!ok) fail()
+        }
+
+        fun openShizuku() {
+            val launch = context.packageManager.getLaunchIntentForPackage(status.PACKAGE)
+            val ok = launch != null && runCatching {
+                context.startActivity(
+                    launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }.isSuccess
+            if (!ok) fail()
+        }
+
+        fun paint() {
+            if (stateText.parent == null) return
+            val s = status.cached()
+            stateText.text = lctx.getString(
+                when (s.state) {
+                    ShizukuStatus.State.UNKNOWN -> R.string.settings_shizuku_state_unknown
+                    ShizukuStatus.State.NOT_INSTALLED -> R.string.settings_shizuku_state_missing
+                    ShizukuStatus.State.NOT_RUNNING -> R.string.settings_shizuku_state_stopped
+                    ShizukuStatus.State.NOT_AUTHORIZED -> R.string.settings_shizuku_state_denied
+                    ShizukuStatus.State.READY -> R.string.settings_shizuku_state_ready
+                },
+            )
+            stateText.setTextColor(
+                Color.parseColor(
+                    if (s.state == ShizukuStatus.State.READY) Glass.OK else Glass.SECONDARY,
+                ),
+            )
+            when (s.state) {
+                ShizukuStatus.State.NOT_INSTALLED -> {
+                    action.visibility = View.VISIBLE
+                    action.text = lctx.getString(R.string.settings_shizuku_action_install)
+                    action.setOnClickListener { openInstall() }
+                }
+
+                ShizukuStatus.State.NOT_RUNNING -> {
+                    action.visibility = View.VISIBLE
+                    action.text = lctx.getString(R.string.settings_shizuku_action_open)
+                    action.setOnClickListener { openShizuku() }
+                }
+
+                ShizukuStatus.State.NOT_AUTHORIZED -> {
+                    action.visibility = View.VISIBLE
+                    action.text = lctx.getString(R.string.settings_shizuku_action_grant)
+                    action.setOnClickListener {
+                        // The dialog belongs to Shizuku and is raised over this
+                        // card. A false answer means the binder died between the
+                        // paint and the tap — say so instead of going quiet.
+                        if (!status.requestPermission()) fail()
+                    }
+                }
+
+                else -> action.visibility = View.GONE
+            }
+        }
+        paint()
+
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+        row.addView(button(lctx.getString(R.string.settings_shizuku_action_recheck), filled = false) {
+            status.refresh(context) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post { paint() }
+            }
+        })
+        panel.addView(row, rowParams(dp(10)))
+
+        // The card paints instantly and fills this in behind itself; the first
+        // paint therefore says 还没查, which is the truth at that moment.
+        status.refresh(context) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { paint() }
+        }
     }
 
     /**
@@ -1477,6 +1698,126 @@ class SettingsUi(
             Glass.pressable(this)
             setOnClickListener { onClick() }
         }, rowParams(dp(10)))
+    }
+
+    /**
+     * 请求 `<baseUrl>/models`，把结果铺成一列可点的模型名，点一个写回 [modelField]。
+     *
+     * 读的是这三个行里**当前**的文字，不是 `saved`：用户通常「填 key → 点获取」
+     * 一口气做完，这时候还没点保存，`saved` 里并没有新 key。
+     *
+     * 网络在后台线程，回主线程才动视图。卡片被关掉或重建后 [container] 已经没有
+     * parent，回调直接退出——新卡片会从字段里读回已经写入的模型名。
+     */
+    private fun fetchModels(
+        container: LinearLayout,
+        keyField: EditText?,
+        modelField: EditText?,
+        baseUrlField: EditText?,
+    ) {
+        container.removeAllViews()
+        val key = keyField?.text?.toString()?.trim().orEmpty()
+        if (key.isEmpty()) {
+            container.addView(
+                warnNote(lctx.getString(R.string.settings_llm_models_no_key)),
+                rowParams(dp(8)),
+            )
+            return
+        }
+        val fallbackUrl = VoiceConfig.llmBaseUrlDefault(context)
+        val baseUrl = baseUrlField?.text?.toString()?.trim()?.trimEnd('/')
+            ?.ifEmpty { fallbackUrl } ?: fallbackUrl
+        container.addView(noteView(lctx.getString(R.string.settings_llm_models_loading)).apply {
+            setTextColor(Color.parseColor(Glass.ACCENT))
+        }, rowParams(dp(8)))
+
+        Thread {
+            val result = runCatching { listModels(baseUrl, key) }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                if (container.parent == null) return@post
+                container.removeAllViews()
+                val models = result.getOrNull()
+                if (models == null) {
+                    val why = result.exceptionOrNull()?.message.orEmpty().ifEmpty { "—" }
+                    container.addView(
+                        warnNote(lctx.getString(R.string.settings_llm_models_failed, why)),
+                        rowParams(dp(8)),
+                    )
+                    return@post
+                }
+                if (models.isEmpty()) {
+                    container.addView(
+                        warnNote(lctx.getString(R.string.settings_llm_models_empty)),
+                        rowParams(dp(8)),
+                    )
+                    return@post
+                }
+                container.addView(
+                    noteView(lctx.getString(R.string.settings_llm_models_count, models.size)),
+                    rowParams(dp(8)),
+                )
+                // 列表直接铺在卡片里，不另开滚动条：卡片本身就是可滚的，套一个内层
+                // ScrollView 只会在手指划过列表时把外层卡住。
+                val chosen = modelField?.text?.toString()?.trim().orEmpty()
+                var picked: TextView? = null
+                for (id in models) {
+                    val row = TextView(context).apply {
+                        text = id
+                        textSize = Glass.Type.BODY
+                        setTextColor(Color.parseColor(if (id == chosen) Glass.ACCENT else Glass.LABEL))
+                        background = Glass.well(context, dp(11))
+                        setPadding(dp(14), dp(11), dp(14), dp(11))
+                        isClickable = true
+                        isFocusable = true
+                        Glass.pressable(this)
+                        setOnClickListener {
+                            picked?.setTextColor(Color.parseColor(Glass.LABEL))
+                            setTextColor(Color.parseColor(Glass.ACCENT))
+                            picked = this
+                            modelField?.apply {
+                                setText(id)
+                                setSelection(text.length)
+                            }
+                        }
+                    }
+                    if (id == chosen) picked = row
+                    container.addView(row, rowParams(dp(6)))
+                }
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    /** OpenAI 形状的 `{"data":[{"id":…}]}`，去掉空名字和重复项后按名字排序。 */
+    private fun listModels(baseUrl: String, apiKey: String): List<String> {
+        val http = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+        val req = Request.Builder()
+            .url("$baseUrl/models")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .get()
+            .build()
+        http.newCall(req).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                // 网关自己的话比一个裸状态码有用：错误的 key、余额不足、地址写错
+                // 都会在 `error.message` 里说清楚。
+                val detail = runCatching {
+                    JSONObject(body).optJSONObject("error")?.optString("message").orEmpty()
+                }.getOrDefault("")
+                throw IOException("HTTP ${resp.code}" + if (detail.isBlank()) "" else ": $detail")
+            }
+            val data = runCatching { JSONObject(body).optJSONArray("data") }.getOrNull()
+            return (0 until (data?.length() ?: 0))
+                .mapNotNull { i -> data?.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() } }
+                .distinct()
+                .sorted()
+        }
+    }
+
+    private fun warnNote(text: String): TextView = noteView(text).apply {
+        setTextColor(Color.parseColor(Glass.WARN))
     }
 
     private fun noteView(text: String): TextView = TextView(context).apply {

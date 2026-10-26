@@ -1,0 +1,9 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-10-25T16:33:35.378Z
+provider: 
+---
+
+任何改动都要改动Android 端的，不要改动macOS 桌面模块 desktop/

@@ -1,0 +1,72 @@
+package net.kuafuai.andee.desktop
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+/**
+ * The app's icons, as SVG path data on a 24-unit grid, drawn in the text colour.
+ * The outlines are from Lucide (https://lucide.dev, ISC licence), copied as path
+ * data; STOP is our own filled square.
+ * An emoji is a colour bitmap from whatever font the Mac has, so it ignores the
+ * palette and looks different on every machine; a path is the same everywhere
+ * and takes the colour it is given.
+ *
+ * Strokes are 2 units, round-capped and round-joined, as Lucide draws them.
+ */
+enum class AndeeIcon(val d: String, val filled: Boolean = false) {
+    CHAT("M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"),
+    DOCUMENT("M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z M14 2v4a2 2 0 0 0 2 2h4 M10 9H8 M16 13H8 M16 17H8"),
+    NOTEBOOK("M2 6h4 M2 10h4 M2 14h4 M2 18h4 M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-16a2 2 0 0 1 2 -2z M9.5 8h5 M9.5 12H16 M9.5 16H14"),
+    SPARKLE("M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z M20 3v4 M22 5h-4 M4 17v2 M5 18H3"),
+    LOCK("M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-7a2 2 0 0 1 2 -2z M7 11V7a5 5 0 0 1 10 0v4"),
+    FACE("M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0 M8 14s1.5 2 4 2 4-2 4-2 M9 9L9.01 9 M15 9L15.01 9"),
+    CHECK_CIRCLE("M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0 M0 0m9 12 2 2 4-4"),
+    ALERT_CIRCLE("M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0 M12 8L12 12 M12 16L12.01 16"),
+    SLIDERS("M21 4L14 4 M10 4L3 4 M21 12L12 12 M8 12L3 12 M21 20L16 20 M12 20L3 20 M14 2L14 6 M8 10L8 14 M16 18L16 22"),
+    GRID("M4 4h6a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M14 4h6a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M4 13h6a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z M14 13h6a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z"),
+    LINK("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"),
+    /** 朋友: two people, the nearer one larger. */
+    FRIENDS("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8a4 4 0 1 0 0-8z M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75"),
+    PLUS("M5 12h14 M12 5v14"),
+    MIC("M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z M19 10v2a7 7 0 0 1-14 0v-2 M12 19L12 22"),
+    SEND("m5 12 7-7 7 7 M12 19V5"),
+    PAPERCLIP("M13.234 20.252 21 12.3 M16 6l-8.414 8.586a2 2 0 0 0 0 2.828 2 2 0 0 0 2.828 0l8.414-8.586a4 4 0 0 0 0-5.656 4 4 0 0 0-5.656 0l-8.415 8.585a6 6 0 1 0 8.486 8.486"),
+    IMAGE("M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M9 7a2 2 0 1 0 0 4a2 2 0 1 0 0-4z M21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21"),
+    FILE("M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z M14 2v4a2 2 0 0 0 2 2h4"),
+    VOLUME("M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z M16 9a5 5 0 0 1 0 6 M19.364 18.364a9 9 0 0 0 0-12.728"),
+    VOLUME_OFF("M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z M22 9L16 15 M16 9l6 6"),
+    STOP("M8 6h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z", filled = true),
+    CLOSE("M18 6 6 18 M0 0m6 6 12 12"),
+    CHEVRON("m9 18 6-6-6-6"),
+    CHECK("M20 6 9 17l-5-5"),
+    /** GitHub mark (octocat), filled. */
+    GITHUB("M12,0C5.37,0 0,5.37 0,12c0,5.31 3.435,9.795 8.205,11.385c0.6,0.105 0.825,-0.255 0.825,-0.57c0,-0.285 -0.015,-1.23 -0.015,-2.235c-3.015,0.555 -3.795,-0.735 -4.035,-1.41c-0.135,-0.345 -0.72,-1.41 -1.23,-1.695c-0.42,-0.225 -1.02,-0.78 -0.015,-0.795c0.945,-0.015 1.62,0.87 1.845,1.23c1.08,1.815 2.805,1.305 3.495,0.99c0.105,-0.78 0.42,-1.305 0.765,-1.605c-2.67,-0.3 -5.46,-1.335 -5.46,-5.925c0,-1.305 0.465,-2.385 1.23,-3.225c-0.12,-0.3 -0.54,-1.53 0.12,-3.18c0,0 1.005,-0.315 3.3,1.23c0.96,-0.27 1.98,-0.405 3,-0.405s2.04,0.135 3,0.405c2.295,-1.56 3.3,-1.23 3.3,-1.23c0.66,1.65 0.24,2.88 0.12,3.18c0.765,0.84 1.23,1.905 1.23,3.225c0,4.605 -2.805,5.625 -5.475,5.925c0.435,0.375 0.81,1.095 0.81,2.22c0,1.605 -0.015,2.895 -0.015,3.3c0,0.315 0.225,0.69 0.825,0.57C20.565,21.795 24,17.31 24,12c0,-6.63 -5.37,-12 -12,-12z", filled = true),
+    /** Discord mark, filled. */
+    DISCORD("M20.317,4.37a19.791,19.791 0,0 0,-4.885 -1.515,0.074 0.074,0 0,0 -0.079,0.037c-0.21,0.375 -0.444,0.864 -0.608,1.25a18.27,18.27 0,0 0,-5.487 0,12.64 12.64,0 0,0 -0.617,-1.25 0.077,0.077 0,0 0,-0.079 -0.037A19.736,19.736 0,0 0,3.677 4.37a0.07,0.07 0,0 0,-0.032 0.027C0.533,9.046 -0.32,13.58 0.099,18.057a0.082,0.082 0,0 0,0.031 0.057,19.9 19.9,0 0,0 5.993,3.03 0.078,0.078 0,0 0,0.084 -0.028c0.462,-0.63 0.874,-1.295 1.226,-1.994a0.076,0.076 0,0 0,-0.041 -0.106,13.107 13.107,0 0,1 -1.872,-0.892 0.077,0.077 0,0 1,-0.008 -0.128c0.126,-0.094 0.252,-0.192 0.372,-0.291a0.074,0.074 0,0 1,0.077 -0.01c3.928,1.793 8.18,1.793 12.062,0a0.074,0.074 0,0 1,0.078 0.01c0.12,0.098 0.246,0.198 0.373,0.292a0.077,0.077 0,0 1,-0.006 0.127,12.3 12.3,0 0,1 -1.873,0.892 0.077,0.077 0,0 0,-0.041 0.107c0.36,0.698 0.772,1.362 1.225,1.993a0.076,0.076 0,0 0,0.084 0.028,19.84 19.84,0 0,0 6.002,-3.03 0.077,0.077 0,0 0,0.032 -0.054c0.5,-5.177 -0.838,-9.674 -3.549,-13.66a0.061,0.061 0,0 0,-0.031 -0.03zM8.02,15.33c-1.183,0 -2.157,-1.085 -2.157,-2.419 0,-1.333 0.956,-2.419 2.157,-2.419 1.21,0 2.176,1.096 2.157,2.42 0,1.333 -0.956,2.418 -2.157,2.418zM15.98,15.33c-1.183,0 -2.157,-1.085 -2.157,-2.419 0,-1.333 0.955,-2.419 2.157,-2.419 1.21,0 2.176,1.096 2.157,2.42 0,1.333 -0.946,2.418 -2.157,2.418z", filled = true),
+    ;
+}
+
+@Composable
+fun Icon(icon: AndeeIcon, tint: Color, size: Dp = 18.dp, modifier: Modifier = Modifier) {
+    val path = remember(icon) { PathParser().parsePathString(icon.d).toPath() }
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 24f
+        withTransform({ scale(k, k, pivot = Offset.Zero) }) {
+            if (icon.filled) drawPath(path, tint, style = Fill)
+            else drawPath(path, tint, style = Stroke(width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+    }
+}

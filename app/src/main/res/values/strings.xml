@@ -63,6 +63,14 @@
     <string name="settings_llm_api_key">接口密钥</string>
     <string name="settings_llm_model">模型</string>
     <string name="settings_llm_base_url">接口地址</string>
+    <!-- 本机页的两个一键入口：先用「使用 Moyuu」填地址，再点「获取模型列表」。 -->
+    <string name="settings_llm_use_moyuu">使用 Moyuu 默认地址（https://moyuu.cc/v1）</string>
+    <string name="settings_llm_fetch_models">获取模型列表</string>
+    <string name="settings_llm_models_no_key">先填写接口密钥，再获取模型列表</string>
+    <string name="settings_llm_models_loading">正在获取模型列表…</string>
+    <string name="settings_llm_models_failed">获取失败：%1$s</string>
+    <string name="settings_llm_models_empty">接口没有返回任何模型</string>
+    <string name="settings_llm_models_count">共 %1$d 个模型，点选一个填入</string>
     <string name="settings_llm_thinking">深度思考</string>
     <string name="common_on">开</string>
     <string name="common_off">关</string>
@@ -194,10 +202,27 @@
     <string name="settings_notify_chat">聊天类</string>
     <string name="settings_notify_all">全部</string>
     <string name="settings_notify_note">来消息的时候，它先自己看一眼值不值当：没事的就放过，要紧的说一声，该办的直接去办。「聊天类」是微信、QQ、钉钉、飞书、短信这些有人在那头的；「全部」连其它 App 也一起看（进度条、常驻通知除外）。拿不准的才弹牌子问你。关掉就谁也不打扰你 —— 消息都还在，想知道的时候问它一声就行。</string>
+    <string name="settings_notify_analysis">通知分析（调用模型判断）</string>
+    <string name="settings_notify_analysis_note">关掉后通知只记录、不分析：不再调用模型，因此不消耗 token；最近的通知仍可通过「通知」工具查到。保存后生效。</string>
     <string name="settings_section_typing">打字</string>
     <string name="settings_typing_no_ime">这台设备上只有 ADBKeyboard（它没有键盘界面），所以现在打不了字。去系统设置里启用一个输入法，这里就会出现。</string>
     <string name="settings_typing_current">你现在的输入法</string>
     <string name="settings_typing_note">平时就是你自己的输入法 —— 任何 App 里都能正常打字。我替你打字时会临时切到 ADBKeyboard（它没有键盘界面，只能这么用），打完立刻切回来。</string>
+    <string name="settings_section_virtual_screen">屏幕与后台</string>
+    <string name="settings_virtual_screen_on">优先虚拟屏操作：开</string>
+    <string name="settings_virtual_screen_off">优先虚拟屏操作：关</string>
+    <string name="settings_virtual_screen_note">开启后，我在动别人的 App 之前会先开一块看不见的副屏，在里面操作，你手上这块屏照常用，互不打断。这需要 Shizuku：它把电脑上 adb 的那点权限借给我，装一次、授权一次，每次重启要再启动一次（有线无线都行，root 的话不用管）。副屏上的每一步仍然记在回溯里，我做了什么你随时能翻。金融、支付、游戏、抢购这几类 App 我不在副屏里碰 —— 那类风控盯的就是这个，硬闯是拿你的账号换功能。</string>
+    <string name="settings_shizuku_label">Shizuku</string>
+    <string name="settings_shizuku_state_unknown">还没查。点「重新检测」问一次。</string>
+    <string name="settings_shizuku_state_missing">没装。副屏要它借权限，装上再回来。</string>
+    <string name="settings_shizuku_state_stopped">装了，但服务没在跑 —— 重启之后都是这样，得再启动一次。</string>
+    <string name="settings_shizuku_state_denied">服务在跑，但没给我授权。点「去授权」，在它的弹窗里允许。</string>
+    <string name="settings_shizuku_state_ready">在跑，也授权了。副屏可以用。</string>
+    <string name="settings_shizuku_action_install">去安装</string>
+    <string name="settings_shizuku_action_open">打开 Shizuku</string>
+    <string name="settings_shizuku_action_grant">去授权</string>
+    <string name="settings_shizuku_action_recheck">重新检测</string>
+    <string name="settings_shizuku_open_failed">打不开：可能没装，或者被系统拦了。</string>
     <string name="common_show">显示</string>
     <string name="common_hide">隐藏</string>
 
@@ -618,6 +643,7 @@
     <string name="check_title_voice_host">语音服务可达</string>
     <string name="check_title_wake">唤醒词</string>
     <string name="check_title_battery">后台运行</string>
+    <string name="check_title_shizuku">副屏（Shizuku）</string>
     <string name="check_title_auto_start">自启动</string>
     <string name="check_title_disk">存储空间</string>
 
@@ -671,6 +697,12 @@
     <string name="check_detail_wake_on">已录入，喊一声就醒。</string>
     <string name="check_detail_wake_off">还没录。自己选个词（例如「嘿 Andee」）录 3 遍就能喊醒。不录也能用，只是得点球。</string>
     <string name="check_detail_battery_on">已在白名单，待办闹钟不会被推迟。</string>
+    <string name="check_detail_shizuku_idle">没开启「优先虚拟屏操作」，这条只是备注：现在所有操作都在你眼前这块屏上做。</string>
+    <string name="check_detail_shizuku_ready">Shizuku 在跑，也授权了。可以把 App 放到副屏里去操作，你继续用手机。</string>
+    <string name="check_detail_shizuku_missing">开了「优先虚拟屏操作」，但没有 Shizuku —— 副屏借不到那点权限，所以还是只能占你的屏。装上再回来。</string>
+    <string name="check_detail_shizuku_stopped">Shizuku 装了，服务没起（重启之后都是这样）。开无线调试后跑一次下面这条，或者用 root 让它常驻。</string>
+    <string name="check_detail_shizuku_denied">Shizuku 在跑，但没授权给 Andee。在它的应用里允许一次；⚙ 的「屏幕与后台」那一节也有「去授权」。</string>
+    <string name="check_detail_shizuku_unknown">还没查过 Shizuku 的状态。打开 ⚙ → 高级 → 屏幕与后台，那里会检测。</string>
     <string name="check_detail_battery_off">不在电池优化白名单里。点右边「去开启」，系统会问「是否忽略电池优化？」，选「忽略」就好。\n厂商自己的「应用启动管理 / 后台运行」是另一套，在那里怎么改这项都是红的。息屏后待办提醒会晚到，唤醒词也会停。</string>
     <string name="check_detail_auto_start_on">已允许。进程被系统杀掉后能自己拉回来。</string>
     <string name="check_detail_auto_start_off">没开。小米的省电策略会定时杀掉后台进程，没开自启动就拉不回来，表现就是「用一会儿自己关掉」。点右边去开启。</string>
@@ -718,6 +750,10 @@
     <string name="settings_theme_note">浅色是白底深字，深色是深底浅字。点一下立刻换，卡片、页面、气泡和小球周围一起变。</string>
     <string name="settings_theme_day">浅色</string>
     <string name="settings_theme_night">深色</string>
+
+    <!-- 桌面：那颗悬浮球要不要出现在屏幕上。关掉的只是可见性，不是助手 —— 见 SettingsUi.desktopSection -->
+    <string name="settings_section_desktop">桌面</string>
+    <string name="settings_ball_show_note">关掉后屏幕上不再出现悬浮球，旁边的小标签和卡片也一起消失；助手仍在后台运行（语音、提醒、通知分诊都不停）。要打开它的时候点桌面图标：卡片会展开，收起时又消失。保存后生效。</string>
 
     <string name="settings_section_expr">形象与表情</string>
     <string name="settings_expr_note">看看每个形象和每个表情，点一下就换。</string>

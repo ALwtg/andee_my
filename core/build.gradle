@@ -17,7 +17,14 @@ kotlin {
 }
 
 compileKotlin {
-    kotlinOptions { jvmTarget = '1.8' }
+    kotlinOptions {
+        jvmTarget = '1.8'
+        // Same reason as in app/build.gradle: R8 from AGP 8.3.1 reads Kotlin
+        // metadata only up to 2.0.0 and the plugin here is 2.1.21. core is the
+        // module whose jar R8 actually chokes on first, so the flag has to be
+        // here too.
+        freeCompilerArgs += ['-Xmetadata-version=2.0.0']
+    }
 }
 compileTestKotlin {
     kotlinOptions { jvmTarget = '1.8' }

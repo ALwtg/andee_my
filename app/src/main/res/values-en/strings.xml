@@ -86,6 +86,13 @@
     <string name="settings_llm_api_key">API key</string>
     <string name="settings_llm_model">Model</string>
     <string name="settings_llm_base_url">Base URL</string>
+    <string name="settings_llm_use_moyuu">Use the Moyuu default (https://moyuu.cc/v1)</string>
+    <string name="settings_llm_fetch_models">Fetch model list</string>
+    <string name="settings_llm_models_no_key">Enter an API key first, then fetch the model list</string>
+    <string name="settings_llm_models_loading">Fetching the model list…</string>
+    <string name="settings_llm_models_failed">Could not fetch models: %1$s</string>
+    <string name="settings_llm_models_empty">The endpoint returned no models</string>
+    <string name="settings_llm_models_count">%1$d models — tap one to fill it in</string>
     <string name="settings_llm_thinking">Deep thinking</string>
     <string name="common_on">On</string>
     <string name="common_off">Off</string>
@@ -217,10 +224,27 @@
     <string name="settings_notify_chat">Chat apps</string>
     <string name="settings_notify_all">Everything</string>
     <string name="settings_notify_note">When a message arrives it decides for itself whether it is worth your attention: lets the noise go, says the useful part out loud, handles what needs handling. \"Chat apps\" means the ones with a person on the other end — WeChat, QQ, DingTalk, Lark, SMS. \"Everything\" watches the rest too, minus progress bars and permanent notifications. It only puts a card up when it cannot decide. Off means nothing interrupts you — the messages are all still there, and you can ask about them whenever.</string>
+    <string name="settings_notify_analysis">Analyse notifications (model call)</string>
+    <string name="settings_notify_analysis_note">Off records notifications but never analyses them — no model call, so no tokens. Recent ones stay queryable through the notifications tool. Takes effect after Save.</string>
     <string name="settings_section_typing">Typing</string>
     <string name="settings_typing_no_ime">ADBKeyboard is the only keyboard on this device and it has no keyboard UI, so nothing can be typed right now. Enable one in system settings and it will show up here.</string>
     <string name="settings_typing_current">Your keyboard</string>
     <string name="settings_typing_note">Normally it is your own keyboard, and you can type in any app. While I am typing something for you it switches to ADBKeyboard (which has no keyboard UI — that is the only way it works), and switches straight back.</string>
+    <string name="settings_section_virtual_screen">Screen &amp; background</string>
+    <string name="settings_virtual_screen_on">Prefer a virtual screen: on</string>
+    <string name="settings_virtual_screen_off">Prefer a virtual screen: off</string>
+    <string name="settings_virtual_screen_note">With this on, I open an invisible second screen before touching another app and work in there — the screen in your hands stays yours, and neither of us interrupts the other. It needs Shizuku: that app lends me the bit of permission adb has on a computer. Install once, authorise once, and start it again after each reboot (USB or wireless; root keeps it alive). Every step on that screen still lands in the scrollback, so what I did stays readable. I do not touch finance, payment, game or flash-sale apps on a virtual screen — that is exactly what their risk engines look for, and forcing it trades your account for a feature.</string>
+    <string name="settings_shizuku_label">Shizuku</string>
+    <string name="settings_shizuku_state_unknown">Not checked yet. Tap Check again.</string>
+    <string name="settings_shizuku_state_missing">Not installed. The second screen borrows its permission from Shizuku — install it and come back.</string>
+    <string name="settings_shizuku_state_stopped">Installed, but the server is not running — that is what a reboot looks like. Start it once more.</string>
+    <string name="settings_shizuku_state_denied">The server is running but has not authorised me. Tap Grant, then allow it in the dialog.</string>
+    <string name="settings_shizuku_state_ready">Running and authorised. The second screen is available.</string>
+    <string name="settings_shizuku_action_install">Install</string>
+    <string name="settings_shizuku_action_open">Open Shizuku</string>
+    <string name="settings_shizuku_action_grant">Grant</string>
+    <string name="settings_shizuku_action_recheck">Check again</string>
+    <string name="settings_shizuku_open_failed">Could not open it — probably not installed, or the system blocked it.</string>
     <string name="common_show">Show</string>
     <string name="common_hide">Hide</string>
 
@@ -533,6 +557,7 @@
     <string name="check_title_voice_host">Voice service</string>
     <string name="check_title_wake">Wake phrase</string>
     <string name="check_title_battery">Background running</string>
+    <string name="check_title_shizuku">Second screen (Shizuku)</string>
     <string name="check_title_auto_start">Auto-start</string>
     <string name="check_title_disk">Storage</string>
 
@@ -587,6 +612,12 @@
     <string name="check_detail_wake_on">Taught, and it wakes when you say it.</string>
     <string name="check_detail_wake_off">Not taught yet. Pick a phrase (e.g. “Hey Andee”) and say it 3 times to wake me by voice. Everything still works without it, you just tap the ball to talk.</string>
     <string name="check_detail_battery_on">Exempt, so pending reminders are not delayed.</string>
+    <string name="check_detail_shizuku_idle">“Prefer a virtual screen” is off, so this is only a note: everything happens on the screen in front of you.</string>
+    <string name="check_detail_shizuku_ready">Shizuku is running and authorised. Apps can be driven on the second screen while you keep using the phone.</string>
+    <string name="check_detail_shizuku_missing">The preference is on but Shizuku is not installed — without it the second screen cannot borrow the permission, so I still have to take your screen. Install it and come back.</string>
+    <string name="check_detail_shizuku_stopped">Shizuku is installed but its server is not running (normal after a reboot). With wireless debugging on, run the command below once, or let root keep it alive.</string>
+    <string name="check_detail_shizuku_denied">Shizuku is running but has not authorised Andee. Allow it in the Shizuku app; ⚙ → Advanced → Screen &amp; background has a Grant button too.</string>
+    <string name="check_detail_shizuku_unknown">Shizuku’s state has not been checked yet. Open ⚙ → Advanced → Screen &amp; background, where it is detected.</string>
     <string name="check_detail_battery_off">Not exempt from battery optimisation. Tap “Open settings” — the system asks “Ignore battery optimisations?”; take the button that ignores them.\nThe vendor’s own “App launch / background running” controls are a separate system; changing them leaves this row red. With the screen off a pending reminder may arrive late, and the wake phrase stops listening.</string>
     <string name="check_detail_auto_start_on">Allowed. The process can bring itself back after the system kills it.</string>
     <string name="check_detail_auto_start_off">Off. Xiaomi’s power policy reaps background processes on a timer, and without auto-start the assistant cannot come back after that — it looks like it just closes by itself. Tap to enable.</string>
@@ -637,6 +668,11 @@
     <string name="settings_theme_note">Light is a white card with dark text; dark is a dark card with light text. It switches at once — card, pages, bubbles and everything around the ball together.</string>
     <string name="settings_theme_day">Light</string>
     <string name="settings_theme_night">Dark</string>
+
+    <!-- Desktop: whether the floating ball is on screen at all. Off hides it, not the
+         assistant — see SettingsUi.desktopSection. -->
+    <string name="settings_section_desktop">Desktop</string>
+    <string name="settings_ball_show_note">Off takes the floating ball off the screen, and its chips and cards with it; the assistant keeps running in the background (voice, reminders and notification triage all continue). To open it, tap the app icon: the card comes up, and disappears again when it folds. Takes effect after Save.</string>
 
     <string name="settings_section_expr">Looks &amp; expressions</string>
     <string name="settings_expr_note">See every character and every expression; tap one to switch.</string>

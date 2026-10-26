@@ -46,6 +46,12 @@
          failure blamed on the app being driven. -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
+    <!-- Shizuku's client permission. Declared, not granted at install: the user
+         grants it in Shizuku's own dialog (see device/ShizukuStatus). It is what
+         「优先虚拟屏操作」 borrows the shell's permissions through, and without it
+         there is no background display — the row in ⚙ says which of the four
+         states the device is in. -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <!-- The eye: -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
@@ -141,6 +147,26 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!--
+             Shizuku's relay, and the reason it is declared here rather than left
+             to the library's own merged manifest: it is the one component of
+             ours that a *different* process (Shizuku's server, running as shell)
+             talks to, and the authority is derived from the application id, so a
+             renamed build must carry the renamed entry. `api` on its own gives a
+             process with no way to reach the binder; this provider is the way.
+
+             INTERACT_ACROSS_USERS_FULL is a signature permission we do not hold
+             and never request — it is on the provider so that only the system can
+             talk to it. See device/ShizukuStatus.
+        -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <!--
              The body: the ball, the card, the microphone, the brain socket,

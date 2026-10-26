@@ -29,9 +29,10 @@ import net.kuafuai.andee.config.BrainConfig
 private fun st(key: String, vararg a: Any): String = Strings.get("s_$key").let { if (a.isEmpty()) it else String.format(Strings.locale(), it, *a) }
 
 /**
- * The settings card, laid out as the phone's: 后端 (with the voice provider inside it), 外观, 小本本,
+ * The settings card, laid out as the phone's: 后端 (with the voice provider inside it), 外观, 桌面, 小本本,
  * 消息提醒, 保险箱, 单次任务最多步数, and a 高级 fold carrying 显示云端选项, 诊断 and the destructive
- * buttons. Wording comes from the phone's string resources, so a label cannot drift from its twin.
+ * buttons. Wording comes from the phone's string resources, so a label cannot drift from its twin. 桌面
+ * is the one section the phone has no twin for: a Mac has a ball on the desktop that can be switched off.
  *
  * What differs is only what the Mac is: a 命令行 and SSH keys section (the Mac has a shell), no wake
  * word, no typing-IME row (neither exists here), and no 形象与表情 / 自检 doors, which the sidebar
@@ -155,6 +156,19 @@ fun SettingsScreen(
             if (Palette.night) "night" else "day",
         ) { Palette.setNight(it == "night") }
 
+        // ---- 桌面: the floating ball itself. Saved like any field, so it is decided on 保存 ----
+        SectionTitle(t("桌面", "Desktop"))
+        RowLabel(t("显示桌面悬浮球", "Show the floating ball"))
+        SegmentedPicker(listOf("on" to st("common_on"), "off" to st("common_off")), v["ball_show"].orEmpty().ifEmpty { "on" }) { v["ball_show"] = it }
+        Note(
+            t(
+                "关掉后桌面上不再出现悬浮球，旁边的字幕和审批/提问卡片也一并隐藏；有审批或提问时会发一条系统通知。" +
+                    "审批卡片只能出现在悬浮球旁边，需要确认时请在设置里重新打开它（命令等待两分钟，之后按拒绝处理）。保存后生效。",
+                "Off: the floating ball, its caption and the approval/question cards are all gone; an approval or a question arrives as a system notification. " +
+                    "Those cards only exist beside the ball, so turn it back on here when you need to answer (a command waits two minutes, then counts as a refusal). Takes effect after Save.",
+            ),
+        )
+
         // ---- 形象与表情: a door, like the phone's — the card is where looks are tried and picked ----
         SectionTitle(st("settings_section_expr"))
         Note(st("settings_expr_note"))
@@ -191,6 +205,19 @@ fun SettingsScreen(
             v["notify"].orEmpty().ifEmpty { "off" },
         ) { v["notify"] = it }
         Note(st("settings_notify_note"))
+        // The callback that turns a notification into a model call. Off keeps the reading and recording —
+        // the ring buffer `device.notifications` reads — and drops every request that would cost tokens.
+        RowLabel(t("通知分析（调用模型判断）", "Analyse notifications (model call)"))
+        SegmentedPicker(
+            listOf("on" to st("common_on"), "off" to st("common_off")),
+            v["notify_triage"].orEmpty().ifEmpty { "on" },
+        ) { v["notify_triage"] = it }
+        Note(
+            t(
+                "关闭后通知只记录、不做任何分析：不再调用模型，因此不消耗 token；最近的通知仍可通过 device.notifications 查到。保存后生效。",
+                "Off: notifications are recorded but never analysed — no model call, so no tokens. Recent ones stay queryable through device.notifications. Takes effect after Save.",
+            ),
+        )
         if (net.kuafuai.andee.desktop.mac.MacNotifications.state == net.kuafuai.andee.desktop.mac.MacNotifications.State.NO_ACCESS) {
             Text(
                 t("读不到通知：在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 里加上 Andee。",
@@ -277,6 +304,8 @@ fun SettingsScreen(
             SecondaryButton(st("common_cancel"), Modifier.weight(1f)) { onDone() }
             PrimaryButton(st("common_save"), Modifier.weight(1f)) {
                 Settings.save(v.toMap())
+                // The ball is a window of its own: take it away (or bring it back) now, not at the next start.
+                BallWindow.reload()
                 v["ball"]?.let { MacBall.pickLook(it) }
                 Thread { Assistant.ensure() }.start()
                 onDone()
@@ -350,6 +379,8 @@ private fun factoryReset() {
     runCatching { net.kuafuai.andee.desktop.shell.AndeeAgent.keys().forEach { net.kuafuai.andee.desktop.shell.AndeeAgent.delete(it.name) } }
     runCatching { AppDirs.file("shell_always_allow.json").delete() }
     runCatching { AppDirs.file("settings.properties").delete() }
+    // No file means defaults: the ball comes back, like everything else, without waiting for a restart.
+    runCatching { BallWindow.reload() }
     Strings.changed()
 }
 

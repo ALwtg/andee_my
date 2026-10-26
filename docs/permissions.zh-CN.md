@@ -55,6 +55,7 @@
 | 开机自启<br>`RECEIVE_BOOT_COMPLETED` | 重启后待办还在 | 重建 `AlarmManager` 闹钟 | 重启后待办不再提醒 |
 | 电池优化豁免<br>`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | 到点提醒准时 | 待办定时 | 息屏状态下提醒会迟到 |
 | 改系统设置<br>`WRITE_SECURE_SETTINGS` | 换输入法（备用打字通道用） | ADBKeyboard 兜底通道的前置步骤 | Android 13 及以上没影响 —— 打字走的是无障碍输入法。Android 12 及以下则 **`type_text` 直接失败**，并明确告诉你失败原因，不会假装成功 |
+| 副屏（Shizuku）<br>`moe.shizuku.manager.permission.API_V23` | 优先虚拟屏操作（装了 Shizuku 才有） | 在副屏里操作别的 App，你手上这块屏照常用 | 不用装的也有 —— 关掉就是原来那样：所有操作都占你眼前这块屏。⚙ → 高级 → 屏幕与后台 会写明是「没装」「装了没起」还是「起了没授权」 |
 | Wi-Fi 状态、组播<br>`ACCESS_WIFI_STATE`<br>`CHANGE_WIFI_MULTICAST_STATE` | 在同一个 Wi-Fi 里找到朋友的 Andee（mDNS） | `list_friends` / `ask_friend` | 普通权限，安装即授予。加朋友或打开「允许其它设备找到我」之前，什么都不监听、不广播 |
 
 > **Android 13 及以上不需要这条。** 应用用自己无障碍服务的输入连接打字：不用装键盘、不用切默认输入法，你自己的键盘全程照用。
@@ -66,6 +67,12 @@
 > ```
 >
 > 这是系统限制，不是应用的选择。Android 12 及以下打字靠它；以上版本它只给兜底通道用 —— 碰上正常通道进不去的输入框才会走到。
+
+> **副屏那条（Shizuku）在总表里是唯一可选的一项，而且不是 Android 权限。** 它借的是 shell 的
+> `CAPTURE_VIDEO_OUTPUT`、`INJECT_EVENTS`，以及在非默认显示屏上启动第三方 Activity 的权利 ——
+> 这三样 `pm grant` 都给不了。装了 Shizuku 并在里面授权，才能把 App 放到一块看不见的副屏上操作；
+> 不装就完全退回原来的行为，一行代码都不会绕开你的屏幕。金融、支付、游戏、抢购这几类，
+> 后台回合里**直接拒绝**，理由见 [acceptable-use.zh-CN.md](acceptable-use.zh-CN.md) 第（四）条。
 
 ---
 
