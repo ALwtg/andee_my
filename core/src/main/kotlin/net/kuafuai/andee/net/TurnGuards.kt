@@ -26,6 +26,9 @@ object TurnGuards {
     /** The user's own choice of which kinds of app the model is told about. Only a live, trusted turn may move it. */
     private const val GEAR_VISIBILITY = "gear.visibility"
 
+    /** Every method that acts on a screen the user is not looking at. */
+    private const val BACKGROUND = "screen.background"
+
     /**
      * @param silent the turn is the quiet-hour sweep (or a harvest): the brain
      *   is reviewing a finished conversation by itself, with nobody watching.
@@ -33,7 +36,32 @@ object TurnGuards {
      *   this device — a notification, a todo that was set on such a turn, or a
      *   request from a friend's Andee.
      */
-    fun check(method: String, silent: Boolean, untrusted: Boolean) {
+    fun check(method: String, silent: Boolean, untrusted: Boolean) =
+        check(method, silent, untrusted, null, SurfacePolicy.Rules())
+
+    /**
+     * The same rules, plus the ones that need to know **which app** a background
+     * call is about.
+     *
+     * Those two facts only exist on the device (the package a screen was opened
+     * on, and the lists the user typed), so they arrive as arguments rather than
+     * being read here — this module has no Android in it and the desktop body
+     * runs the same class.
+     *
+     * @param targetPkg the package a `screen.background*` call acts on, or null
+     *   when the call is about the surface itself (status, close). Null is not
+     *   "everything is allowed": it is "the question does not arise", and the
+     *   only methods that legitimately pass it are the ones that name no app.
+     * @param policy the user's lists plus the shipped category defaults — see
+     *   [SurfacePolicy].
+     */
+    fun check(
+        method: String,
+        silent: Boolean,
+        untrusted: Boolean,
+        targetPkg: String?,
+        policy: SurfacePolicy.Rules,
+    ) {
         // The quiet-hour sweep may think and write to the notebook, but must not
         // touch the device.
         if (silent && !method.startsWith("note.") && method !in GEAR_SILENT_OK) {
@@ -78,6 +106,29 @@ object TurnGuards {
                     "created, entered or deleted from it: $method. If it seems worth doing, ask the " +
                     "user next time they talk to you.",
             )
+        }
+        // A screen nobody is looking at, driven by words a stranger wrote, is the
+        // one combination with no witness at all. Everything else in this file
+        // limits *what* an untrusted turn may buy; this limits *where it may
+        // stand* while spending it, and there is no prompt wording that would
+        // make an invisible session auditable after the fact.
+        if (untrusted && method.startsWith(BACKGROUND)) {
+            throw IllegalStateException(
+                "This turn started from somebody else's words (a notification, or a friend's Andee), so it cannot use " +
+                    "the background screen: $method. Whatever happens there happens where the user cannot see " +
+                    "it. Ask them to watch, or do it on the screen in front of them.",
+            )
+        }
+        // The user's lists and the shipped categories. A refusal names the rule
+        // that fired, because "no" without a reason is what teaches a model to
+        // try again a different way.
+        if (method.startsWith(BACKGROUND)) {
+            val verdict = SurfacePolicy.verdict(targetPkg, policy)
+            if (!verdict.allowed) {
+                throw IllegalStateException(
+                    "The background screen is closed for this app: ${verdict.reason}",
+                )
+            }
         }
     }
 }

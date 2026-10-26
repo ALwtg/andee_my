@@ -68,4 +68,38 @@ class TurnGuardsTest {
         assertEquals(true, refused("peer.ask", untrusted = true).contains("cannot hand work"))
         refused("peer.ask", silent = true)
     }
+
+    @Test
+    fun `the background screen obeys the user's lists`() {
+        val rules = SurfacePolicy.Rules(
+            blocked = listOf("com.example.locked"),
+            allowed = listOf("com.example.trusted"),
+        )
+        TurnGuards.check("screen.background", false, false, "com.example.trusted", rules)
+        // A category default still bites when the user has said nothing.
+        try {
+            TurnGuards.check("screen.background", false, false, "com.eg.android.alipaygphone", rules)
+            fail("a payment app should be refused on the background screen")
+        } catch (e: IllegalStateException) {
+            assertEquals(true, e.message.orEmpty().contains("payment"))
+        }
+        try {
+            TurnGuards.check("screen.background", false, false, "com.example.locked", rules)
+            fail("a blacklisted app should be refused")
+        } catch (e: IllegalStateException) {
+            assertEquals(true, e.message.orEmpty().contains("blacklist"))
+        }
+    }
+
+    @Test
+    fun `an untrusted turn cannot open a background screen at all`() {
+        val rules = SurfacePolicy.Rules(categories = emptySet())
+        TurnGuards.check("screen.background", false, false, "com.tencent.mm", rules)
+        try {
+            TurnGuards.check("screen.background", false, true, "com.tencent.mm", rules)
+            fail("a hidden screen must not be opened from a stranger's words")
+        } catch (e: IllegalStateException) {
+            assertEquals(true, e.message.orEmpty().contains("cannot use the background screen"))
+        }
+    }
 }

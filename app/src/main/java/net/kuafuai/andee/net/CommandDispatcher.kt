@@ -205,6 +205,32 @@ class CommandDispatcher(
         screenOrNull() ?: throw IllegalStateException(SCREEN_UNAVAILABLE)
 
     /**
+     * The hidden screen that is up, or a sentence saying there is not one.
+     *
+     * Its own accessor rather than a nullable parameter on each branch: every
+     * `screen.background_*` call is meaningless without one, and "the tap
+     * silently went to the display in front of the user" is the exact mistake
+     * the separate namespace exists to prevent.
+     */
+    /**
+     * The app a background call is about, for [TurnGuards].
+     *
+     * The package being opened, or — for a call that operates on the screen
+     * that is already up — the package that screen is showing. Both are facts the
+     * device owns; neither is taken from the model's word alone, because "the
+     * screen I am standing on" is exactly what a bad tool call would lie about.
+     */
+    private fun backgroundTarget(params: JSONObject?): String? =
+        params?.optString("pkg")?.trim()?.ifEmpty { null }
+            ?: net.kuafuai.andee.screen.VirtualScreens.state()?.pkg
+
+    private fun backgroundScreen(): net.kuafuai.andee.screen.VirtualScreens.VirtualScreen =
+        net.kuafuai.andee.screen.VirtualScreens.state()
+            ?: throw IllegalStateException(
+                "no background screen is running — open one with open_background_screen first",
+            )
+
+    /**
      * Whether the keyguard is up right now.
      *
      * A call rather than a field because the answer changes without anything
@@ -316,7 +342,20 @@ class CommandDispatcher(
         // Where the turn came from decides what it may call — see [TurnGuards].
         // Checked before the fold below, so a refused call cannot so much as
         // move the card.
-        TurnGuards.check(method, silent, untrusted)
+        //
+        // The two extra arguments only matter for `screen.background*`, which
+        // needs to know *which app* the call is about and what the user has
+        // allowed there. They are resolved for every call rather than behind an
+        // `if (method.startsWith("screen.background"))`: a guard that is only
+        // wired up on the path someone remembered is how a rule ends up applied
+        // to one caller and not the other.
+        TurnGuards.check(
+            method,
+            silent,
+            untrusted,
+            targetPkg = backgroundTarget(params),
+            policy = net.kuafuai.andee.config.VoiceConfig.surfacePolicy(appContext),
+        )
         // The lock screen is a wall around the screen, and unlike every other
         // wall in this file it is one that fails *silently*. A gesture aimed at
         // a locked device is dropped by the input pipeline — `dispatchGesture`
@@ -1295,6 +1334,162 @@ class CommandDispatcher(
                 val action = params?.optString("action").orEmpty()
                 require(action.isNotEmpty()) { "screen.global requires string action" }
                 requireScreen().globalAction(action)
+            }
+
+            // ---- screen.background.* : the screen nobody is looking at ------
+            //
+            // A namespace of its own, not a parameter on `screen.*`. Every other
+            // screen method reads or moves the display in front of the user, and
+            // the whole point of these is that they do not — folding them
+            // together would leave "which screen did that tap land on" to be
+            // inferred from context, and a tap on the wrong app is not a bug this
+            // project can afford to make easy.
+            "screen.background" -> {
+                val pkg = requireNotNull(params?.optString("pkg")?.trim()?.ifEmpty { null }) {
+                    "screen.background requires pkg — the app to drive there"
+                }
+                val label = params?.optString("label")?.trim()?.ifEmpty { null } ?: pkg
+                // Checked again here even though TurnGuards checked it: a tool can
+                // arrive over the hub, and the guard is the caller's promise about
+                // the turn, not the door's own lock.
+                val verdict = net.kuafuai.andee.net.SurfacePolicy.verdict(
+                    pkg,
+                    net.kuafuai.andee.config.VoiceConfig.surfacePolicy(appContext),
+                )
+                require(verdict.allowed) { "background screen refused: ${verdict.reason}" }
+                val screen = net.kuafuai.andee.screen.VirtualScreens
+                    .start(appContext, pkg, label)
+                    .getOrElse { throw IllegalStateException(it.message ?: "background screen failed") }
+                JSONObject()
+                    .put("display_id", screen.displayId)
+                    .put("pkg", screen.pkg)
+                    .put("label", screen.label)
+                    .put(
+                        "size",
+                        "${net.kuafuai.andee.screen.VirtualScreens.WIDTH}x" +
+                            "${net.kuafuai.andee.screen.VirtualScreens.HEIGHT}",
+                    )
+                    .put(
+                        "note",
+                        "The app is running on a second screen the user cannot see. Use " +
+                            "background_screenshot and background_tap for it; screen.* still drives " +
+                            "the display in front of them.",
+                    )
+            }
+
+            "screen.background_close" -> JSONObject().put(
+                "closed",
+                net.kuafuai.andee.screen.VirtualScreens.closeAll(appContext),
+            )
+
+            "screen.background_tap" -> {
+                val s = backgroundScreen()
+                // Either a grid cell (the screenshot carries the same 8x12 grid
+                // the foreground draws) or a raw 0-1000 point. Not both: a call
+                // that names a cell and a point would leave which one wins to be
+                // guessed, and a guess here is a tap somewhere unintended.
+                val cell = params?.optString("cell")?.trim()?.ifEmpty { null }
+                val point = cell?.let {
+                    requireNotNull(
+                        net.kuafuai.andee.screen.VirtualScreens
+                            .aimCell(it, params.optString("part")?.ifBlank { null }),
+                    ) { "cell '$it' is not on the grid — columns A-H, rows 1-12" }
+                } ?: (
+                    (params?.optInt("x", Int.MIN_VALUE) ?: Int.MIN_VALUE) to
+                        (params?.optInt("y", Int.MIN_VALUE) ?: Int.MIN_VALUE)
+                    )
+                val (x, y) = point
+                JSONObject()
+                    .put("tapped", net.kuafuai.andee.screen.VirtualScreens.tapNorm(s.displayId, x, y))
+                    .put("x", x)
+                    .put("y", y)
+                    .apply { if (cell != null) put("cell", cell) }
+                    .put("display_id", s.displayId)
+            }
+
+            "screen.background_type" -> {
+                val s = backgroundScreen()
+                val text = requireNotNull(params?.optString("text")?.ifEmpty { null }) {
+                    "screen.background_type requires text"
+                }
+                JSONObject()
+                    .put("typed", net.kuafuai.andee.screen.VirtualScreens.type(s.displayId, text))
+                    .put("display_id", s.displayId)
+            }
+
+            "screen.background_shot" -> {
+                val s = backgroundScreen()
+                val raw = requireNotNull(
+                    net.kuafuai.andee.screen.VirtualScreens.shotBytes(s.displayId),
+                ) { "the background screen answered with no frame" }
+                // The aim grid is drawn HERE, in the app. The helper cannot: text
+                // in its `app_process` aborted the process and took the display
+                // with it (see ScreenController.gridOverlay). Without accessibility
+                // there is nothing to draw with either, and the raw picture still
+                // goes out — a shot without a grid beats no shot.
+                val gridded = runCatching { requireScreen().gridOverlay(raw) }.getOrNull() ?: raw
+                val png = android.util.Base64.encodeToString(gridded, android.util.Base64.NO_WRAP)
+                JSONObject()
+                    .put("png_base64", png)
+                    .put("display_id", s.displayId)
+                    .put("pkg", s.pkg)
+                    .put("size", "${net.kuafuai.andee.screen.VirtualScreens.WIDTH}x" +
+                        "${net.kuafuai.andee.screen.VirtualScreens.HEIGHT}")
+                    .put(
+                        "aim_grid",
+                        "8x12, A1 top-left to H12 bottom-right: letters along the top edge, " +
+                            "numbers down the left, nothing inside a cell. Aim with " +
+                            "background_tap cell=\"D7\".",
+                    )
+                    // The element list rides along, exactly as the foreground
+                    // screenshot does: an image without the list is how a model
+                    // ends up measuring pixels off a downscaled PNG. On this
+                    // display the list *is* the aiming story — no grid, no eids.
+                    .also { out ->
+                        runCatching {
+                            val tree = requireScreen().dumpBackgroundTree(
+                                s.displayId,
+                                net.kuafuai.andee.screen.VirtualScreens.WIDTH,
+                                net.kuafuai.andee.screen.VirtualScreens.HEIGHT,
+                            )
+                            if (tree.optString("elements").isNotEmpty()) {
+                                out.put("elements", tree.optString("elements"))
+                                    .put("elements_pkg", tree.optString("pkg"))
+                                    .put("aim_hint", tree.optString("hint"))
+                            }
+                        }
+                    }
+            }
+
+            // Debug-port only, like `tts.speak`: no schema entry, so the model
+            // never sees it. It answers "which windows does accessibility actually
+            // know about", which is the one fact a multi-display bug turns on.
+            "screen.windows" -> requireScreen().windowsDigest()
+
+            "screen.background_tree" -> {
+                val s = backgroundScreen()
+                requireScreen().dumpBackgroundTree(
+                    s.displayId,
+                    net.kuafuai.andee.screen.VirtualScreens.WIDTH,
+                    net.kuafuai.andee.screen.VirtualScreens.HEIGHT,
+                )
+            }
+
+            "screen.background_open" -> {
+                val s = backgroundScreen()
+                val pkg = requireNotNull(params?.optString("pkg")?.trim()?.ifEmpty { null }) {
+                    "screen.background_open requires pkg"
+                }
+                val verdict = net.kuafuai.andee.net.SurfacePolicy.verdict(
+                    pkg,
+                    net.kuafuai.andee.config.VoiceConfig.surfacePolicy(appContext),
+                )
+                require(verdict.allowed) { "background screen refused: ${verdict.reason}" }
+                val ok = net.kuafuai.andee.screen.VirtualScreens.open(pkg)
+                JSONObject()
+                    .put("opened", ok)
+                    .put("pkg", pkg)
+                    .put("display_id", s.displayId)
             }
 
             // ---- note.* : the notebook -------------------------------------

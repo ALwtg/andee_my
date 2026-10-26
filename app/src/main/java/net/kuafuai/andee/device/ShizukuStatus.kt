@@ -97,6 +97,21 @@ object ShizukuStatus {
     fun cached(): Snapshot = last
 
     /**
+     * Whether the channel is up **right now** — a live binder call, for callers
+     * that are about to do work.
+     *
+     * [cached] is for painting, and painting is allowed to be stale. Gating work
+     * on it is not: measured on the device, the cache said `UNKNOWN` in a process
+     * that had just been restarted by an install while the channel was in fact
+     * ready, and every `screen.background` call would have been refused because
+     * of a probe nobody had taken. Two callers, two questions.
+     */
+    fun liveReady(): Boolean = runCatching {
+        Shizuku.pingBinder() &&
+            (Shizuku.isPreV11() || Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED)
+    }.getOrDefault(false)
+
+    /**
      * Probe behind the caller's back, then hand the fresh answer to [then].
      *
      * [then] runs **on the worker thread**: the caller owns the switch back to

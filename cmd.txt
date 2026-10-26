@@ -9,3 +9,8 @@ cd e:/vscode_workspace/aaaaa_andee_my/andee_my
 $env:JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-17.0.20.1+1'
 $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 .\gradlew.bat :app:assembleRelease --console=plain 2>&1 | Tee-Object -FilePath "$env:TEMP\build-release.log"
+
+#安装软件
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+& $adb -s 10CF580GJB002LL install -r -g --no-incremental `
+    .\app\build\outputs\apk\release\app-arm64-v8a-release.apk

@@ -261,6 +261,19 @@
             android:theme="@style/Theme.Body.Stage"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- Supervision for the background screen: the door in its ball opens
+             here, and it has to be a real window because watching is only half
+             of it — the other half is typing into the hidden screen, and an
+             overlay cannot raise the soft keyboard on this ROM (see
+             ui/TextInputActivity). Not exported: opened from our own ball and
+             from nowhere else. -->
+        <activity
+            android:name=".ui.VirtualScreenActivity"
+            android:theme="@style/Theme.Body.Stage"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
         <!-- The ⌨ field a person types into. An Activity and not an overlay
              because on this ROM an overlay window cannot raise the soft
              keyboard — measured; see ui/TextInputActivity. Translucent so the

@@ -78,6 +78,16 @@ class BodyCoreService : Service() {
     private var settings: SettingsUi? = null
 
     /**
+     * The **second** ball — the one that marks a background screen.
+     *
+     * Null until something is hidden, and not `lateinit` for that reason: a
+     * device that never opens a background screen must never pay for a window it
+     * does not need. Owned here because a `WindowManager` window belongs to the
+     * body; `screen/VirtualScreens` only says when to show it.
+     */
+    private var virtualBall: net.kuafuai.andee.ui.VirtualScreenBall? = null
+
+    /**
      * The self-check card, when it is up. Separate from [settings] because both
      * can be on screen at once — see [openSelfCheck].
      */
@@ -225,6 +235,13 @@ class BodyCoreService : Service() {
         // is built and guarded, because a change landing in that gap must not crash.
         net.kuafuai.andee.ui.Theme.onChanged = {
             ui.post { if (::window.isInitialized) window.onThemeChanged() }
+        }
+        // The hidden screen's ball. A screen that opens without one would be work
+        // happening where nobody can see it even a little, which is the one thing
+        // this feature must not do — so the hook is installed here, before any
+        // tool can open a screen, and the ball is created on demand.
+        net.kuafuai.andee.screen.VirtualScreens.onChanged = {
+            ui.post { syncVirtualScreenBall() }
         }
         window = FloatingWindowUi(this, object : FloatingWindowUi.Listeners {
             override fun onTalkClick() {
@@ -1656,10 +1673,45 @@ class BodyCoreService : Service() {
         screen?.noteEvent(event)
     }
 
+    /**
+     * Show or take down the background screen's ball, from whatever
+     * `screen/VirtualScreens` last reported. Main thread.
+     *
+     * Created on demand and never earlier: a device that has never opened a
+     * hidden screen should not be carrying a window for one. A tap opens
+     * supervision — watching and taking over is the same door, because the user
+     * who wants to intervene has usually already seen something go wrong.
+     */
+    private fun syncVirtualScreenBall() {
+        val screen = net.kuafuai.andee.screen.VirtualScreens.state()
+        if (screen == null) {
+            virtualBall?.hide()
+            return
+        }
+        val ball = virtualBall ?: net.kuafuai.andee.ui.VirtualScreenBall(this) {
+            net.kuafuai.andee.ui.VirtualScreenActivity.open(this)
+        }.also { virtualBall = it }
+        if (!ball.isShowing()) ball.show(screen.pkg, screen.label)
+    }
+
     override fun onDestroy() {
         exitRequested = true
         acceptBrainOutput = false
         expectFollowUp = false
+        // The hidden screen is the one piece of state this service owns that
+        // outlives it: a display with an app rendering into nothing, plus a ball
+        // with no service behind it. Both go now.
+        net.kuafuai.andee.screen.VirtualScreens.onChanged = null
+        virtualBall?.hide()
+        virtualBall = null
+        if (net.kuafuai.andee.screen.VirtualScreens.state() != null) {
+            // Off the main thread: clearing the platform setting is a shell round
+            // trip, and `onDestroy` is the one place with no budget to spend.
+            val app = applicationContext
+            Thread { net.kuafuai.andee.screen.VirtualScreens.closeAll(app) }
+                .apply { isDaemon = true }
+                .start()
+        }
         // First, before anything else: the dog is the only thing this service
         // drives that keeps acting after we are gone. Every motion is supposed
         // to end on its own, but "supposed to" is not a reason to leave motors
@@ -2547,6 +2599,18 @@ class BodyCoreService : Service() {
                 // path went unexercised; this runs the same code the alarm does.
                 onSweep = { ui.post { onSweepTimer() } },
                 onSweepForced = { ui.post { localBrain?.runSweep() } },
+                // The shell channel's own answer, for a laptop with adb forward.
+                // Runs on the WS dispatch pool, which is a worker — the channel
+                // check crosses a binder and spawns a process.
+                onShizukuProbe = { params ->
+                    net.kuafuai.andee.screen.DisplayProbeClient.channelReport(
+                        applicationContext,
+                        display = params?.optBoolean("display", false) == true,
+                        screen = params?.optBoolean("screen", false) == true,
+                        shot = params?.optBoolean("shot", false) == true,
+                        pkg = params?.optString("pkg")?.trim()?.ifEmpty { null },
+                    )
+                },
             )
             srv.start()
             wsServer = srv

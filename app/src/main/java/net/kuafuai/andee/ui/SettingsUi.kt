@@ -1585,11 +1585,157 @@ class SettingsUi(
         })
         panel.addView(row, rowParams(dp(10)))
 
+        // ---- the probe -------------------------------------------------------
+        //
+        // A different question from the row above, and the one this device
+        // currently answers "no" to: Shizuku being up says the channel works, not
+        // that the platform will give us a display with content of its own. Kept
+        // as a door rather than a live status because it costs a whole process and
+        // a few seconds, and because the answer depends on the ROM — not on
+        // anything the user does — so it should be re-askable on demand.
+        val probeBtn = button(lctx.getString(R.string.settings_vscreen_probe), filled = false) {}
+        val probeResult = TextView(context).apply {
+            textSize = Glass.Type.CAPTION
+            setTextColor(Color.parseColor(Glass.SECONDARY))
+            setLineSpacing(dp(3).toFloat(), 1f)
+        }
+        panel.addView(probeBtn, rowParams(dp(12)))
+        panel.addView(probeResult, rowParams(dp(6)))
+        probeBtn.setOnClickListener {
+            probeBtn.isEnabled = false
+            probeResult.text = lctx.getString(R.string.settings_vscreen_probe_running)
+            Thread {
+                val outcome = net.kuafuai.andee.screen.DisplayProbeClient.run(context)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    if (probeResult.parent == null) return@post
+                    probeBtn.isEnabled = true
+                    probeResult.text = describeProbe(outcome)
+                }
+            }.apply { isDaemon = true }.start()
+        }
+
+        // ---- what is running right now --------------------------------------
+        //
+        // The user asked for a way to see this without hunting through the
+        // device, and it is also the answer to "why is my phone warm": a screen
+        // nobody closed. Both facts come from one read of
+        // [net.kuafuai.andee.screen.VirtualScreens.state], so the row and its
+        // button can never disagree about whether something is up.
+        rowLabel(panel, lctx.getString(R.string.settings_vscreen_running))
+        val running = TextView(context).apply {
+            textSize = Glass.Type.BODY
+            setTextColor(Color.parseColor(Glass.SECONDARY))
+        }
+        panel.addView(running, rowParams(dp(4)))
+
+        val closeAllBtn = button(lctx.getString(R.string.settings_vscreen_close_all), filled = false) {}
+        fun paintRunning() {
+            val screen = net.kuafuai.andee.screen.VirtualScreens.state()
+            running.text = if (screen == null) {
+                lctx.getString(R.string.settings_vscreen_none)
+            } else {
+                lctx.getString(R.string.settings_vscreen_one, screen.label, screen.displayId)
+            }
+            closeAllBtn.visibility = if (screen == null) View.GONE else View.VISIBLE
+        }
+        closeAllBtn.setOnClickListener {
+            closeAllBtn.isEnabled = false
+            Thread {
+                net.kuafuai.andee.screen.VirtualScreens.closeAll(context)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    if (running.parent == null) return@post
+                    closeAllBtn.isEnabled = true
+                    paintRunning()
+                }
+            }.apply { isDaemon = true }.start()
+        }
+        paintRunning()
+        panel.addView(closeAllBtn, rowParams(dp(12)))
+
+        // ---- the ball ------------------------------------------------------
+        //
+        // Size only. Position, edge and fading are the ball's own business (it
+        // parks itself and gets out of the way), and a row of knobs for a status
+        // light would cost more attention than the feature is worth.
+        val ballBtn = button("", filled = false) {}
+        fun paintBall() {
+            ballBtn.text = lctx.getString(
+                R.string.settings_vscreen_ball,
+                VoiceConfig.virtualBallSizeDp(context),
+            )
+        }
+        paintBall()
+        ballBtn.setOnClickListener {
+            val sizes = intArrayOf(36, 48, 56, 72)
+            val now = VoiceConfig.virtualBallSizeDp(context)
+            val next = sizes[(sizes.indexOf(now).takeIf { it >= 0 }?.plus(1) ?: 0) % sizes.size]
+            VoiceConfig.setVirtualBallSizeDp(context, next)
+            paintBall()
+        }
+        panel.addView(ballBtn, rowParams(dp(10)))
+
+        // ---- the app lists -------------------------------------------------
+        //
+        // Two rows rather than a picker over installed apps: the default answer
+        // is "the shipped categories", and the only thing a user ever needs to
+        // add is the exception. A package name is what they will find in the app
+        // info page, and the field takes the prefix form (`com.icbc`) so one line
+        // covers a bank's whole family.
+        field(
+            panel,
+            "surface_blocked",
+            lctx.getString(R.string.settings_surface_blocked),
+            hint = lctx.getString(R.string.settings_surface_list_hint),
+        )
+        field(
+            panel,
+            "surface_allowed",
+            lctx.getString(R.string.settings_surface_allowed),
+            hint = lctx.getString(R.string.settings_surface_list_hint),
+        )
+        note(panel, lctx.getString(R.string.settings_surface_note))
+        val clearRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+        clearRow.addView(button(lctx.getString(R.string.settings_surface_clear), filled = false) {
+            VoiceConfig.setSurfaceRules(context, "", "")
+            // Written eagerly, so `saved` has to be told: rebuild() carries it
+            // forward, and a stale map would put the cleared lists straight back.
+            saved = saved + ("surface_blocked" to "") + ("surface_allowed" to "")
+            rebuild()
+        })
+        panel.addView(clearRow, rowParams(dp(10)))
+
         // The card paints instantly and fills this in behind itself; the first
         // paint therefore says 还没查, which is the truth at that moment.
         status.refresh(context) {
             android.os.Handler(android.os.Looper.getMainLooper()).post { paint() }
         }
+    }
+
+    /**
+     * The probe's verdict, in the user's language, with the helper's own last few
+     * lines under it.
+     *
+     * The tail is not decoration: this runs on a device with no debugger, and the
+     * lines are where "the class loader could not find the helper" and "the
+     * platform refused the display" stop looking identical. The whole log is in
+     * logcat under `Body`, the verdict is here.
+     */
+    private fun describeProbe(
+        outcome: net.kuafuai.andee.screen.DisplayProbeClient.Outcome,
+    ): String {
+        val id = outcome.displayId ?: -1
+        val delta = outcome.delta ?: -1.0
+        val verdict = when {
+            outcome.failure != null ->
+                lctx.getString(R.string.settings_vscreen_probe_failed, outcome.failure)
+
+            outcome.independent ->
+                lctx.getString(R.string.settings_vscreen_probe_ok, id, delta)
+
+            else -> lctx.getString(R.string.settings_vscreen_probe_mirror, id, delta)
+        }
+        val tail = outcome.log.takeLast(6).joinToString("\n")
+        return if (tail.isEmpty()) verdict else "$verdict\n\n$tail"
     }
 
     /**

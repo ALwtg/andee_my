@@ -82,6 +82,19 @@ class BodyWsServer(
 
     /** `debug.sweep {"skip":true}` — the review with the silence gate bypassed. */
     private val onSweepForced: () -> Unit = {},
+
+    /**
+     * `debug.shizuku` — the shell channel's own answer: uid, whether an echo comes
+     * back, whether the APK is readable, and whether `app_process` / `dalvikvm`
+     * exist. Blocking (a binder round trip and a process spawn), so it runs on the
+     * dispatch pool like every other command.
+     *
+     * It exists because the background screen's failure mode is on this side of
+     * the wire: the helper runs perfectly from `adb shell` and produced *nothing*
+     * when started through Shizuku. A door a laptop can knock on turns that from
+     * "press the button and send me the text" into something reproducible.
+     */
+    private val onShizukuProbe: (JSONObject?) -> JSONObject = { JSONObject().put("error", "not wired") },
 ) : WebSocketServer(InetSocketAddress(bindHost, port)) {
 
     /** Driver connections only — the ones broadcasts go to. Extensions never join. */
@@ -171,6 +184,17 @@ class BodyWsServer(
                         onSweep()
                         JSONObject().put("started", true).put("forced", false)
                     }
+                } else if (method == "debug.shizuku") {
+                    // The shell channel, end to end, without a finger: this is the
+                    // one part of the background screen that cannot be reproduced
+                    // from a laptop (`app_process` can — the transport cannot),
+                    // so it gets a door that a laptop can knock on. Same loopback
+                    // rule as [onSay]: the command is fixed, but the answer names
+                    // paths and uids.
+                    if (conn.remoteSocketAddress?.address?.isLoopbackAddress != true) {
+                        throw IllegalStateException("debug.shizuku is loopback only — use adb forward")
+                    }
+                    onShizukuProbe(params)
                 } else {
                     onCommand(method, params)
                 }

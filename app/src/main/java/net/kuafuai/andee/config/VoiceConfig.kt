@@ -906,6 +906,56 @@ object VoiceConfig {
         }
 
         /**
+         * The two app lists behind 「优先虚拟屏操作」, as the user typed them.
+         *
+         * One string each, comma-or-newline separated, because that is what a
+         * single text row can hold and what a person writes without being taught
+         * a format. Parsed by [net.kuafuai.andee.net.SurfacePolicy.parse], which
+         * is in `core/` because the rules themselves are — this object only
+         * stores them.
+         */
+        fun surfaceBlocked(context: Context): String = prefs(context).getString("surface_blocked", "").orEmpty()
+
+        fun surfaceAllowed(context: Context): String = prefs(context).getString("surface_allowed", "").orEmpty()
+
+        fun setSurfaceRules(context: Context, blocked: String, allowed: String) {
+            prefs(context).edit()
+                .putString("surface_blocked", blocked.trim())
+                .putString("surface_allowed", allowed.trim())
+                .apply()
+        }
+
+        /**
+         * The rules in force right now.
+         *
+         * **The shipped categories are all on, always, and only the whitelist can
+         * override them.** Deliberately not a per-category switch on the card: a
+         * user who does their banking through an app they trust whitelists that
+         * app, which is a narrower decision than turning off "finance" for
+         * everything. See [net.kuafuai.andee.net.SurfacePolicy].
+         */
+        fun surfacePolicy(context: Context): net.kuafuai.andee.net.SurfacePolicy.Rules =
+            net.kuafuai.andee.net.SurfacePolicy.Rules(
+                blocked = net.kuafuai.andee.net.SurfacePolicy.parse(surfaceBlocked(context)),
+                allowed = net.kuafuai.andee.net.SurfacePolicy.parse(surfaceAllowed(context)),
+            )
+
+        /**
+         * The background screen's own ball, in dp. Three sizes, all of them
+         * bigger than a finger's width is wide and small enough not to own a
+         * corner of the screen.
+         */
+        fun virtualBallSizeDp(context: Context): Int =
+            prefs(context).getInt("vball_size", 56).coerceIn(36, 96)
+
+        fun setVirtualBallSizeDp(context: Context, dp: Int) {
+            prefs(context).edit().putInt("vball_size", dp.coerceIn(36, 96)).apply()
+        }
+
+        private fun prefs(context: Context) =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        /**
          * The scene the assistant is in, by [net.kuafuai.andee.config.Scene.name], or null.
          *
          * Persisted for the same reason as [ballLook]: a service restart is not
@@ -1003,5 +1053,7 @@ object VoiceConfig {
             "max_steps",
             // 优先虚拟屏操作：手先试副屏，再抢你正在看的这块屏。
             "virtual_screen",
+            // 副屏里允许/禁止哪些 App —— 用户自己写的两张单子。
+            "surface_blocked", "surface_allowed",
         )
 }

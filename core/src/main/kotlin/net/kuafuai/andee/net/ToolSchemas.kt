@@ -1849,6 +1849,152 @@ object ToolSchemas {
             required = listOf("name"),
             props = mapOf("name" to prop("string", "The scene's name, from list_scenes")),
         ),
+
+        // ---- the background screen ----------------------------------------
+        //
+        // A separate family rather than a flag on the screen.* tools, and the
+        // descriptions carry that: every other screen tool drives the display the
+        // person is looking at, and these drive one they are not. Telling the
+        // model that difference in one place — here, where it reads it — is what
+        // keeps a tap from being aimed at the wrong screen out of habit.
+        tool(
+            name = "open_background_screen",
+            method = "screen.background",
+            description = """
+        Open an app on a SECOND screen the user is not looking at, so they can keep using the
+        phone while you work. Use it when a task will take a while (reading, filling, scrolling)
+        and interrupting them is the expensive part — not for a one-tap errand.
+
+        Only one background screen can be up at a time, and it needs the user's Shizuku grant.
+        If Shizuku is not running you get a refusal that says which of the two states it is in;
+        then either do it on the screen in front of them or tell them what to turn on.
+
+        Some apps are refused here on purpose: finance, payment, games and flash sales, plus
+        anything on the user's own blacklist. The refusal names the rule. Do NOT look for a way
+        around it — a flagged account is the user's, and the app list is theirs to change in
+        ⚙ → 屏幕与后台.
+
+        The user always sees a small ball with the app's icon while this is running, and can tap
+        it to watch or take over. Do not pretend the work is invisible.
+    """.trimIndent(),
+            required = listOf("pkg"),
+            props = mapOf(
+                "pkg" to prop("string", "Package name to drive there, e.g. \"com.tencent.mm\"."),
+                "label" to prop("string", "What the user calls it, for the ball and the status row."),
+            ),
+        ),
+        tool(
+            name = "close_background_screen",
+            method = "screen.background_close",
+            description = """
+        Close the second screen and stop everything running on it. Use it when the task there is
+        finished, and always when the user asks you to stop or the errand has failed. Nothing is
+        left behind: the app stays installed, it just stops rendering into a screen nobody sees.
+    """.trimIndent(),
+            required = emptyList(),
+            props = emptyMap(),
+        ),
+        tool(
+            name = "background_screenshot",
+            method = "screen.background_shot",
+            description = """
+        Look at the SECOND screen (the one opened with open_background_screen). Returns a PNG of
+        that display only — never of the screen the user is using.
+
+        It arrives WITH the same 8x12 aim grid the foreground uses — letters A-H along the top
+        edge, numbers 1-12 down the left, nothing inside a cell — because on this display the
+        picture is the observation: there is no element list, so nothing else would stop you
+        measuring pixels off a downscaled image. Read the cell, tap the cell.
+
+        `elements` rides along when the app hands a tree over (some platforms do publish windows
+        on a second display and then background_ui_tree has something to say). When it is absent,
+        that is normal, not broken — aim from the grid.
+    """.trimIndent(),
+            required = emptyList(),
+            props = emptyMap(),
+        ),
+        tool(
+            name = "background_tap",
+            method = "screen.background_tap",
+            description = """
+        Tap the second screen. Two ways to say where, and **prefer the cell**:
+
+        1. `cell` — the grid cell the target sits in. Every background_screenshot is drawn with
+           the same 8x12 aim grid the foreground uses: letters A-H along the TOP edge, numbers
+           1-12 down the LEFT edge, nothing printed inside a cell. So "D7" is a place, and
+           `part` narrows it inside the cell (top-left … bottom-right, in fifths vertically).
+        2. `x` / `y` — 0-1000 relative to that display, x=0 left, y=0 top. The fallback for
+           something the grid cannot hold (a slider, a map, an exact spot you measured).
+
+        Never pixels, and never the size of the image you were handed: it is downscaled, the
+        grid is not. Values outside 0-1000 are refused rather than clamped.
+
+        There is no element list on this display (this platform does not hand accessibility the
+        windows of a second one), so the screenshot IS the observation — take a fresh one, then
+        aim. A tap 4 times at the same place is the device's stuck-loop guard, not a hint.
+    """.trimIndent(),
+            required = emptyList(),
+            props = mapOf(
+                "cell" to prop("string", "Grid cell of the current background screenshot, e.g. \"D7\". Replaces x/y."),
+                "part" to propEnum("Which part of that cell — the same words the foreground tap uses. Omit for the middle.", AimParts.PARTS),
+                "x" to prop("integer", "0 (left) to 1000 (right) of the second screen. Use instead of cell."),
+                "y" to prop("integer", "0 (top) to 1000 (bottom) of the second screen. Use instead of cell."),
+            ),
+        ),
+        tool(
+            name = "background_type",
+            method = "screen.background_type",
+            description = """
+        Type into whatever already has focus on the second screen. Tap the field with
+        background_tap first — this does not move focus, and typing into nothing looks exactly like
+        typing successfully.
+
+        No Enter is sent; use a tap on the app's own send button. Text that the shell cannot pass
+        through comes back as typed=false rather than as a silent partial entry.
+    """.trimIndent(),
+            required = listOf("text"),
+            props = mapOf("text" to prop("string", "The text to enter, verbatim.")),
+        ),
+        tool(
+            name = "background_ui_tree",
+            method = "screen.background_tree",
+            description = """
+        Read the SECOND screen's elements — the same indented outline get_screen_element
+        gives you, but for the display nobody is looking at:
+
+            *|TextView|Wi-Fi|[500,120]
+              *|LinearLayout||[500,300]
+            *|TextView|蓝牙|[500,420]
+
+        `*` marks clickable, then class, then the label, then the centre in 0-1000 of
+        THAT display — which is exactly what background_tap takes.
+
+        There are NO e-numbers here, on purpose: `e17` means an element on the screen
+        in front of the user, and reusing one would tap a different screen. Aim with the
+        bracketed coordinate.
+
+        Needs the accessibility service (it reads the app's own tree). **Expect it to be empty on
+        many phones**: some platforms only publish the primary display's windows to accessibility,
+        and then there is no list to be had for a second screen. The result says which case it is —
+        when it tells you the platform hides it, stop asking and use background_screenshot's grid
+        instead of retrying.
+    """.trimIndent(),
+            required = emptyList(),
+            props = emptyMap(),
+        ),
+        tool(
+            name = "background_open_app",
+            method = "screen.background_open",
+            description = """
+        Put ANOTHER app on the second screen that is already running — "open WeChat there,
+        then Settings". This is not how you start the second screen: use
+        open_background_screen for that, and close_background_screen when the errand is
+        done. Same app rules apply (finance, payment, games, flash sales and the user's
+        blacklist are refused).
+    """.trimIndent(),
+            required = listOf("pkg"),
+            props = mapOf("pkg" to prop("string", "Package name to show there, e.g. \"com.tencent.mm\".")),
+        ),
     )
 
     /** Server-side lookup: given a hub-facing tool name, return the method

@@ -2480,6 +2480,198 @@ class ScreenController(
      * Android view system, not of this service — so the answer there is never
      * "try harder", it's `take_screenshot` and tap by coordinate.
      */
+    /**
+     * Draw this display's aim grid onto a frame captured somewhere else — the
+     * background screen's `Surface`.
+     *
+     * **The drawing happens here, in the app, and not in the helper.** Measured
+     * on the device: `Canvas.drawText` inside `app_process` killed the helper
+     * with SIGABRT (no font manager in a process with no application), which took
+     * the display down with it — a crash a long way from its cause. The app is a
+     * real Android app with the fonts already loaded, and it already knows how to
+     * draw this grid ([withAimGrid]).
+     *
+     * Returns null when the frame will not decode; the caller then ships the raw
+     * picture rather than nothing.
+     */
+    fun gridOverlay(png: ByteArray): ByteArray? {
+        val src = runCatching { BitmapFactory.decodeByteArray(png, 0, png.size) }.getOrNull()
+            ?: return null
+        return try {
+            val gridded = runCatching { withAimGrid(src, zoom = false) }.getOrNull() ?: return null
+            val out = java.io.ByteArrayOutputStream()
+            gridded.compress(Bitmap.CompressFormat.PNG, 100, out)
+            if (gridded !== src) gridded.recycle()
+            out.toByteArray()
+        } finally {
+            src.recycle()
+        }
+    }
+
+    /**
+     * Every window this accessibility service can see, with the display it is on.
+     *
+     * Debug-only (no `ToolSchemas` entry, reachable from the debug port), and it
+     * exists because of one question that could not be answered any other way:
+     * the platform reports two windows on the virtual display, and
+     * `getWindows()` came back without them. Is the service not being told about
+     * that display, or is the id somewhere else? This prints the answer — the
+     * list, with each window's own display id — instead of another guess.
+     */
+    fun windowsDigest(): JSONObject {
+        val arr = JSONArray()
+        val windows = runCatching { service.windows }.getOrNull().orEmpty()
+        for (w in windows) {
+            val root = runCatching { rootOf(w) }.getOrNull()
+            val pkg = runCatching { root?.packageName?.toString().orEmpty() }.getOrDefault("")
+            arr.put(
+                JSONObject()
+                    .put("display_id", runCatching { w.displayId }.getOrDefault(-1))
+                    .put("type", windowTypeName(w.type))
+                    .put("title", runCatching { w.title?.toString().orEmpty() }.getOrDefault(""))
+                    .put("active", runCatching { w.isActive }.getOrDefault(false))
+                    .put("focused", runCatching { w.isFocused }.getOrDefault(false))
+                    .put("pkg", pkg)
+                    .put("has_root", root != null),
+            )
+            runCatching { root?.recycle() }
+        }
+        return JSONObject()
+            .put("count", windows.size)
+            .put("service_pkg", service.packageName)
+            .put("windows", arr)
+    }
+
+    /**
+     * The element outline of the **background display** — the tree the model
+     * needs and did not have.
+     *
+     * ## Why this cannot be the ordinary dump
+     *
+     * `dumpUiTree` starts at `rootInActiveWindow`, which is the window with input
+     * focus, which is on the display the person is looking at. A hidden display
+     * never has that focus, so the ordinary tool can only ever describe the wrong
+     * screen — and a model told to drive an app it cannot read is left with
+     * pixels alone. So this walks `service.windows`, filtered to one display: our
+     * accessibility service already asks for `flagRetrieveInteractiveWindows`,
+     * and a secondary display's windows are in that list.
+     *
+     * ## What it deliberately does NOT emit: e-numbers
+     *
+     * [eidIndex] is one map, keyed by integer, and `tapByEid` resolves it against
+     * **this** display's geometry. Handing out `e7` for a node on display N would
+     * produce a tap on display 0 — the exact class of bug the whole
+     * foreground/background split exists to prevent. Instead the centres printed
+     * here are 0–1000 of *that* display and go straight into `background_tap`,
+     * which is the one tool that speaks it.
+     *
+     * @param width / @param height the display's own pixels, for the 0–1000
+     *   conversion. Passed in rather than measured: a virtual display's size is
+     *   `VirtualScreens`'s fact, not something `WindowManager` will answer.
+     */
+    fun dumpBackgroundTree(displayId: Int, width: Int, height: Int): JSONObject {
+        val out = JSONObject().put("display_id", displayId)
+        val windows = runCatching { service.windows }.getOrNull().orEmpty()
+            .filter { w -> runCatching { w.displayId == displayId }.getOrDefault(false) }
+        if (windows.isEmpty()) {
+            // Two very different reasons, and the caller cannot tell them apart
+            // from an empty list — so say which one this is.
+            //
+            // **Measured on vivo / Android 16 (2026-10-26):** the platform hands
+            // this service the windows of the *default* display only.
+            // `screen.windows` listed four of them, all `display_id=0`, while
+            // `dumpsys window` showed two windows on the virtual display at the
+            // same moment. Nothing in the app can change that — it is what
+            // `AccessibilityManagerService` chooses to publish — so the honest
+            // answer is "no tree here, use the picture", not "wait a second".
+            val anyElsewhere = runCatching { service.windows }.getOrNull().orEmpty()
+                .any { w -> runCatching { w.displayId }.getOrDefault(0) != 0 }
+            return out.put("pkg", "").put("elements", "").put("nodes_useful", 0)
+                .put("platform_hides_display", !anyElsewhere)
+                .put(
+                    "hint",
+                    if (anyElsewhere) {
+                        "That display has windows but none of them handed over a readable tree."
+                    } else {
+                        "This platform does not give accessibility the windows of a second " +
+                            "display, so there is no element list for it. Take " +
+                            "background_screenshot and aim with background_tap at what you see " +
+                            "— the picture is the observation here, and it is not a sign " +
+                            "anything is broken."
+                    },
+                )
+        }
+
+        val budget = WalkBudget(TREE_BUDGET_MS)
+        var best: JSONObject? = null
+        var bestUseful = -1
+        var bestTotal = 0
+        var bestPkg = ""
+        for (w in windows) {
+            if (budget.spent()) break
+            val root = runCatching { rootOf(w) }.getOrNull() ?: continue
+            try {
+                val pkg = runCatching { root.packageName?.toString().orEmpty() }.getOrDefault("")
+                val stats = Stats(budget)
+                val body = runCatching { buildNode(root, false, stats) }.getOrNull() ?: continue
+                // Most content wins, and a window with nothing usable never beats
+                // one with something — the same rule `tryOtherWindows` learned from
+                // WeChat hosting its real content in a system-type window.
+                if (stats.useful > bestUseful) {
+                    best = withStats(body, pkg, stats)
+                    bestUseful = stats.useful
+                    bestTotal = stats.total
+                    bestPkg = pkg
+                }
+            } finally {
+                runCatching { root.recycle() }
+            }
+        }
+
+        val tree = best ?: return out.put("pkg", "").put("elements", "").put("nodes_useful", 0)
+            .put("hint", "That display has windows but none of them handed over a readable tree.")
+
+        val nodes = ArrayList<Pair<Int, JSONObject>>()
+        collectNodes(tree, nodes, 0)
+        val sb = StringBuilder()
+        var lines = 0
+        var dropped = 0
+        for ((depth, n) in nodes) {
+            val parts = n.optString("bounds", "").split(",")
+            if (parts.size != 4) continue
+            val l = parts[0].toIntOrNull() ?: continue
+            val t = parts[1].toIntOrNull() ?: continue
+            val r = parts[2].toIntOrNull() ?: continue
+            val b = parts[3].toIntOrNull() ?: continue
+            if (r <= l || b <= t) continue
+            if (lines >= MAX_ELEMENT_LINES) {
+                dropped++
+                continue
+            }
+            val cx = (((l + r) / 2).toLong() * 1000 / width.coerceAtLeast(1)).toInt()
+            val cy = (((t + b) / 2).toLong() * 1000 / height.coerceAtLeast(1)).toInt()
+            repeat(depth.coerceAtMost(12)) { sb.append("  ") }
+            sb.append(if (n.optBoolean("clickable")) "*" else " ")
+            sb.append('|').append(n.optString("class").takeIf { it.isNotEmpty() } ?: "View")
+            sb.append('|').append(labelOf(n))
+            sb.append("|[").append(cx).append(',').append(cy).append("]\n")
+            lines++
+        }
+
+        return out
+            .put("pkg", bestPkg)
+            .put("nodes_total", bestTotal)
+            .put("nodes_useful", bestUseful)
+            .put("elements", sb.toString().trimEnd())
+            .put("elements_dropped", dropped)
+            .put(
+                "hint",
+                "These coordinates are 0-1000 of the BACKGROUND display and go straight into " +
+                    "background_tap. There are no e-numbers on this screen — do not reuse an " +
+                    "e-number from the foreground tools here.",
+            )
+    }
+
     fun dumpUiTree(
         verbose: Boolean = false,
         withShot: Boolean = ToolSchemas.UI_TREE_WITH_SHOT_DEFAULT,
@@ -3620,11 +3812,17 @@ class ScreenController(
          */
         private const val SHOT_MAX_SIDE = ScreenCapture.SHOT_MAX_SIDE
 
-        /** Aim-grid columns. Letters run A.. — keep it ≤ 26. */
-        private const val GRID_COLS = 8
+        /**
+         * Aim-grid columns. Letters run A.. — keep it ≤ 26.
+         *
+         * `internal` because the background display prints the same labels: one
+         * grid, one set of numbers, or "D7" means two different places depending
+         * on which screen the model was looking at.
+         */
+        internal const val GRID_COLS = 8
 
         /** Aim-grid rows; rows are numbered from 1, so the last is [GRID_ROWS]. */
-        private const val GRID_ROWS = 12
+        internal const val GRID_ROWS = 12
 
         /** How long a zoom image stays usable as an aiming reference. */
         private const val ZOOM_STALE_MS = 180_000L
